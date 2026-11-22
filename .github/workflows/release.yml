@@ -286,8 +286,11 @@ jobs:
       contents: write
 
     steps:
+      # buildx also uploads an internal dockerbuild artifact; only take the
+      # packages produced by the release jobs.
       - uses: actions/download-artifact@v4
         with:
+          pattern: "*-release"
           path: release
           merge-multiple: true
 
