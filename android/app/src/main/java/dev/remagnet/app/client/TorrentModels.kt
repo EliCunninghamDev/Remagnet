@@ -1,6 +1,7 @@
 package dev.remagnet.app.client
 
 import dev.remagnet.app.data.RemagnetSettings
+import java.util.Locale
 
 /** Progress at or above this value is treated as complete everywhere. */
 const val COMPLETE_PROGRESS = 0.999_999
@@ -149,6 +150,6 @@ fun normalizeTagList(tags: Iterable<String>): List<String> {
 
 fun splitTagList(raw: String?): List<String> = normalizeTagList(listOf(raw.orEmpty()))
 
-private fun foldTag(value: String): String = value.trim().lowercase()
+private fun foldTag(value: String): String = value.trim().lowercase(Locale.ROOT)
 
 private fun sameName(left: String, right: String): Boolean = foldTag(left) == foldTag(right)

@@ -1,6 +1,7 @@
 package dev.remagnet.app.client
 
 import dev.remagnet.app.data.RemagnetSettings
+import java.util.Locale
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -85,6 +86,21 @@ class TorrentModelsTest {
         assertTrue(matchesFilter(torrent(tags = listOf("Remagnet", "Linux")), filter))
         assertTrue(matchesFilter(torrent(tags = listOf("isos")), filter))
         assertFalse(matchesFilter(torrent(tags = listOf("films")), filter))
+    }
+
+    @Test
+    fun matchesTagsWithoutDependingOnTheDeviceLocale() {
+        val previous = Locale.getDefault()
+        try {
+            // Turkish lowercases an ASCII I to a dotless ı. Matching category
+            // and tag names should not change with the phone's language.
+            Locale.setDefault(Locale.forLanguageTag("tr"))
+            val filter = TorrentFilter(active = true, category = "", tags = listOf("ISO"))
+
+            assertTrue(matchesFilter(torrent(tags = listOf("iso")), filter))
+        } finally {
+            Locale.setDefault(previous)
+        }
     }
 
     @Test
