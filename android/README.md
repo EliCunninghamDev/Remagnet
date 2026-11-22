@@ -359,9 +359,14 @@ and uploads it as an artifact on changes under `android/`, `packages/proxy-clien
 or the proxy contract. Debug builds are signed with the runner's generated debug
 key, so they install without repository secrets.
 
+`.github/workflows/release.yml` handles `v*` tags for the whole project. It
+runs the Android tests and lint, then builds a signed APK and AAB when all four
+signing secrets are configured. Without them it attaches a debug-signed APK so
+the release still has an installable Android build.
+
 Release signing needs a keystore kept outside the repository. `PLAN.md` covers
-key generation, the Gradle wiring and the environment variables the release
-workflow will use. `*.jks`, `*.keystore` and `keystore.properties` are ignored.
+key generation, the Gradle wiring and the environment variables the workflow
+uses. `*.jks`, `*.keystore` and `keystore.properties` are ignored.
 
 ## Emulator
 

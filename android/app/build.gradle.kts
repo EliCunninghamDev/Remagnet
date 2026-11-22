@@ -10,7 +10,7 @@ val releaseVersionCode = providers.gradleProperty("remagnet.versionCode").orNull
     ?.toIntOrNull()
 
 // The keystore never enters the checkout. Local release builds can export the
-// same variables that .github/workflows/android-release.yml sets.
+// same variables that .github/workflows/release.yml sets.
 val releaseStorePath = System.getenv("REMAGNET_KEYSTORE")
 val releaseStorePassword = System.getenv("REMAGNET_KEYSTORE_PASSWORD")
 val releaseKeyAlias = System.getenv("REMAGNET_KEY_ALIAS")

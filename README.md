@@ -303,11 +303,47 @@ cd android && ./gradlew :app:lintDebug
 cd android && ./gradlew :app:installDebug
 ```
 
-The torrent list, archive downloads and release signing are planned in
+The remaining Android polish and release work is tracked in
 [`android/PLAN.md`](android/PLAN.md). The toolchain, emulator setup, QR payload
 format and install steps are documented in
 [`android/README.md`](android/README.md). Cleartext HTTP is allowed only for the
 emulator host (`10.0.2.2`) and loopback; a deployed proxy must use HTTPS.
+
+## Releases
+
+Every component shares one version. Bump it everywhere, check it, then tag:
+
+```bash
+bun run version:set 0.1.1
+bun run version:check v0.1.1
+git add -A
+git commit -m "Release 0.1.1"
+git tag v0.1.1
+git push origin main --tags
+```
+
+`version:set` updates the root, extension, and workspace package manifests, the
+proxy `Cargo.toml` and `Cargo.lock`, the Android default version, and
+`bun.lock`. `version:check` rejects a tag that does not match those files.
+
+A `vMAJOR.MINOR.PATCH` tag runs the **Release** workflow, which tests the
+extension and proxy, builds every package, and publishes:
+
+- `remagnet-<version>-chrome.zip` and `remagnet-<version>-firefox.zip`, plus the
+  Firefox source ZIP for addons.mozilla.org review.
+- `remagnet-<version>.apk` and `remagnet-<version>.aab` when Android signing
+  secrets are configured. Without them, the release carries an installable
+  `remagnet-<version>-debug.apk`.
+- `SHA256SUMS` for every asset.
+- `ghcr.io/elicunninghamdev/remagnet-bridge` tagged `<version>`,
+  `<major>.<minor>`, `<major>`, and `latest`.
+
+Store submission is still manual: upload the extension ZIPs to the Chrome Web
+Store and addons.mozilla.org. Android release signing needs
+`ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`,
+and `ANDROID_KEY_PASSWORD`; [`android/PLAN.md`](android/PLAN.md) covers creating
+the key. To retry a release without moving its tag, run the Release workflow
+manually with the tag name.
 
 ## Sponsor this project
 
@@ -332,6 +368,9 @@ The source is licensed under the [Apache License 2.0](LICENSE).
 | `bun run build`           | Build the extension (Chrome)           |
 | `bun run build:firefox`   | Build the extension (Firefox)          |
 | `bun run zip`             | Package the extension for distribution |
+| `bun run zip:firefox`     | Package Firefox and its source ZIP     |
+| `bun run version:check`   | Verify every component version         |
+| `bun run version:set`     | Set the version across components      |
 | `bun run test`            | Run unit and component tests           |
 | `bun run test:unit`       | Run Bun unit tests                     |
 | `bun run test:ui`         | Run Vitest component tests             |

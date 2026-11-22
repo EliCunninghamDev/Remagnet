@@ -1,0 +1,311 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing vMAJOR.MINOR.PATCH tag to publish
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+
+jobs:
+  prepare:
+    name: Validate version
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      major_minor: ${{ steps.version.outputs.major_minor }}
+      major: ${{ steps.version.outputs.major }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.5"
+
+      - name: Check the tag and every component version
+        id: version
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Tag $RELEASE_TAG is not vMAJOR.MINOR.PATCH."
+            exit 1
+          fi
+          bun run scripts/version.ts check "$RELEASE_TAG"
+          version="${RELEASE_TAG#v}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "major_minor=${version%.*}" >> "$GITHUB_OUTPUT"
+          echo "major=${version%%.*}" >> "$GITHUB_OUTPUT"
+
+  extension:
+    name: Extension packages
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: prepare
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.5"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Prepare WXT types
+        run: bun run --cwd extension postinstall
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Lint and format
+        run: bun run check
+
+      - name: Unit and UI tests
+        run: bun run test
+
+      # WXT clears stale packages from .output on the next build, so copy
+      # each package out immediately.
+      - name: Package Chrome extension
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          bun run zip
+          mkdir -p release
+          cp extension/.output/*-chrome.zip "release/remagnet-$VERSION-chrome.zip"
+
+      - name: Package Firefox extension
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          bun run zip:firefox
+          mkdir -p release
+          cp extension/.output/*-firefox.zip "release/remagnet-$VERSION-firefox.zip"
+          cp extension/.output/*-sources.zip "release/remagnet-$VERSION-firefox-sources.zip"
+
+      - name: Upload extension packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: extension-release
+          path: release/*.zip
+          if-no-files-found: error
+
+  android:
+    name: Android package
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: prepare
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: android-actions/setup-android@v4
+
+      - name: Install Android SDK packages
+        run: sdkmanager "platform-tools" "platforms;android-37.2" "build-tools;36.0.0"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Detect release signing secrets
+        id: signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [[ -n "$KEYSTORE_BASE64" && -n "$KEYSTORE_PASSWORD" && -n "$KEY_ALIAS" && -n "$KEY_PASSWORD" ]]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Release signing secrets are not configured; attaching a debug-signed APK."
+          fi
+
+      - name: Decode release keystore
+        if: steps.signing.outputs.enabled == 'true'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/remagnet-release.jks"
+
+      - name: Unit tests and lint
+        working-directory: android
+        run: ./gradlew :app:testDebugUnitTest :app:lintDebug
+
+      - name: Build signed release
+        if: steps.signing.outputs.enabled == 'true'
+        working-directory: android
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          VERSION_CODE: ${{ github.run_number }}
+          REMAGNET_KEYSTORE: ${{ runner.temp }}/remagnet-release.jks
+          REMAGNET_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          REMAGNET_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          REMAGNET_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          ./gradlew :app:assembleRelease :app:bundleRelease \
+            -Premagnet.versionName="$VERSION" \
+            -Premagnet.versionCode="$VERSION_CODE"
+
+      - name: Build debug APK
+        if: steps.signing.outputs.enabled != 'true'
+        working-directory: android
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          VERSION_CODE: ${{ github.run_number }}
+        run: |
+          ./gradlew :app:assembleDebug \
+            -Premagnet.versionName="$VERSION" \
+            -Premagnet.versionCode="$VERSION_CODE"
+
+      - name: Stage Android packages
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          SIGNED: ${{ steps.signing.outputs.enabled }}
+        run: |
+          mkdir -p release
+          if [[ "$SIGNED" == "true" ]]; then
+            apk=android/app/build/outputs/apk/release/app-release.apk
+            bundle=android/app/build/outputs/bundle/release/app-release.aab
+            "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs "$apk"
+            cp "$apk" "release/remagnet-$VERSION.apk"
+            cp "$bundle" "release/remagnet-$VERSION.aab"
+          else
+            cp android/app/build/outputs/apk/debug/app-debug.apk \
+              "release/remagnet-$VERSION-debug.apk"
+          fi
+
+      - name: Upload Android packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-release
+          path: release/*
+          if-no-files-found: error
+
+  proxy:
+    name: Proxy image
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: prepare
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: proxy -> target
+
+      - name: Format check
+        run: cargo fmt --manifest-path proxy/Cargo.toml --check
+
+      - name: Clippy
+        run: cargo clippy --manifest-path proxy/Cargo.toml --all-targets -- -D warnings
+
+      - name: Tests
+        run: cargo test --manifest-path proxy/Cargo.toml
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # GHCR requires a lowercase repository name. The image keeps the
+      # historical `remagnet-bridge` name so deployments and Caddy upstreams
+      # continue to work; "Remagnet Proxy" is the user-facing label.
+      - name: Compute image name
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/remagnet-bridge" >> "$GITHUB_ENV"
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=${{ needs.prepare.outputs.version }}
+            type=raw,value=${{ needs.prepare.outputs.major_minor }}
+            type=raw,value=${{ needs.prepare.outputs.major }}
+            type=raw,value=latest
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./proxy
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  publish:
+    name: Publish GitHub release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [prepare, extension, android, proxy]
+
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+
+      - name: Write checksums
+        run: cd release && sha256sum * > SHA256SUMS && cat SHA256SUMS
+
+      - name: Create or update the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" release/* --clobber
+          else
+            gh release create "$RELEASE_TAG" \
+              --verify-tag \
+              --title "Remagnet $VERSION" \
+              --generate-notes \
+              release/*
+          fi

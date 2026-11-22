@@ -1,5 +1,6 @@
 {
   "name": "remagnet",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "packageManager": "bun@1.4.5",
@@ -15,6 +16,8 @@
     "build:firefox": "bun run --cwd extension build:firefox",
     "zip": "bun run --cwd extension zip",
     "zip:firefox": "bun run --cwd extension zip:firefox",
+    "version:check": "bun run scripts/version.ts check",
+    "version:set": "bun run scripts/version.ts set",
     "test": "bun run test:unit && bun run test:ui",
     "test:unit": "bun test",
     "test:ui": "bun run --cwd extension test:ui",

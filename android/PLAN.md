@@ -91,8 +91,8 @@ Rules:
 ## CI and signing
 
 Android was the first component to get CI because it cannot be checked by
-`bun run check` alone. The debug workflow is in place; release signing is the
-remaining piece.
+`bun run check` alone. The debug workflow and unified release workflow are in
+place; adding the signing secrets switches releases from debug to signed.
 
 ### What "unsigned APK" means
 
@@ -110,8 +110,8 @@ That gives two sensible CI outputs:
    repository.
 
 Building an unsigned release APK as the primary artifact is not useful for
-testers, so the debug workflow is in place and release signing is added when
-there is a version to publish.
+testers. Releases therefore attach a debug-signed APK until the signing secrets
+exist, then switch to a signed release APK and AAB automatically.
 
 ### Release key
 
@@ -185,17 +185,17 @@ the debug workflow is unaffected. CI decodes the base64 keystore to
 - Upload the debug APK with `actions/upload-artifact` and a short retention.
 - Run on `ubuntu-latest`.
 
-`.github/workflows/android-release.yml` (planned):
+`.github/workflows/release.yml` (implemented):
 
-- Trigger on tags matching `v*`.
-- Set `versionCode` from the run number and `versionName` from the tag, or keep
-  them in the Gradle file and update them with the tag.
-- Decode `ANDROID_KEYSTORE_BASE64` into `$RUNNER_TEMP/remagnet-release.jks`,
-  export the remaining signing variables, then run
-  `./gradlew :app:assembleRelease`.
-- Verify the result with
-  `apksigner verify --print-certs app/build/outputs/apk/release/app-release.apk`.
-- Attach the APK (and its SHA-256) to a GitHub Release.
+- Trigger on `vMAJOR.MINOR.PATCH` tags and validate the tag against every
+  component version.
+- Set `versionCode` from the run number and `versionName` from the tag.
+- When the signing secrets exist, decode `ANDROID_KEYSTORE_BASE64` into
+  `$RUNNER_TEMP/remagnet-release.jks`, build the signed release APK and AAB,
+  and verify the APK with `apksigner verify --print-certs`.
+- Without the secrets, build and attach a debug-signed APK instead.
+- Attach the Android packages, extension packages, and a combined
+  `SHA256SUMS` file to the GitHub Release.
 
 Repository secrets: `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`,
 `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`. The base64 form is
@@ -207,7 +207,7 @@ Repository secrets: `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`,
 - A pull request that changes Android code runs unit tests, lint and a debug
   build, and exposes the APK as a downloadable artifact.
 - A tag builds a release APK signed with the release key, verifies the
-  certificate and publishes it.
+  certificate and publishes it. Without the secrets it publishes a debug APK.
 - A fork without secrets still passes the debug workflow.
 - No keystore, password or APK is ever committed.
 
