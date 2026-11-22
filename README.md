@@ -8,6 +8,15 @@ A Bun-powered monorepo for re-adding magnet links to torrent clients from the
 browser. qBittorrent is the first backend; the extension uses a client-adapter
 layer so other clients can be added without touching the UI or message code.
 
+<p align="center">
+  <img src="docs/remagnet-demo.gif" alt="Right-clicking a magnet link in Chrome and sending it to qBittorrent through Remagnet" width="800">
+</p>
+
+<p align="center"><sub>
+  Right-click a magnet link, review it, and send it to the client.
+  Chrome is shown; in Firefox a <code>magnet:</code> click opens the same popover.
+</sub></p>
+
 ## Layout
 
 ```

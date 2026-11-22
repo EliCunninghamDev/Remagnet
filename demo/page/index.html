@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Nebula Linux — download</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #080b0f;
+        --panel: #0e1319;
+        --panel-2: #121922;
+        --line: #1c2630;
+        --text: #dfe7ef;
+        --muted: #7b8794;
+        --accent: #38e1a8;
+        --accent-2: #7af0c8;
+        --accent-ink: #04130d;
+        --warn: #f0b35b;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        height: 100%;
+      }
+      body {
+        margin: 0;
+        background:
+          radial-gradient(900px 480px at 78% -12%, rgba(56, 225, 168, 0.13), transparent 62%),
+          radial-gradient(700px 420px at 8% 108%, rgba(56, 225, 168, 0.06), transparent 65%),
+          var(--bg);
+        color: var(--text);
+        font-family: "Geist", "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        font-size: 14px;
+        line-height: 1.5;
+      }
+      a {
+        color: inherit;
+      }
+      .shell {
+        max-width: 1160px;
+        margin: 0 auto;
+        padding: 0 44px;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        height: 74px;
+        border-bottom: 1px solid var(--line);
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-weight: 650;
+        letter-spacing: 0.02em;
+      }
+      .mark {
+        width: 34px;
+        height: 34px;
+        border-radius: 9px;
+        display: grid;
+        place-items: center;
+        color: var(--accent-ink);
+        background: linear-gradient(150deg, var(--accent-2), var(--accent));
+        box-shadow: 0 8px 26px rgba(56, 225, 168, 0.28);
+        font-size: 17px;
+      }
+      .brand small {
+        display: block;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 400;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+      nav {
+        display: flex;
+        gap: 26px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      nav a {
+        text-decoration: none;
+      }
+      nav a.active,
+      nav a:hover {
+        color: var(--text);
+      }
+      main {
+        display: grid;
+        grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.75fr);
+        gap: 26px;
+        padding: 42px 0 0;
+      }
+      .eyebrow {
+        color: var(--accent);
+        font-family: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+        font-size: 11px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+      }
+      h1 {
+        margin: 10px 0 8px;
+        font-size: 44px;
+        line-height: 1.05;
+        letter-spacing: -0.035em;
+        font-weight: 680;
+      }
+      .lede {
+        margin: 0;
+        max-width: 560px;
+        color: var(--muted);
+        font-size: 15px;
+      }
+      .actions {
+        display: flex;
+        align-items: stretch;
+        gap: 12px;
+        margin-top: 30px;
+        max-width: 620px;
+      }
+      .download {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 16px 18px;
+        border-radius: 12px;
+        background: linear-gradient(150deg, var(--accent-2), var(--accent));
+        color: var(--accent-ink);
+        text-decoration: none;
+        box-shadow: 0 16px 40px rgba(56, 225, 168, 0.2);
+      }
+      .download:hover {
+        filter: brightness(1.05);
+      }
+      .download .glyph {
+        width: 38px;
+        height: 38px;
+        flex: none;
+        border-radius: 10px;
+        display: grid;
+        place-items: center;
+        background: rgba(4, 19, 13, 0.14);
+        font-size: 20px;
+      }
+      .download strong {
+        display: block;
+        font-size: 15px;
+        font-weight: 700;
+      }
+      .download small {
+        display: block;
+        margin-top: 1px;
+        font-size: 11.5px;
+        opacity: 0.72;
+      }
+      .secondary {
+        display: grid;
+        place-items: center;
+        padding: 0 20px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: var(--panel);
+        color: var(--text);
+        text-decoration: none;
+        font-size: 13px;
+        font-weight: 550;
+      }
+      .secondary:hover {
+        border-color: #2c3b49;
+        background: var(--panel-2);
+      }
+      .meta {
+        display: flex;
+        gap: 26px;
+        margin: 30px 0 0;
+        padding: 20px 0 0;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .meta div {
+        display: grid;
+        gap: 2px;
+      }
+      .meta b {
+        color: var(--text);
+        font-family: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+        font-size: 12px;
+        font-weight: 500;
+      }
+      .panel {
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: linear-gradient(180deg, var(--panel-2), var(--panel));
+        padding: 20px;
+      }
+      .panel h2 {
+        margin: 0 0 14px;
+        font-size: 13px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+        font-weight: 600;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 10px 0;
+        border-top: 1px solid var(--line);
+        font-size: 12.5px;
+      }
+      .row:first-of-type {
+        border-top: 0;
+      }
+      .row span:first-child {
+        color: var(--muted);
+      }
+      .mono {
+        font-family: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+        font-size: 11.5px;
+      }
+      .hash {
+        word-break: break-all;
+        color: #b9c5d2;
+      }
+      .tip {
+        margin-top: 18px;
+        display: flex;
+        gap: 10px;
+        padding: 12px 14px;
+        border: 1px solid rgba(56, 225, 168, 0.28);
+        border-radius: 10px;
+        background: rgba(56, 225, 168, 0.06);
+        color: #bfe9d9;
+        font-size: 12px;
+      }
+      .tip .dot {
+        flex: none;
+        width: 7px;
+        height: 7px;
+        margin-top: 6px;
+        border-radius: 50%;
+        background: var(--accent);
+      }
+      footer {
+        margin-top: 44px;
+        padding: 18px 0 26px;
+        border-top: 1px solid var(--line);
+        color: #5d6874;
+        font-size: 11.5px;
+        display: flex;
+        justify-content: space-between;
+      }
+      footer .mono {
+        color: #6d7a88;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <header>
+        <div class="brand">
+          <span class="mark">✦</span>
+          <span>Nebula Linux<small>downloads</small></span>
+        </div>
+        <nav>
+          <a class="active" href="#">Downloads</a>
+          <a href="#">Mirrors</a>
+          <a href="#">Checksums</a>
+          <a href="#">Docs</a>
+        </nav>
+      </header>
+
+      <main>
+        <section>
+          <p class="eyebrow">Nebula Linux 4.2 · Amd64</p>
+          <h1>netinst ISO</h1>
+          <p class="lede">
+            A small installation image for servers and workstations. Fetches packages
+            during setup, so you only download what you need.
+          </p>
+
+          <div class="actions">
+            <a
+              id="magnet"
+              class="download"
+              href="magnet:?xt=urn:btih:9f2c1e7a4b8d0f63c5a91e2d7b4f8a06c3e1d5b7&amp;dn=nebula-4.2-amd64-netinst.iso&amp;xl=1087795200&amp;tr=http%3A%2F%2Fbttracker.nebula.example%3A6969%2Fannounce"
+            >
+              <span class="glyph">⛓</span>
+              <span>
+                <strong>Magnet link</strong>
+                <small>1.1 GB · amd64 · 1 tracker</small>
+              </span>
+            </a>
+            <a
+              id="http"
+              class="secondary"
+              href="https://cdimage.example.org/nebula/4.2/amd64/iso-cd/nebula-4.2-amd64-netinst.iso"
+            >
+              HTTP mirror
+            </a>
+          </div>
+
+          <div class="meta">
+            <div><span>Released</span><b>2026-11-14</b></div>
+            <div><span>Size</span><b>1.1 GB</b></div>
+            <div><span>Architecture</span><b>amd64</b></div>
+            <div><span>Format</span><b>ISO 9660</b></div>
+          </div>
+
+          <div class="tip">
+            <span class="dot"></span>
+            <span>Right-click the magnet link to hand it to your torrent client.</span>
+          </div>
+        </section>
+
+        <aside>
+          <section class="panel">
+            <h2>Release details</h2>
+            <div class="row"><span>Version</span><span class="mono">4.2</span></div>
+            <div class="row"><span>Codename</span><span class="mono">lyra</span></div>
+            <div class="row"><span>Kernel</span><span class="mono">6.12 LTS</span></div>
+            <div class="row"><span>Signed by</span><span class="mono">Nebula Archive</span></div>
+            <div class="row">
+              <span>SHA-256</span>
+              <span class="mono hash">9f2c1e7a4b8d0f63c5a91e2d7b4f8a06c3e1d5b79a2f4c8e6d0b3a7f9c1e5d2b</span>
+            </div>
+          </section>
+
+          <section class="panel" style="margin-top: 18px">
+            <h2>Also available</h2>
+            <div class="row"><span>Live desktop</span><span class="mono">2.8 GB</span></div>
+            <div class="row"><span>Netboot</span><span class="mono">64 MB</span></div>
+            <div class="row"><span>Source</span><span class="mono">4.6 GB</span></div>
+          </section>
+        </aside>
+      </main>
+
+      <footer>
+        <span>Demo mirror page for Remagnet. No torrent is downloaded.</span>
+        <span class="mono">mirror · eu-west · healthy</span>
+      </footer>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,59 @@
+name: remagnet
+
+# The page is served over HTTP so the Chrome content script can report the
+# hovered link. The addon is the normal Chrome build plus a local mock client.
+extension: ./.build/addon
+serve: ./page
+url: /index.html
+
+viewport: 1280x800
+scale: 2
+seed: 7
+
+output:
+  dir: ./out
+  formats: [gif, mp4]
+  width: 800
+  fps: 12
+  video_fps: 30
+  gif_max_mb: 10
+
+camera:
+  auto_zoom: false
+  default_level: 1.0
+  transition_ms: 700
+  follow: false
+
+steps:
+  - wait: 800
+  - move: "#magnet"
+  - wait: 250
+  - rightclick: "#magnet"
+  - wait: 500
+  - screenshot: context-menu
+
+  # The native menu is not in the page DOM, so it is located with OCR. Zoom
+  # also makes the item legible in the final clip.
+  - zoom:
+      target: { text: "Add to Remagnet" }
+      level: 1.8
+      hold: 650
+  - click: { text: "Add to Remagnet" }
+  - zoom: { level: 1.0, hold: 0 }
+  - wait: 1300
+
+  - screenshot: review
+
+  # The popover is a native surface and its small monospace labels are not
+  # reliably readable by OCR, so the action button is matched as an image.
+  - zoom: { level: 1.9, hold: 500 }
+  - click: { image: ./assets/send-button.png, threshold: 0.82 }
+  - zoom: { level: 1.0, hold: 250 }
+  - wait: 1600
+  - screenshot: list
+
+  # The popover returns to the torrent list after a successful add.
+  - zoom: { level: 1.65, hold: 900 }
+  - wait: 2200
+  - zoom: { level: 1.0, hold: 500 }
+  - wait: 700

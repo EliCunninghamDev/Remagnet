@@ -9,7 +9,10 @@
       "!**/.dev",
       "!**/dist",
       "!**/target",
-      "!**/*.zip"
+      "!**/*.zip",
+      "!**/demo/.build",
+      "!**/demo/out",
+      "!**/demo/page"
     ]
   },
   "formatter": {

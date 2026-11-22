@@ -10,3 +10,7 @@ target/
 !.env.example
 .DS_Store
 *.log
+
+# Reproducible demo build and recordings
+demo/.build/
+demo/out/
