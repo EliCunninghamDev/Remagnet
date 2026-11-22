@@ -14,6 +14,7 @@
     "build": "bun run --cwd extension build",
     "build:firefox": "bun run --cwd extension build:firefox",
     "zip": "bun run --cwd extension zip",
+    "zip:firefox": "bun run --cwd extension zip:firefox",
     "test": "bun run test:unit && bun run test:ui",
     "test:unit": "bun test",
     "test:ui": "bun run --cwd extension test:ui",
