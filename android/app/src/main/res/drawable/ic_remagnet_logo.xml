@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="128dp"
+    android:height="128dp"
+    android:viewportWidth="128"
+    android:viewportHeight="128">
+    <path
+        android:fillColor="#131517"
+        android:pathData="M10,0h108a10,10 0 0 1 10,10v108a10,10 0 0 1 -10,10h-108a10,10 0 0 1 -10,-10v-108a10,10 0 0 1 10,-10z" />
+    <!-- Magnet tips, at the compact mark's 16px-grid geometry. -->
+    <path
+        android:fillColor="#ECEBE6"
+        android:pathData="M16,16h32v16h-32zM80,16h32v16h-32zM16,32h32v16h-32zM80,32h32v16h-32z" />
+    <!-- Body, filled by the red-to-cream-to-blue gradient from the icon. -->
+    <path android:pathData="M16,48h32v16h-32zM80,48h32v16h-32zM16,64h32v16h-32zM80,64h32v16h-32zM16,80h32v16h-32zM80,80h32v16h-32zM16,96h96v16h-96z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="16"
+                android:startY="0"
+                android:endX="112"
+                android:endY="0">
+                <item android:offset="0" android:color="#D9625C" />
+                <item android:offset="0.2" android:color="#D9625C" />
+                <item android:offset="0.5" android:color="#ECEBE6" />
+                <item android:offset="0.8" android:color="#70A3D2" />
+                <item android:offset="1" android:color="#70A3D2" />
+            </gradient>
+        </aapt:attr>
+    </path>
+</vector>

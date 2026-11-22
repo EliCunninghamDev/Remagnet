@@ -1,15 +1,14 @@
 # Remagnet for Android
 
-Early Kotlin/Jetpack Compose scaffold for the Android client. It is intentionally
-small: the app renders a placeholder home screen, the first shared domain logic
-(magnet parsing) is in place with unit tests, and a generated Retrofit client is
-ready for the proxy.
+Kotlin/Jetpack Compose client for Android. The app module contains the Compose
+home screen, a magnet parser with unit tests, and configuration for the
+generated Retrofit proxy client.
 
 ```
 android/
   app/                     Application module (Compose)
   app/src/main/java/dev/remagnet/app/
-    MainActivity.kt        Entry point and placeholder UI
+    MainActivity.kt        Entry point and Compose home screen
     magnet/MagnetLink.kt   Magnet URI parser (mirrors the extension)
     proxy/ProxyApi.kt      Configures the generated client with a base URL/token
   proxy-client/            Generated Kotlin/Retrofit proxy client (library module)
@@ -21,10 +20,10 @@ android/
 `proxy-client/src/main/java/dev/remagnet/proxy/` is generated from
 `proxy/openapi.yaml` with OpenAPI Generator (`kotlin`, `jvm-retrofit2`,
 `gson`). Do not edit those files by hand. The archive endpoint is generated as a
-`@Streaming Response<ResponseBody>`, so a future download can stream to disk
-instead of buffering the ZIP in memory.
+`@Streaming Response<ResponseBody>`, so downloads stream to disk instead of
+buffering the ZIP in memory.
 
-`ProxyApi` shows the intended construction:
+`ProxyApi` configures the generated client:
 
 ```kotlin
 // Inside a coroutine or another suspend function.
@@ -114,11 +113,3 @@ host loopback, either use `http://10.0.2.2:8080` or forward the port:
 adb reverse tcp:8080 tcp:8080
 # then use http://127.0.0.1:8080 inside the app
 ```
-
-## Next steps
-
-- Choose the client boundary: talk to qBittorrent directly, or require the
-  Remagnet proxy for authenticated remote access.
-- Add settings storage and a connectivity/health check.
-- Build the magnet review and add flow, reusing the extension's semantics.
-- Set up instrumentation tests once the first real screen exists.

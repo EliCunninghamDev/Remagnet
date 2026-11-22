@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="light dark" />
     <title>Remagnet bridge</title>
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <style>
       :root {
         color-scheme: light dark;
@@ -71,6 +72,12 @@
         letter-spacing: .12em;
         text-transform: uppercase;
       }
+      .wordmark-lockup {
+        display: inline-flex;
+        align-items: center;
+        gap: .5rem;
+      }
+      .wordmark-icon { width: 1em; height: 1em; flex: none; }
       h1 { margin: 0 0 .25rem; font-size: 1.25rem; letter-spacing: -.01em; }
       h2 { margin: 0 0 .9rem; font-size: 1.05rem; }
       header p, .hint, small { color: var(--muted); }
@@ -140,7 +147,13 @@
   <body>
     <main>
       <header>
-        <p class="wordmark">Remagnet <span class="wordmark-surface">Bridge</span></p>
+        <p class="wordmark">
+          <span class="wordmark-lockup">
+            <img class="wordmark-icon" src="/icon.svg" alt="" />
+            <span>Remagnet</span>
+          </span>
+          <span class="wordmark-surface">Bridge</span>
+        </p>
         <h1>qBittorrent archive bridge</h1>
         <p>
           Streams completed torrents from qBittorrent to the Remagnet extension as ZIP files.

@@ -21,7 +21,7 @@ export default function App() {
   return (
     <div class="gallery-shell">
       <aside class="gallery-nav">
-        <Wordmark as="p" surface="Components" />
+        <Wordmark as="p" />
         <nav aria-label="Gallery sections">
           <span class="nav-group">Tokens</span>
           {NAV.slice(0, 3).map((item) => (

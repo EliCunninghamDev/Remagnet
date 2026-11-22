@@ -30,7 +30,7 @@ interface MockTorrent {
 
 const torrents = new Map<string, MockTorrent>();
 
-/** Seed the list with one completed torrent so the popup is not empty. */
+/** Seed the list with a completed ISO and a stalled one. */
 torrents.set("c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00", {
   hash: "c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00",
   name: "nebula-4.1-amd64-netinst.iso",
@@ -46,6 +46,23 @@ torrents.set("c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00", {
   num_seeds: 0,
   num_leechs: 3,
   added_on: Math.floor(Date.now() / 1000) - 86_400,
+});
+
+torrents.set("a1b2c3d4e5f60718293a4b5c6d7e8f9012345678", {
+  hash: "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+  name: "alpine-standard-3.22.0-x86_64.iso",
+  state: "stalledDL",
+  progress: 0.34,
+  size: 193_986_560,
+  dlspeed: 0,
+  upspeed: 0,
+  eta: 86_400,
+  ratio: 0,
+  category: "remagnet",
+  tags: "remagnet",
+  num_seeds: 6,
+  num_leechs: 2,
+  added_on: Math.floor(Date.now() / 1000) - 7_200,
 });
 
 function parseMagnet(uri: string): { hash: string; name: string; size: number } | null {
@@ -164,7 +181,7 @@ Bun.serve({
 /** Nudge the added torrent forward so the progress bars move in the clip. */
 setInterval(() => {
   for (const torrent of torrents.values()) {
-    if (torrent.progress >= 1) continue;
+    if (torrent.progress >= 1 || torrent.state === "stalledDL") continue;
     torrent.progress = Math.min(1, torrent.progress + 0.035);
     torrent.dlspeed = 18_400_000 + Math.round(Math.random() * 3_000_000);
     torrent.eta = Math.max(1, torrent.eta - 2);

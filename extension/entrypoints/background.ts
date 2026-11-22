@@ -18,7 +18,7 @@ import {
   type TorrentLookupResult,
   type TorrentTaxonomyResult,
 } from "../lib/messages";
-import { getSettings } from "../lib/settings";
+import { getSettings, restrictSettingsStorageAccess } from "../lib/settings";
 import {
   addTorrents,
   getTaxonomy,
@@ -37,6 +37,8 @@ import {
  * access and adapter selection.
  */
 export default defineBackground(() => {
+  restrictSettingsStorageAccess();
+
   browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (!isBackgroundRequest(message)) return false;
 

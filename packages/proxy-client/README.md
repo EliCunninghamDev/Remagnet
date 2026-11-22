@@ -5,8 +5,8 @@ Typed TypeScript client for the Remagnet proxy, generated from
 
 `src/schema.d.ts` is produced by `openapi-typescript`; `src/client.ts` is a small
 hand-written wrapper that configures `openapi-fetch` with the proxy URL and
-bearer token. The package also owns proxy archive URL construction so the
-extension and future web clients do not duplicate path or token logic.
+bearer token. The package also owns proxy archive URL construction so clients do
+not duplicate path or token logic.
 
 ## Usage
 

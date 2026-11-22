@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="remagnet_background">#141517</color>
+    <color name="remagnet_background">#131517</color>
     <color name="remagnet_surface">#181A1C</color>
     <color name="remagnet_accent">#70A3D2</color>
 </resources>

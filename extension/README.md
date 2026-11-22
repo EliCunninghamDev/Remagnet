@@ -6,8 +6,8 @@ it (see `lib/messages.ts` and `lib/torrent-service.ts`).
 
 ## Architecture
 
-qBittorrent is currently the only backend, but everything outside
-`lib/clients/` works with client-neutral types:
+qBittorrent is the only backend; everything outside `lib/clients/` works with
+client-neutral types:
 
 ```
 lib/clients/types.ts       Adapter contract and neutral request/response types
@@ -80,9 +80,13 @@ not cover or replace the page you were reading.
   progress, so the fill and the completed sweep only animate on real progress or
   state changes.
 - The interface is set in bundled Geist Mono on every surface. The shared
-  `Wordmark` component renders the Remagnet mark in bundled Departure Mono with
-  an optional surface label (Settings, Add torrent, Components, Bridge). Both
-  fonts are SIL OFL 1.1, and the files and licenses live in `public/fonts/`.
+  `Wordmark` component places the application icon beside the Remagnet mark in
+  bundled Departure Mono, with an optional surface label (Settings, Add torrent,
+  Components, Bridge). Both fonts are SIL OFL 1.1, and the files and licenses
+  live in `public/fonts/`.
+- The application mark lives in `public/icon/remagnet.svg` with a simplified
+  `remagnet-small.svg` for 16px and 32px and for the wordmark; the PNGs beside
+  them are generated from those two sources with `resvg`.
 - The list is filtered to the configured default category/tags. With both
   defaults blank, filtering is disabled because there is no way to tell which
   torrents belong to Remagnet.
@@ -113,7 +117,7 @@ survive restarts.
 
 1. Open the options page (see below) or right-click the toolbar button →
    **Settings**.
-2. Pick the client (currently qBittorrent), enter the Web UI URL, e.g.
+2. Pick the client (qBittorrent), enter the Web UI URL, e.g.
    `https://qbt.example.com`, and auth (API key recommended; qBittorrent 5.2+).
 3. Set the default category and tags used by the add flow. Both default to
    `remagnet`.
@@ -164,7 +168,7 @@ page access. If the item is ever shown on a non-magnet link (for example after
 the extension was reloaded without refreshing the page), clicking it explains
 why nothing was added.
 
-Change the handler later under Firefox Settings → Applications (`magnet`).
+Change the handler under Firefox Settings → Applications (`magnet`).
 When editing `protocol_handlers`, stop and restart `dev:firefox`; the handler is
 part of the manifest. If the handler is not offered after a dev restart, open
 `about:debugging` → **This Firefox** → **Reload** for Remagnet so the manifest

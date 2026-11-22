@@ -31,18 +31,17 @@ await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 
 // `chrome.storage.local.set` runs before the bundled worker code. Playwright
 // waits for the worker to start, so settings are in place before the first
-// popup opens.
+// popup opens. Credentials are deliberately absent: the mock accepts any
+// login, and real secrets are encrypted with a key that only exists once the
+// extension has run.
 const settings = {
   client: "qbittorrent",
   baseUrl,
-  authMode: "apiKey",
-  apiKey: "demo",
-  username: "admin",
-  password: "",
+  authMode: "password",
+  username: "demo",
   defaultCategory: "remagnet",
   defaultTags: "remagnet",
   archiveBaseUrl: "",
-  archiveToken: "",
 };
 const backgroundPath = resolve(target, "background.js");
 const background = await readFile(backgroundPath, "utf8");

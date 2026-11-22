@@ -31,6 +31,7 @@ type QueryMap = HashMap<String, String>;
 pub fn router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/", get(ui))
+        .route("/icon.svg", get(icon))
         .route("/assets/departure-mono.woff2", get(wordmark_font))
         .route("/healthz", get(healthz))
         .route("/api/health", get(api_health))
@@ -63,6 +64,17 @@ async fn wordmark_font() -> impl IntoResponse {
             (header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
         ],
         include_bytes!("departure-mono.woff2").as_slice(),
+    )
+}
+
+/// The application mark, served for the bridge page's favicon.
+async fn icon() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "image/svg+xml"),
+            (header::CACHE_CONTROL, "public, max-age=86400"),
+        ],
+        include_bytes!("icon.svg").as_slice(),
     )
 }
 
@@ -336,6 +348,26 @@ mod tests {
         assert_eq!(response.headers()[header::CONTENT_TYPE], "font/woff2");
         let body = response.into_body().collect().await.unwrap().to_bytes();
         assert!(body.len() > 10_000);
+    }
+
+    #[tokio::test]
+    async fn icon_is_public_svg() {
+        let app = app(true).await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/icon.svg")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()[header::CONTENT_TYPE], "image/svg+xml");
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        assert!(body.starts_with(b"<svg"));
     }
 
     #[tokio::test]

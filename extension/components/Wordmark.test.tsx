@@ -5,12 +5,17 @@ import Wordmark from "./Wordmark";
 describe("Wordmark", () => {
   test("renders the canonical mark at the default size", () => {
     const { container } = render(() => <Wordmark />);
-    const mark = screen.getByText("Remagnet");
+    const mark = container.querySelector(".wordmark");
+    const icon = container.querySelector(".wordmark-icon");
 
-    expect(mark.tagName).toBe("SPAN");
-    expect(mark.className).toContain("wordmark");
-    expect(mark.className).toContain("wordmark-md");
+    expect(mark?.tagName).toBe("SPAN");
+    expect(mark?.className).toContain("wordmark-md");
     expect(container.querySelector(".wordmark-surface")).toBeNull();
+    expect(screen.getByText("Remagnet")).toBeTruthy();
+    expect(icon?.tagName).toBe("IMG");
+    expect(icon?.getAttribute("src")).toBe("/icon/remagnet-small.svg");
+    expect(icon?.getAttribute("alt")).toBe("");
+    expect(mark?.firstElementChild?.firstElementChild).toBe(icon);
   });
 
   test("renders as the page heading with a surface label", () => {
@@ -23,9 +28,9 @@ describe("Wordmark", () => {
   });
 
   test("keeps an optional title for client and server context", () => {
-    render(() => <Wordmark title="qBittorrent · https://qbt.example.com" />);
+    const { container } = render(() => <Wordmark title="qBittorrent · https://qbt.example.com" />);
 
-    expect(screen.getByText("Remagnet").getAttribute("title")).toBe(
+    expect(container.querySelector(".wordmark")?.getAttribute("title")).toBe(
       "qBittorrent · https://qbt.example.com",
     );
   });

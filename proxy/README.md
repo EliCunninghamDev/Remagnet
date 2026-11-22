@@ -1,10 +1,10 @@
 # Remagnet proxy
 
-The Remagnet proxy is a small Rust/axum service that turns completed qBittorrent
-torrents into ZIP streams for the browser extension and, later, the Android
-client. It talks to qBittorrent over the Docker network and streams each file
-from the Web API, so it does not need the downloads volume mounted and does not
-store archives.
+The Remagnet proxy is a Rust/axum service that turns completed qBittorrent
+torrents into ZIP streams for the browser extension and the Android client. It
+talks to qBittorrent over the Docker network and streams each file from the Web
+API, so it does not need the downloads volume mounted and does not store
+archives.
 
 The directory was formerly `services/archive-bridge`. The crate, binary, Docker
 image, container and `BRIDGE_TOKEN` environment variable keep the historical
@@ -61,8 +61,8 @@ Environment variables:
 | `DATA_DIR`                        | `/data`               | `config.json` lives here.                                     |
 | `BIND_ADDR`                       | `0.0.0.0:8080`        | HTTP listen address.                                          |
 
-The first boot writes `config.json` (mode `0600`) from the environment. Later
-changes come from the config page and survive restarts. The proxy token (still
+The first boot writes `config.json` (mode `0600`) from the environment.
+Subsequent changes come from the config page and survive restarts. The proxy token (still
 `BRIDGE_TOKEN`) stays
 in the environment and is never written to `config.json`.
 

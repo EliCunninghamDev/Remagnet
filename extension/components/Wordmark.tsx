@@ -18,9 +18,9 @@ export interface WordmarkProps {
 /**
  * The Remagnet wordmark.
  *
- * Every surface renders the same mark with the same font, casing and spacing.
- * A surface label is optional; it is the only part that changes between the
- * popover, settings, gallery, bridge and Android app.
+ * Every surface renders the same mark with the same icon, font, casing and
+ * spacing. A surface label is optional; it is the only part that changes
+ * between the popover, settings, gallery, bridge and Android app.
  */
 export default function Wordmark(props: WordmarkProps) {
   return (
@@ -29,7 +29,10 @@ export default function Wordmark(props: WordmarkProps) {
       class={`wordmark wordmark-${props.size ?? "md"}${props.class ? ` ${props.class}` : ""}`}
       title={props.title}
     >
-      Remagnet
+      <span class="wordmark-lockup">
+        <img class="wordmark-icon" src="/icon/remagnet-small.svg" alt="" draggable={false} />
+        <span class="wordmark-text">Remagnet</span>
+      </span>
       <Show when={props.surface}>
         {(surface) => <span class="wordmark-surface">{surface()}</span>}
       </Show>

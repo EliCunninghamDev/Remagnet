@@ -1,17 +1,20 @@
 <p align="center">
-  <img src="docs/remagnet-banner.svg" alt="Remagnet — magnet links, straight to your torrent client" width="100%">
+  <img src="docs/remagnet-banner.svg" alt="Remagnet: convenient torrent forwarding and download proxy" width="100%">
 </p>
 
 # Remagnet
 
-A Bun-powered monorepo for re-adding magnet links to torrent clients. The
-browser extension is the primary client, a Rust proxy handles server-side
-archive streaming, and an Android app is in progress. qBittorrent is the first
-backend; the extension uses a client-adapter layer so other clients can be added
-without touching the UI or message code.
+A torrent forwarding and download proxy for Firefox, Chrome, and Android.
+
+Firefox handles magnet links through a `magnet:` protocol handler. Chrome adds a
+context menu item on magnet links. Android registers a system-wide link handler.
+
+Remagnet talks to your torrent client directly with an API key, or through a
+token-secured proxy that zips completed torrents. Android client onboarding uses
+a QR code.
 
 <p align="center">
-  <img src="docs/remagnet-demo.gif" alt="Right-clicking a magnet link in Chrome and sending it to qBittorrent through Remagnet" width="800">
+  <img src="docs/remagnet-demo.gif" alt="Right-clicking a magnet link on The ISO Bay in Chrome and sending it to qBittorrent through Remagnet" width="800">
 </p>
 
 <p align="center"><sub>
@@ -21,145 +24,136 @@ without touching the UI or message code.
 
 ## Layout
 
-The repository is split by deliverable. The extension talks to qBittorrent
-directly and can use the proxy for archive streaming; the Android client will
-follow the same boundary. The proxy is the only server-side component.
-
 ```
-extension/            WXT browser extension (SolidJS)
-proxy/                Rust/axum proxy for qBittorrent (ZIP streaming, optional)
-android/              Android client (Kotlin + Compose, early scaffold)
+extension/            Firefox and Chrome extension (WXT, SolidJS)
+proxy/                Rust/axum service, OpenAPI contract, ZIP streaming
+android/              Android client (Kotlin, Jetpack Compose)
 packages/
-  qbittorrent/        Typed qBittorrent Web API v2 client (TypeScript)
-  proxy-client/       Generated TypeScript client for the proxy
-demo/                 Reproducible README demo recording
-docs/                 Screenshots, video and other media
-scripts/              Repository tasks, including API client generation
-tokens.js             Design Tokens Community Group (DTCG) tokens
+  qbittorrent/        Typed qBittorrent Web API v2 client
+  proxy-client/       TypeScript client generated from the proxy contract
+demo/                 Scripted demo recording
+docs/                 Banner and demo media
+scripts/              Client and banner generation
+tokens.js             Design tokens (DTCG 2025.10)
 ```
 
-- **Runtime / package manager:** [Bun](https://bun.sh) workspaces
-- **Lint / format:** [Biome](https://biomejs.dev)
-- **Extension:** [WXT](https://wxt.dev) + SolidJS + TypeScript
-- **qBittorrent:** hand-rolled `fetch` client, no runtime dependencies
-- **Proxy:** Rust + axum (optional ZIP downloads for completed torrents)
-- **Android:** Kotlin + Jetpack Compose, Gradle version catalog
+## Getting started
 
-## Design tokens
+```bash
+bun install
+bun run dev:firefox   # Firefox is the primary target
+# bun run dev         # Chrome
+```
 
-[`tokens.js`](tokens.js) describes the visual system in the
+Firefox starts with the extension installed and keeps its settings in
+`extension/.dev/firefox-profile/`. On the options page, choose the client, enter
+the qBittorrent Web UI URL and authentication, set the default category and
+tags, then grant access to the qBittorrent origin. The popup shows only
+torrents matching those defaults, so a shared qBittorrent instance does not
+bury Remagnet's magnets under the rest of the library.
+
+## OpenAPI Spec
+
+[`proxy/openapi.yaml`](proxy/openapi.yaml) is the contract for every client that
+speaks to the proxy. It is OpenAPI 3.1 and covers both authentication styles,
+the config and health endpoints, the archive stream and each error status.
+
+The TypeScript and Kotlin clients are generated from it, not maintained by hand:
+
+- `packages/proxy-client`: types and an `openapi-fetch` wrapper for the
+  extension.
+- `android/proxy-client`: Retrofit sources with a streaming archive response.
+
+```bash
+bun run api:generate   # needs JDK 21; writes both clients
+```
+
+Commit the regenerated sources with any spec change so both builds stay
+reproducible without running the generator.
+
+## Design Tokens
+
+[`tokens.js`](tokens.js) holds the visual system in the
 [Design Tokens Community Group 2025.10 format](https://www.designtokens.org/tr/2025.10/format/):
-the light, dark and popup color schemes, type scale, spacing, layout dimensions
-and motion. It is a plain ES module, so scripts and design tooling can import it
-without a build step; `JSON.stringify(tokens)` produces a valid `.tokens.json`
-document.
+light, dark and popup color schemes, type scale, spacing, layout dimensions and
+motion. It is a plain ES module, so scripts import it directly, and
+`JSON.stringify(tokens)` produces a valid `.tokens.json` document.
 
-The extension's `assets/app.css` currently mirrors these values. Update both
-when the visual system changes; `bun run test` checks the token structure and
-type values. The Remagnet wordmark is a single shared component
-(`extension/components/Wordmark.tsx`) on every extension surface, and the proxy
-and Android scaffold reuse the same palette and mark.
+`extension/assets/app.css` mirrors the tokens for the extension pages;
+`bun run test` checks the token structure and value types. The wordmark
+(`extension/components/Wordmark.tsx`) is shared by the extension and the proxy
+config page. Android reuses the palette and the launcher mark.
 
-## Component gallery
+The README banner is generated by `bun run banner:generate` from the popup
+tokens, bundled Geist Mono and Departure Mono faces, the measured 440px
+popover, the application icon and the runtime bar geometry. Regenerate the SVG
+rather than editing it.
 
-While WXT is running, the extension builds a dev-only gallery at
-`/gallery.html`. It renders the real Solid components and `assets/app.css` in
-the browser, not a separate mock-up: token swatches, typography, controls, every
-torrent-row state, the full popover list (loaded, empty, loading, errors) and
-the add-flow review states. It is the visual oracle when changing the design,
-and it needs no configured torrent client.
+## Extension - WXT + SolidJS
+
+Firefox is the primary target; its manifest declares a `magnet:` protocol
+handler, so a magnet click opens the review popover and leaves the current page
+in place. Chrome has no extension protocol handlers, so it uses a right-click
+menu item that appears only on magnet links, plus the popover's **Add** button.
+
+The background worker is the only context that talks to a torrent client.
+Popup, add and options pages send typed messages to it (`lib/messages.ts`,
+`lib/torrent-service.ts`). Adapters under `lib/clients/` map the client onto
+neutral types, while the UI reads only the static catalog, so client SDKs stay
+out of page bundles. qBittorrent is the bundled adapter; another client needs a
+`ClientKind`, a catalog entry and an adapter registered in
+`lib/clients/index.ts`.
+
+The toolbar popover is the main UI. Each row is a name, a 3-block tile bar, live
+stats, and inline **Download** and remove actions. The percentage is a tile-font
+counter at the bar's right end, and the bar's fill color carries status: steel
+blue downloading, sage ready, ochre stalled or zipping, gray paused or errored.
+Removal asks whether to keep or delete the files and answers in the row itself.
+While open, the popover polls once a second during downloads and once every five
+seconds when everything is complete; the background worker polls once a minute
+when it is closed and raises a browser notification on completion.
+
+See [`extension/README.md`](extension/README.md) for the full development
+loop, including the Firefox protocol handler, Chrome menu behavior,
+`moz-extension://` URLs and headless runs.
+
+### Component gallery
+
+`/gallery.html` is a development page with fixed fixtures for token swatches,
+controls, every torrent-row state, the popover's loaded/empty/loading/error
+lists and the add-flow review screens. It is the visual reference when changing
+the design and needs no configured torrent client.
 
 ```bash
 bun run dev:firefox
 bun run urls:firefox   # prints the gallery URL with the other dev pages
 ```
 
-The gallery is excluded from packaged builds. Set `REMAGNET_GALLERY=1` before a
-build to include it for a design review against an installed extension. The
-component tests (`bun run test:ui`, Vitest + happy-dom) render the same
-components with the fixtures from `extension/gallery/fixtures.ts`, so the
-gallery and the assertions stay in sync.
+The gallery is excluded from packaged builds; set `REMAGNET_GALLERY=1` before a
+build to include it for review against an installed extension. Component tests
+(`bun run test:ui`, Vitest + happy-dom) render the same fixtures from
+`extension/gallery/fixtures.ts`.
 
-## Getting started
+## Proxy - Rust / Axum
 
-```bash
-bun install
-bun run dev:firefox   # Firefox is the primary development target
-# bun run dev         # Chrome
-```
-
-Firefox opens with the extension already installed. Use the options page to
-choose a client, point it at the Web UI, grant host access and set default
-category/tags, then open the popup to see your torrents. The popup only lists
-torrents that match those defaults (category or tags), so a shared qBittorrent
-instance does not bury Remagnet's magnets under the rest of the library.
-
-The popup can also remove a torrent from the client, either keeping or deleting
-its files, and the background worker polls once a minute to raise a browser
-notification when a Remagnet torrent finishes. Adding a magnet also happens in
-the popover; a `magnet:` click hands the link to the popover instead of covering
-the current page. See `extension/README.md` for the full dev loop, including
-how to print the `moz-extension://` URLs for the popup and options pages and how
-to run it headless.
-
-Open the extension's options page, enter the qBittorrent Web UI URL, and choose an
-authentication method:
-
-- **API key** (recommended, qBittorrent 5.2+): generate one under
-  Preferences → Web UI → API Key. Requests use `Authorization: Bearer <key>`,
-  with no login round-trip or cookies.
-- **Username & password**: uses the classic SID cookie flow and re-authenticates
-  automatically when the session expires.
-
-Grant access to the qBittorrent origin when the browser prompts.
-
-## Commands
-
-| Command                 | Description                            |
-| ----------------------- | -------------------------------------- |
-| `bun run dev`           | Start WXT in dev mode (Chrome)         |
-| `bun run dev:firefox`   | Start WXT in dev mode (Firefox)        |
-| `bun run urls:firefox`  | Print dev extension popup/options URLs |
-| `bun run build`         | Build the extension (Chrome)           |
-| `bun run build:firefox` | Build the extension (Firefox)          |
-| `bun run zip`           | Package the extension for distribution |
-| `bun run test`          | Run unit and component tests           |
-| `bun run test:unit`     | Run Bun unit tests                     |
-| `bun run test:ui`       | Run Vitest component tests             |
-| `bun run api:generate`  | Regenerate the proxy API clients       |
-| `bun run typecheck`     | Type-check all workspaces              |
-| `bun run check`         | Lint + format check with Biome         |
-| `bun run check:write`   | Apply Biome fixes and formatting       |
-| `bun run android:build` | Build the debug Android APK            |
-| `bun run android:test`  | Run Android JVM unit tests             |
-
-## Android client (early)
-
-`android/` is a Kotlin + Jetpack Compose scaffold for the Android client. It
-currently renders a placeholder screen and includes the first shared domain
-logic, a magnet parser with unit tests, and a generated Retrofit client for the
-proxy in the `:proxy-client` module. The client will reuse the same review and
-add semantics as the extension, with the proxy available for authenticated
-remote access.
-
-```bash
-bun run android:build                 # ./gradlew :app:assembleDebug
-bun run android:test                  # ./gradlew :app:testDebugUnitTest
-cd android && ./gradlew :app:installDebug
-```
-
-The development environment (JDK 21, Android SDK, KVM-accelerated emulator and
-the `remagnet-api36` AVD) is documented in `android/README.md`. Cleartext HTTP
-is allowed only for the emulator host (`10.0.2.2`) and loopback; a deployed
-proxy must be reached over HTTPS.
-
-## Archive proxy (optional)
-
-Completed torrents can be streamed to the browser as a ZIP. The extension asks
-the background worker to start the download, and the background worker requests
-`/archive/<info-hash>` from the Rust/axum proxy. The proxy reads files from
-qBittorrent's Web API, so it needs neither the downloads volume nor temporary
+`proxy/` reads files from qBittorrent's Web API and streams a completed torrent
+to the browser as a ZIP, so it needs neither the downloads volume nor temporary
 disk space.
+
+| Endpoint             | Auth   | Purpose                                    |
+| -------------------- | ------ | ------------------------------------------ |
+| `GET /`              | none   | Config page for the qBittorrent connection |
+| `GET /healthz`       | none   | Liveness probe                             |
+| `GET /api/health`    | bearer | Test the saved qBittorrent connection      |
+| `GET /api/config`    | bearer | Read non-secret settings                   |
+| `PUT /api/config`    | bearer | Update the qBittorrent URL and credentials |
+| `GET /archive/:hash` | bearer | Stream a completed torrent as a ZIP        |
+
+`Authorization: Bearer <BRIDGE_TOKEN>` is preferred; `?token=` is a fallback for
+browsers whose download API cannot attach headers. Only complete torrents are
+served. Entries are stored uncompressed (media files do not benefit from ZIP
+deflation), and a failed upstream stream aborts the response so the browser
+cannot save a truncated archive.
 
 ```bash
 cd proxy
@@ -167,45 +161,76 @@ cp .env.example .env        # set BRIDGE_TOKEN (openssl rand -hex 32) and QBIT_*
 cargo run                   # http://127.0.0.1:8080/
 ```
 
-Generate a token with `openssl rand -hex 32`, put the proxy behind an HTTPS
-reverse proxy (for example `https://remagnet.example.com`), then enter that URL
-and the same token under **Settings → Archive downloads**. Keep the token out of
-the repository; it belongs in the server-side `.env` and in extension storage.
+`BRIDGE_TOKEN` must be at least 16 characters. `QBIT_BASE_URL`, `QBIT_API_KEY`
+or `QBIT_USERNAME`/`QBIT_PASSWORD`, `DATA_DIR` and `BIND_ADDR` configure the
+service. The first boot writes `config.json` (mode `0600`) from the environment;
+subsequent changes come from the config page and survive restarts. Deploy behind
+an HTTPS reverse proxy, then enter that URL and the same token under **Settings
+→ Archive downloads** in the extension. A compose file is included for the
+shared `media` network.
 
-The proxy only streams torrents that are complete, accepts
-`Authorization: Bearer <token>` (used by Firefox downloads) and `?token=` as a
-fallback, and exposes a small config page at `/` for the qBittorrent URL and
-credentials. Its HTTP contract is described by `proxy/openapi.yaml`. See
-`proxy/README.md` for deployment details. The crate, binary,
-Docker image and `BRIDGE_TOKEN` variable keep their historical names so an
-existing deployment continues to run unchanged.
+The crate, binary, Docker image and container keep the historical
+`remagnet-bridge` name, as does the token variable, so existing deployments and
+reverse-proxy upstreams continue to work. See [`proxy/README.md`](proxy/README.md)
+for deployment, configuration and tests.
 
-The extension and Android app consume generated clients instead of hand-written
-requests: `packages/proxy-client` has TypeScript types and an `openapi-fetch`
-wrapper, and `android/proxy-client` contains the Retrofit/Kotlin sources. Both
-come from the same spec:
+## Android Client - Kotlin
+
+`android/` builds the Kotlin + Jetpack Compose client. The app module contains
+the Compose home screen, a magnet parser that mirrors the extension's semantics,
+and `ProxyApi`, which configures the generated Retrofit client with a proxy URL
+and token. `:proxy-client` holds the generated proxy sources; the archive
+endpoint is a streaming response, so downloads stream to disk instead of
+buffering the ZIP in memory.
 
 ```bash
-bun run api:generate   # needs JDK 21 for OpenAPI Generator
+bun run android:build                 # ./gradlew :app:assembleDebug
+bun run android:test                  # ./gradlew :app:testDebugUnitTest
+cd android && ./gradlew :app:installDebug
 ```
 
-Commit the regenerated sources with any spec change so extension and Android
-builds stay reproducible without running the generator.
+The toolchain, emulator setup and install steps are documented in
+[`android/README.md`](android/README.md). Cleartext HTTP is allowed only for the
+emulator host (`10.0.2.2`) and loopback; a deployed proxy must use HTTPS.
+
+## Commands
+
+| Command                   | Description                            |
+| ------------------------- | -------------------------------------- |
+| `bun run dev`             | Start WXT in dev mode (Chrome)         |
+| `bun run dev:firefox`     | Start WXT in dev mode (Firefox)        |
+| `bun run urls:firefox`    | Print dev extension popup/options URLs |
+| `bun run build`           | Build the extension (Chrome)           |
+| `bun run build:firefox`   | Build the extension (Firefox)          |
+| `bun run zip`             | Package the extension for distribution |
+| `bun run test`            | Run unit and component tests           |
+| `bun run test:unit`       | Run Bun unit tests                     |
+| `bun run test:ui`         | Run Vitest component tests             |
+| `bun run api:generate`    | Regenerate the proxy API clients       |
+| `bun run banner:generate` | Regenerate the README banner           |
+| `bun run typecheck`       | Type-check all workspaces              |
+| `bun run check`           | Lint + format check with Biome         |
+| `bun run check:write`     | Apply Biome fixes and formatting       |
+| `bun run android:build`   | Build the debug Android APK            |
+| `bun run android:test`    | Run Android JVM unit tests             |
 
 ## qBittorrent notes
 
-- The client targets the qBittorrent **Web API v2** (`/api/v2`), supported by qBittorrent 4.1+.
-- API key auth requires qBittorrent **5.2+** (Web API 2.14.1+). API keys cannot call the
-  `auth/login` or `auth/logout` endpoints, so the client skips them entirely.
-- In the extension (browser cookie mode) password authentication relies on the browser
-  cookie store, so the extension needs host access to the qBittorrent origin. Grant it on
-  the options page.
-- Some qBittorrent versions apply CSRF/Referer checks to the Web UI API. If requests are
-  rejected, enable "Bypass authentication for clients on localhost" or add the extension
-  origin to the Web UI's trusted sources, depending on your qBittorrent version.
-- Credentials are stored in `browser.storage.local` (plain text) and only used by the
-  background worker. Prefer an API key or a dedicated qBittorrent user with limited
-  permissions.
+- The client targets the qBittorrent Web API v2 (`/api/v2`), supported by
+  qBittorrent 4.1+.
+- API key auth requires qBittorrent 5.2+ (Web API 2.14.1+). API keys cannot call
+  `auth/login` or `auth/logout`, so the client skips them.
+- In the extension, password authentication uses the browser cookie store, so
+  the extension needs host access to the qBittorrent origin. Grant it on the
+  options page.
+- Some qBittorrent versions apply CSRF/Referer checks to the Web UI API. If
+  requests are rejected, enable "Bypass authentication for clients on localhost"
+  or add the extension origin to the Web UI's trusted sources.
+- API key, password and bridge token are encrypted with an AES-GCM key that
+  JavaScript cannot export before they are written to `browser.storage.local`.
+  Extension pages and the background worker decrypt them on demand; web page
+  content cannot read the key or the plaintext. Prefer an API key or a
+  dedicated qBittorrent user with limited permissions.
 
 ## Package usage
 
@@ -230,4 +255,5 @@ const torrents = await qbt.getTorrents({ filter: "downloading" });
 await qbt.addTorrent({ urls: "magnet:?xt=urn:btih:..." });
 ```
 
-See `packages/qbittorrent/README.md` for the full API surface.
+See [`packages/qbittorrent/README.md`](packages/qbittorrent/README.md) for the
+full API surface.

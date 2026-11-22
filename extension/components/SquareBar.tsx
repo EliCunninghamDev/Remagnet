@@ -1,51 +1,13 @@
 import { createEffect, onCleanup, onMount } from "solid-js";
+import {
+  BAR_DEFAULTS,
+  type BarOptions,
+  barLayout,
+  counterBitmap,
+  SHADE_FACTORS,
+} from "../lib/tile-bar";
 
 export type BarPhase = "idle" | "fetch" | "zip" | "done";
-
-interface BarOptions {
-  cell: number;
-  gap: number;
-  rows: number;
-  jitter: number;
-  dur: number;
-  delay: number;
-  counter: boolean;
-  cTile: number;
-  cGap: number;
-  cSlots: number;
-  cMargin: number;
-}
-
-const DEFAULTS: BarOptions = {
-  cell: 6,
-  gap: 2,
-  rows: 3,
-  jitter: 7,
-  dur: 460,
-  delay: 160,
-  counter: true,
-  // Sized for "100": three glyph slots, each 3 tiles wide plus a gap.
-  cTile: 4,
-  cGap: 1,
-  cSlots: 3,
-  cMargin: 14,
-};
-
-/** 3x5 tile font for the inline percentage counter. */
-const TILE_FONT: Record<string, readonly string[]> = {
-  "0": ["111", "101", "101", "101", "111"],
-  "1": ["010", "110", "010", "010", "111"],
-  "2": ["111", "001", "111", "100", "111"],
-  "3": ["111", "001", "111", "001", "111"],
-  "4": ["101", "101", "111", "001", "001"],
-  "5": ["111", "100", "111", "001", "111"],
-  "6": ["111", "100", "111", "101", "111"],
-  "7": ["111", "001", "001", "001", "001"],
-  "8": ["111", "101", "111", "101", "111"],
-  "9": ["111", "101", "111", "001", "111"],
-};
-
-const SHADE_FACTORS = [0.82, 0.91, 1] as const;
 
 type Rgb = readonly [number, number, number];
 
@@ -106,18 +68,6 @@ const easeOutBack = (t: number) => {
   return 1 + c3 * (t - 1) ** 3 + c1 * (t - 1) ** 2;
 };
 
-/** Small deterministic PRNG so resizing does not reshuffle the cells. */
-function seededRandom(seed: number): () => number {
-  let state = seed;
-  return () => {
-    state |= 0;
-    state = (state + 0x6d2b79f5) | 0;
-    let t = Math.imul(state ^ (state >>> 15), 1 | state);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4_294_967_296;
-  };
-}
-
 /**
  * Canvas grid progress bar.
  *
@@ -165,7 +115,6 @@ class SquareBarCanvas {
 
   private counterCols = 0;
   private counterStep = 5;
-  private counterHeight = 0;
   private counterX = 0;
   private counterY = 0;
   private counterTarget = new Uint8Array(0);
@@ -182,7 +131,7 @@ class SquareBarCanvas {
   private lastPercent = -1;
 
   constructor(host: HTMLElement, options: Partial<BarOptions> = {}) {
-    this.o = { ...DEFAULTS, ...options };
+    this.o = { ...BAR_DEFAULTS, ...options };
     this.host = host;
     this.step = this.o.cell + this.o.gap;
     this.height = this.o.rows * this.step - this.o.gap;
@@ -304,15 +253,7 @@ class SquareBarCanvas {
     const width = this.host.clientWidth;
     if (!width) return;
 
-    const { gap, rows, jitter } = this.o;
-    const counterStep = this.o.cTile + this.o.cGap;
-    this.counterStep = counterStep;
-    this.counterCols = this.o.counter ? this.o.cSlots * 4 - 1 : 0;
-    this.counterHeight = 5 * counterStep - this.o.cGap;
-    const reserve = this.o.counter
-      ? this.counterCols * counterStep - this.o.cGap + this.o.cMargin
-      : 0;
-    const cols = Math.max(1, Math.floor((width - reserve + gap) / this.step));
+    const layout = barLayout(width, this.o);
     const canvasHeight = this.height + this.pad * 2;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
 
@@ -331,11 +272,13 @@ class SquareBarCanvas {
 
     this.width = width;
     this.canvasHeight = canvasHeight;
-    this.cols = cols;
-    this.count = cols * rows;
-    this.offsetX = Math.max(0, Math.floor((width - (cols * this.step - gap + reserve)) / 2));
-    this.counterX = this.offsetX + cols * this.step - gap + this.o.cMargin;
-    this.counterY = this.pad + Math.round((this.height - this.counterHeight) / 2);
+    this.cols = layout.cols;
+    this.count = layout.count;
+    this.offsetX = layout.offsetX;
+    this.counterStep = layout.counterStep;
+    this.counterCols = layout.counterCols;
+    this.counterX = layout.counterX;
+    this.counterY = layout.counterY;
 
     const counterCount = this.counterCols * 5;
     this.counterTarget = new Uint8Array(counterCount);
@@ -344,25 +287,13 @@ class SquareBarCanvas {
     this.counterStarts = new Float64Array(counterCount);
     this.counterAnimating.length = 0;
 
-    const random = seededRandom(1337);
     const count = this.count;
-    this.thresholds = new Float32Array(count);
-    this.shadeIndex = new Uint8Array(count);
-    this.delays = new Float32Array(count);
+    this.thresholds = layout.thresholds;
+    this.shadeIndex = layout.shadeIndex;
+    this.delays = layout.delays;
+    this.order = layout.order;
     this.starts = new Float64Array(count);
     this.states = new Uint8Array(count);
-
-    const span = cols - 1 + jitter;
-    for (let i = 0; i < count; i++) {
-      const col = i % cols;
-      this.thresholds[i] = (col + random() * jitter) / span;
-      this.shadeIndex[i] = Math.floor(random() * this.shades.fetch.length);
-      this.delays[i] = random() * this.o.delay;
-    }
-
-    this.order = Uint32Array.from({ length: count }, (_, i) => i).sort(
-      (a, b) => (this.thresholds[a] ?? 0) - (this.thresholds[b] ?? 0),
-    );
   }
 
   private coordinates(index: number): [number, number] {
@@ -403,21 +334,8 @@ class SquareBarCanvas {
 
   /** Right-align "5" / "42" / "100" into the reserved glyph slots. */
   private counterBitmap(percent: number): Uint8Array {
-    const slots = this.o.cSlots;
-    const bitmap = new Uint8Array(this.counterCols * 5);
-    if (!this.o.counter) return bitmap;
-
-    const text = String(percent).padStart(slots, " ").slice(-slots);
-    for (let slot = 0; slot < slots; slot++) {
-      const glyph = TILE_FONT[text[slot] ?? ""];
-      if (!glyph) continue;
-      for (let row = 0; row < 5; row++) {
-        for (let col = 0; col < 3; col++) {
-          if (glyph[row]?.[col] === "1") bitmap[row * this.counterCols + slot * 4 + col] = 1;
-        }
-      }
-    }
-    return bitmap;
+    if (!this.o.counter) return new Uint8Array(0);
+    return counterBitmap(percent, this.counterCols, this.o.cSlots);
   }
 
   private drawCounterTrack(index: number): void {

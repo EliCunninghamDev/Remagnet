@@ -9,7 +9,7 @@ import {
   sendBackgroundMessage,
 } from "../../lib/messages";
 import { ensureHostPermissions } from "../../lib/permissions";
-import { DEFAULT_SETTINGS, getSettings, type Settings, settingsItem } from "../../lib/settings";
+import { DEFAULT_SETTINGS, getSettings, type Settings, saveSettings } from "../../lib/settings";
 
 interface Status {
   tone: "ok" | "error";
@@ -133,7 +133,7 @@ export default function App() {
       return null;
     }
 
-    await settingsItem.setValue(values);
+    await saveSettings(values);
     setSettings(values);
     return values;
   }
@@ -297,9 +297,7 @@ export default function App() {
                 value={settings().archiveToken}
                 onInput={(event) => update("archiveToken", event.currentTarget.value)}
               />
-              <small>
-                Send the token over HTTPS. It is stored with the other extension settings.
-              </small>
+              <small>Send the token over HTTPS. It is stored encrypted on this device.</small>
             </label>
             <div class="actions">
               <button
@@ -358,9 +356,10 @@ export default function App() {
         <h2>How it works</h2>
         <p>
           The background worker is the only context that talks to the configured client. Popup, add
-          and settings pages send typed messages to it; credentials and sessions stay in{" "}
-          <code>browser.storage.local</code> and the background worker. Use a dedicated account or
-          an API key where possible.
+          and settings pages send typed messages to it. API keys, passwords and the bridge token are
+          encrypted with an AES-GCM key that JavaScript cannot export before they are written to
+          extension storage; other settings stay readable. Use a dedicated account or an API key
+          where possible.
         </p>
       </section>
     </main>

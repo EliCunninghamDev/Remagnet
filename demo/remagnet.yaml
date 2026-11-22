@@ -24,8 +24,16 @@ camera:
   transition_ms: 700
   follow: false
 
+targets:
+  # The popover is a native surface, so it has no selector. Its 440px width and
+  # toolbar anchor put it at a fixed place in the 1280x800 capture.
+  popover: { rect: [1418, 150, 872, 570] }
+  # Its small monospace labels are not reliable OCR, so the submit button is a
+  # template captured from the same layout.
+  send: { image: ./assets/send-button.png, threshold: 0.82 }
+
 steps:
-  - wait: 800
+  - wait: 900
   - move: "#magnet"
   - wait: 250
   - rightclick: "#magnet"
@@ -37,23 +45,28 @@ steps:
   - zoom:
       target: { text: "Add to Remagnet" }
       level: 1.8
-      hold: 650
+      hold: 600
   - click: { text: "Add to Remagnet" }
-  - zoom: { level: 1.0, hold: 0 }
-  - wait: 1300
 
+  # The popover fades in behind a dismissed menu. Pull back to the full page so
+  # the camera is not parked on nothing while it opens, then frame it once it
+  # is opaque.
+  - zoom: { level: 1.0, duration_ms: 300, hold: 650 }
+  - zoom:
+      target: popover
+      level: 1.65
+      duration_ms: 750
+      hold: 1200
   - screenshot: review
 
-  # The popover is a native surface and its small monospace labels are not
-  # reliably readable by OCR, so the action button is matched as an image.
-  - zoom: { level: 1.9, hold: 500 }
-  - click: { image: ./assets/send-button.png, threshold: 0.82 }
-  - zoom: { level: 1.0, hold: 250 }
-  - wait: 1600
-  - screenshot: list
+  - click: send
+  - wait: 1500
 
-  # The popover returns to the torrent list after a successful add.
-  - zoom: { level: 1.65, hold: 900 }
-  - wait: 2200
-  - zoom: { level: 1.0, hold: 500 }
-  - wait: 700
+  # The popover returns to the list after a successful add. Move off the rows
+  # so a native title tooltip does not open on camera.
+  - move: { x: 300, y: 1200 }
+  - wait: 1800
+  - screenshot: list
+  - wait: 1200
+
+  - zoom: { level: 1.0, hold: 700 }
