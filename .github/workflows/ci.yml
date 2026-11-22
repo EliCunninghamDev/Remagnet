@@ -69,15 +69,16 @@ jobs:
       - name: Package Chrome extension
         run: bun run zip
 
-      - name: Package Firefox extension
-        run: bun run zip:firefox
-
+      # Upload before the next build: WXT clears stale packages from .output.
       - name: Upload Chrome package
         uses: actions/upload-artifact@v4
         with:
           name: remagnet-extension-chrome
           path: extension/.output/*-chrome.zip
           if-no-files-found: error
+
+      - name: Package Firefox extension
+        run: bun run zip:firefox
 
       - name: Upload Firefox package
         uses: actions/upload-artifact@v4
