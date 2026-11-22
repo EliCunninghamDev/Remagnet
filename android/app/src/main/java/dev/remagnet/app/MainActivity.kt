@@ -18,10 +18,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.remagnet.app.ui.RemagnetWordmark
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -52,16 +52,9 @@ private fun RemagnetHome() {
             .padding(horizontal = 24.dp, vertical = 32.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
+        RemagnetWordmark(surface = "Android")
         Text(
-            text = "REMAGNET",
-            color = MaterialTheme.colorScheme.primary,
-            fontFamily = FontFamily.Monospace,
-            fontSize = 28.sp,
-            fontWeight = FontWeight.Normal,
-            letterSpacing = 3.sp,
-        )
-        Text(
-            text = "Android client",
+            text = "Client scaffold",
             style = MaterialTheme.typography.titleLarge,
         )
         Text(
@@ -82,14 +75,14 @@ private fun RemagnetHome() {
 }
 
 private val RemagnetColors = darkColorScheme(
-    primary = Color(0xFF38E1A8),
-    onPrimary = Color(0xFF06100C),
-    background = Color(0xFF0A0C0F),
-    onBackground = Color(0xFFD7DEE7),
-    surface = Color(0xFF10141A),
-    onSurface = Color(0xFFD7DEE7),
-    surfaceVariant = Color(0xFF1B222B),
-    onSurfaceVariant = Color(0xFF8A96A4),
+    primary = Color(0xFF70A3D2),
+    onPrimary = Color(0xFF10161B),
+    background = Color(0xFF141517),
+    onBackground = Color(0xFFCFD1D3),
+    surface = Color(0xFF181A1C),
+    onSurface = Color(0xFFCFD1D3),
+    surfaceVariant = Color(0xFF1D1F21),
+    onSurfaceVariant = Color(0xFF7D8286),
 )
 
 @Composable
@@ -97,7 +90,7 @@ private fun RemagnetTheme(content: @Composable () -> Unit) {
     MaterialTheme(colorScheme = RemagnetColors, content = content)
 }
 
-@Preview(showBackground = true, backgroundColor = 0xFF0A0C0F)
+@Preview(showBackground = true, backgroundColor = 0xFF141517)
 @Composable
 private fun RemagnetHomePreview() {
     RemagnetTheme {

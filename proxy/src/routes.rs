@@ -31,6 +31,7 @@ type QueryMap = HashMap<String, String>;
 pub fn router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/", get(ui))
+        .route("/assets/departure-mono.woff2", get(wordmark_font))
         .route("/healthz", get(healthz))
         .route("/api/health", get(api_health))
         .route("/api/config", get(get_config).put(put_config))
@@ -50,6 +51,18 @@ async fn ui() -> impl IntoResponse {
             ),
         ],
         include_str!("ui.html"),
+    )
+}
+
+/// Departure Mono for the Remagnet wordmark. The extension ships the same
+/// file; keep the copy in sync when the font is updated.
+async fn wordmark_font() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "font/woff2"),
+            (header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
+        ],
+        include_bytes!("departure-mono.woff2").as_slice(),
     )
 }
 
@@ -303,6 +316,26 @@ mod tests {
             .header(header::AUTHORIZATION, format!("Bearer {TOKEN}"))
             .body(Body::empty())
             .unwrap()
+    }
+
+    #[tokio::test]
+    async fn wordmark_font_is_public() {
+        let app = app(true).await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/assets/departure-mono.woff2")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()[header::CONTENT_TYPE], "font/woff2");
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        assert!(body.len() > 10_000);
     }
 
     #[tokio::test]

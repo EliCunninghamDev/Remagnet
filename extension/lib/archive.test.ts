@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-  archiveDownloadUrl,
   archiveFilename,
   getArchiveSettings,
   requireArchiveSettings,
@@ -57,15 +56,6 @@ describe("archive settings", () => {
         }),
       ),
     ).toBeNull();
-  });
-
-  test("builds archive and token-fallback URLs", () => {
-    expect(archiveDownloadUrl("https://bridge.example/", "abc", "token", true)).toBe(
-      "https://bridge.example/archive/abc",
-    );
-    expect(archiveDownloadUrl("https://bridge.example", "a b", "tok en", false)).toBe(
-      "https://bridge.example/archive/a%20b?token=tok+en",
-    );
   });
 });
 

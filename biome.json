@@ -9,6 +9,7 @@
       "!**/.dev",
       "!**/dist",
       "!**/target",
+      "!**/packages/proxy-client/src/schema.d.ts",
       "!**/*.zip",
       "!**/demo/.build",
       "!**/demo/out",

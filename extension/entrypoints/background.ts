@@ -1,6 +1,7 @@
+import { archiveDownloadUrl, createProxyClient, proxyErrorMessage } from "@remagnet/proxy-client";
 import { browser } from "wxt/browser";
 import { defineBackground } from "wxt/utils/define-background";
-import { archiveDownloadUrl, archiveFilename, requireArchiveSettings } from "../lib/archive";
+import { archiveFilename, requireArchiveSettings } from "../lib/archive";
 import { forgetHashes, startCompletionWatch, trackAddedHashes } from "../lib/completion-watch";
 import { startContextMenu } from "../lib/context-menu";
 import {
@@ -105,19 +106,14 @@ async function handleRequest(request: BackgroundRequest): Promise<BackgroundResp
 /** Check the archive bridge and its saved qBittorrent credentials. */
 async function testArchive(): Promise<ArchiveTestResult> {
   const archive = requireArchiveSettings(await getSettings());
-  const response = await fetch(`${archive.baseUrl}/api/health`, {
-    headers: { Authorization: `Bearer ${archive.token}` },
-    cache: "no-store",
-  });
+  const client = createProxyClient(archive);
+  const { data, error, response } = await client.GET("/api/health");
 
-  if (!response.ok) {
-    throw new Error(await bridgeError(response));
-  }
+  if (error || !data) throw new Error(proxyErrorMessage(response, error));
 
-  const body = (await response.json()) as { appVersion?: unknown; webApiVersion?: unknown };
   return {
-    appVersion: typeof body.appVersion === "string" ? body.appVersion : "unknown",
-    webApiVersion: typeof body.webApiVersion === "string" ? body.webApiVersion : "unknown",
+    appVersion: data.appVersion,
+    webApiVersion: data.webApiVersion,
   };
 }
 
@@ -163,16 +159,4 @@ async function downloadArchive(hash: string, name?: string): Promise<ArchiveDown
   }
 
   return { downloadId, filename };
-}
-
-/** Turn an error response from the bridge into a readable message. */
-async function bridgeError(response: Response): Promise<string> {
-  let detail = "";
-  try {
-    const body = (await response.json()) as { error?: unknown };
-    if (typeof body.error === "string") detail = `: ${body.error}`;
-  } catch {
-    // Not JSON; a status line is still useful.
-  }
-  return `The archive bridge returned ${response.status} ${response.statusText}${detail}`;
 }

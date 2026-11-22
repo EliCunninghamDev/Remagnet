@@ -22,6 +22,39 @@ export function formatPercent(progress: number): string {
   return `${Math.round(Math.min(Math.max(progress, 0), 1) * 100)}%`;
 }
 
+/** Names up to this many characters fit on one row without splitting. */
+const TORRENT_NAME_FIT = 28;
+/** Characters kept at the end so the extension stays visible. */
+const TORRENT_NAME_TAIL = 16;
+/** How far left to look for a natural split point (dot, dash, space, underscore). */
+const TORRENT_NAME_BOUNDARY = 5;
+const NAME_SEPARATOR = /[\s._-]/;
+
+/**
+ * Split a long torrent name into a start and an end, leaving the middle to be
+ * clipped by CSS. Concatenating the parts returns the original name, so the
+ * visible text and the `title` tooltip stay complete.
+ */
+export function splitTorrentName(name: string): { head: string; tail: string } {
+  const characters = Array.from(name);
+  if (characters.length <= TORRENT_NAME_FIT) return { head: name, tail: "" };
+
+  let start = characters.length - TORRENT_NAME_TAIL;
+  // Prefer a boundary a few characters to the left so the end of the name does
+  // not begin in the middle of a group or extension.
+  for (let index = start; index > start - TORRENT_NAME_BOUNDARY && index > 0; index -= 1) {
+    if (NAME_SEPARATOR.test(characters[index - 1] ?? "")) {
+      start = index;
+      break;
+    }
+  }
+
+  return {
+    head: characters.slice(0, start).join(""),
+    tail: characters.slice(start).join(""),
+  };
+}
+
 export function formatEta(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds <= 0 || seconds >= ETA_UNKNOWN) return "—";
   const total = Math.floor(seconds);

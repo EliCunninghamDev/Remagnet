@@ -1,10 +1,10 @@
-import { createMemo, createSignal, Index, onCleanup, onMount, Show } from "solid-js";
+import { createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { browser } from "wxt/browser";
 import AddTorrent from "../../components/AddTorrent";
-import SquareBar, { type BarPhase } from "../../components/SquareBar";
+import PopupList from "../../components/PopupList";
+import Wordmark from "../../components/Wordmark";
 import { getArchiveSettings } from "../../lib/archive";
 import { getTorrentClientDefinition } from "../../lib/clients/catalog";
-import { formatBytes, formatEta, formatPercent, stateLabel, stateTone } from "../../lib/format";
 import { parseMagnet } from "../../lib/magnet";
 import {
   type ArchiveDownloadResult,
@@ -216,135 +216,36 @@ export default function App() {
       <Show
         when={view() === "add"}
         fallback={
-          <>
-            <header class="popup-header">
-              <div class="header-text">
-                <div class="title-row">
-                  <h1 class="wordmark" title={`${clientLabel()} · ${serverLabel()}`}>
-                    Remagnet
-                  </h1>
-                  <Show when={torrents().length >= 2}>
-                    <span class="count-badge mono">{torrents().length}</span>
-                  </Show>
-                </div>
-              </div>
-              <div class="header-actions">
-                <button
-                  class="add-button"
-                  type="button"
-                  title="Add a magnet link"
-                  onClick={startAdd}
-                >
-                  <svg viewBox="0 0 16 16" aria-hidden="true">
-                    <path d="M8 3.5v9M3.5 8h9" />
-                  </svg>
-                  Add
-                </button>
-                <button
-                  class="ghost icon-button"
-                  type="button"
-                  title="Settings"
-                  aria-label="Settings"
-                  onClick={() => void browser.runtime.openOptionsPage()}
-                >
-                  <svg viewBox="0 0 16 16" aria-hidden="true">
-                    <path d="M2.5 4.5h11M2.5 11.5h11" />
-                    <circle cx="6" cy="4.5" r="1.6" />
-                    <circle cx="10.5" cy="11.5" r="1.6" />
-                  </svg>
-                </button>
-              </div>
-            </header>
-
-            <Show when={error()}>
-              {(message) => (
-                <div class="stack-tight">
-                  <p class="status error">{message()}</p>
-                  <div class="actions">
-                    <button type="button" disabled={loading()} onClick={() => void refresh()}>
-                      Retry
-                    </button>
-                    <button
-                      class="ghost"
-                      type="button"
-                      onClick={() => void browser.runtime.openOptionsPage()}
-                    >
-                      Open settings
-                    </button>
-                  </div>
-                </div>
-              )}
-            </Show>
-
-            <Show when={actionError()}>
-              {(message) => (
-                <p class="status error">
-                  {message()}{" "}
-                  <button class="linkish" type="button" onClick={() => setActionError()}>
-                    Dismiss
-                  </button>
-                </p>
-              )}
-            </Show>
-
-            <Show when={!error()}>
-              <Show
-                when={!loading() || torrents().length > 0}
-                fallback={<p class="muted">Loading torrents…</p>}
-              >
-                <Show
-                  when={torrents().length > 0}
-                  fallback={
-                    <Show
-                      when={filter().active}
-                      fallback={<p class="muted empty">No torrents in {clientLabel()}.</p>}
-                    >
-                      <p class="muted empty">
-                        No Remagnet torrents yet. Add a magnet to see it here; matching uses{" "}
-                        {filterDescription()}.
-                      </p>
-                    </Show>
-                  }
-                >
-                  <ul class="torrent-list">
-                    {/*
-                      Index (not For) keeps each row's DOM and canvas alive while
-                      the polled list replaces its objects. For would remount
-                      every bar on every refresh and replay the fill and sweep.
-                    */}
-                    <Index each={torrents()}>
-                      {(torrent) => (
-                        <TorrentCard
-                          torrent={torrent()}
-                          zipping={downloading() === torrent().hash}
-                          archiveReady={archiveReady()}
-                          clientLabel={clientLabel()}
-                          removing={removing() === torrent().hash}
-                          confirming={confirmingRemove() === torrent().hash}
-                          onZip={() => void downloadZip(torrent())}
-                          onRemoveToggle={() =>
-                            setConfirmingRemove(
-                              confirmingRemove() === torrent().hash ? undefined : torrent().hash,
-                            )
-                          }
-                          onRemove={(deleteFiles) => void removeTorrent(torrent(), deleteFiles)}
-                          onCancelRemove={() => setConfirmingRemove()}
-                        />
-                      )}
-                    </Index>
-                  </ul>
-                </Show>
-              </Show>
-            </Show>
-          </>
+          <PopupList
+            torrents={torrents()}
+            loading={loading()}
+            error={error()}
+            actionError={actionError()}
+            filterActive={filter().active}
+            filterDescription={filterDescription()}
+            clientLabel={clientLabel()}
+            serverLabel={serverLabel()}
+            archiveReady={archiveReady()}
+            downloadingHash={downloading()}
+            removingHash={removing()}
+            confirmingHash={confirmingRemove()}
+            onRetry={() => void refresh()}
+            onOpenSettings={() => void browser.runtime.openOptionsPage()}
+            onDismissActionError={() => setActionError()}
+            onAdd={startAdd}
+            onZip={(torrent) => void downloadZip(torrent)}
+            onRemoveToggle={(torrent) =>
+              setConfirmingRemove(confirmingRemove() === torrent.hash ? undefined : torrent.hash)
+            }
+            onRemove={(torrent, deleteFiles) => void removeTorrent(torrent, deleteFiles)}
+            onCancelRemove={() => setConfirmingRemove()}
+          />
         }
       >
         <header class="popup-header add-header">
           <div class="header-text">
             <div class="title-row">
-              <h1 class="wordmark" title={`${clientLabel()} · ${serverLabel()}`}>
-                Remagnet
-              </h1>
+              <Wordmark as="h1" title={`${clientLabel()} · ${serverLabel()}`} />
             </div>
           </div>
           <button
@@ -367,138 +268,6 @@ export default function App() {
         />
       </Show>
     </main>
-  );
-}
-
-interface TorrentCardProps {
-  torrent: TorrentSummary;
-  zipping: boolean;
-  archiveReady: boolean;
-  clientLabel: string;
-  removing: boolean;
-  confirming: boolean;
-  onZip: () => void;
-  onRemoveToggle: () => void;
-  onRemove: (deleteFiles: boolean) => void;
-  onCancelRemove: () => void;
-}
-
-function TorrentCard(props: TorrentCardProps) {
-  const complete = () => props.torrent.progress >= COMPLETE_PROGRESS;
-  const status = () => {
-    if (props.zipping) return { tone: "zip", label: "Zipping" };
-    if (complete()) return { tone: "done", label: "Ready" };
-    const tone = stateTone(props.torrent.state);
-    if (tone === "bad") return { tone: "bad", label: stateLabel(props.torrent.state) };
-    if (tone === "warn") return { tone: "zip", label: "Stalled" };
-    if (props.torrent.state === "stopped") return { tone: "idle", label: "Paused" };
-    return { tone: tone === "active" ? "fetch" : "idle", label: stateLabel(props.torrent.state) };
-  };
-
-  const phase = (): BarPhase => {
-    if (props.zipping) return "zip";
-    return complete() ? "done" : "fetch";
-  };
-
-  /** An unknown ETA is a dash; leave the field out instead of showing it. */
-  const eta = () => {
-    const value = formatEta(props.torrent.eta);
-    return value === "—" ? undefined : value;
-  };
-
-  const downloaded = () => formatBytes(props.torrent.progress * props.torrent.size);
-
-  return (
-    <li class="torrent">
-      <div class="torrent-head">
-        <span class="torrent-name" title={props.torrent.name}>
-          {props.torrent.name}
-        </span>
-        <span class="torrent-status mono" data-s={status().tone}>
-          {status().label}
-        </span>
-        <span class="torrent-percent mono">{formatPercent(props.torrent.progress)}</span>
-        <Show when={props.archiveReady && complete()}>
-          <button
-            class="row-icon zip-action"
-            type="button"
-            disabled={props.zipping}
-            title="Download this completed torrent as a ZIP"
-            onClick={() => props.onZip()}
-          >
-            ZIP
-          </button>
-        </Show>
-        <button
-          class="row-icon remove-action"
-          type="button"
-          disabled={props.removing}
-          title="Remove this torrent from the client"
-          aria-label="Remove torrent"
-          onClick={() => props.onRemoveToggle()}
-        >
-          ×
-        </button>
-      </div>
-
-      <SquareBar progress={props.torrent.progress} phase={phase()} />
-
-      <div class="torrent-stats mono">
-        <span>
-          <b>{formatBytes(props.torrent.downloadSpeed)}</b>/s
-        </span>
-        <Show when={eta()}>
-          {(value) => (
-            <span>
-              ETA <b>{value()}</b>
-            </span>
-          )}
-        </Show>
-        <Show when={props.torrent.uploadSpeed > 0}>
-          <span>
-            ↑ <b>{formatBytes(props.torrent.uploadSpeed)}</b>/s
-          </span>
-        </Show>
-        <span>
-          <b>{downloaded()}</b> / {formatBytes(props.torrent.size)}
-        </span>
-        <span>
-          <b>
-            {props.torrent.peers}/{props.torrent.seeds}
-          </b>{" "}
-          peers
-        </span>
-      </div>
-
-      <Show when={props.confirming}>
-        <div class="remove-confirm">
-          <span class="muted">
-            Remove from {props.clientLabel}? Keep the downloaded data or delete it.
-          </span>
-          <div class="actions">
-            <button
-              class="ghost"
-              type="button"
-              disabled={props.removing}
-              onClick={() => props.onRemove(false)}
-            >
-              Keep files
-            </button>
-            <button
-              class="ghost danger"
-              type="button"
-              disabled={props.removing}
-              onClick={() => props.onRemove(true)}
-            >
-              Delete files
-            </button>
-            <button class="ghost" type="button" onClick={() => props.onCancelRemove()}>
-              Cancel
-            </button>
-          </div>
-        </div>
-      </Show>
-    </li>
   );
 }
 

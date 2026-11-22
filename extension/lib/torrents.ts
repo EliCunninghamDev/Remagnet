@@ -5,6 +5,9 @@
  * client's native state names and fields into them.
  */
 
+/** Progress at or above this is treated as complete everywhere. */
+export const COMPLETE_PROGRESS = 0.999_999;
+
 /**
  * A normalized lifecycle state.
  *

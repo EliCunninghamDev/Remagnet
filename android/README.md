@@ -1,8 +1,9 @@
 # Remagnet for Android
 
 Early Kotlin/Jetpack Compose scaffold for the Android client. It is intentionally
-small: the app renders a placeholder home screen, and the first shared domain
-logic (magnet parsing) is in place with unit tests.
+small: the app renders a placeholder home screen, the first shared domain logic
+(magnet parsing) is in place with unit tests, and a generated Retrofit client is
+ready for the proxy.
 
 ```
 android/
@@ -10,8 +11,37 @@ android/
   app/src/main/java/dev/remagnet/app/
     MainActivity.kt        Entry point and placeholder UI
     magnet/MagnetLink.kt   Magnet URI parser (mirrors the extension)
+    proxy/ProxyApi.kt      Configures the generated client with a base URL/token
+  proxy-client/            Generated Kotlin/Retrofit proxy client (library module)
   gradle/libs.versions.toml Version catalog
 ```
+
+## Generated proxy client
+
+`proxy-client/src/main/java/dev/remagnet/proxy/` is generated from
+`proxy/openapi.yaml` with OpenAPI Generator (`kotlin`, `jvm-retrofit2`,
+`gson`). Do not edit those files by hand. The archive endpoint is generated as a
+`@Streaming Response<ResponseBody>`, so a future download can stream to disk
+instead of buffering the ZIP in memory.
+
+`ProxyApi` shows the intended construction:
+
+```kotlin
+// Inside a coroutine or another suspend function.
+val api = ProxyApi("https://remagnet.example.com", token)
+val health = api.configuration.checkQbitConnection().body()
+```
+
+It uses the generated `bearerAuth` interceptor, so the token is never added as a
+query parameter or spliced into individual calls. Regenerate from the repository
+root after changing the spec:
+
+```bash
+bun run api:generate   # needs JDK 21; also regenerates the TypeScript client
+```
+
+Commit generated sources with the spec change so Android builds stay
+reproducible without running the generator.
 
 ## Toolchain
 

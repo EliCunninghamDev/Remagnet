@@ -1,0 +1,4 @@
+[test]
+# Component tests run under Vitest, which compiles Solid JSX and provides a DOM.
+# Keep Bun's runner on plain TS so `bun test` stays fast.
+pathIgnorePatterns = ["extension/components/**/*.test.tsx"]

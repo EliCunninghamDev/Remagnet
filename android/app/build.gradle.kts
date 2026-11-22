@@ -43,6 +43,7 @@ android {
 }
 
 dependencies {
+    implementation(project(":proxy-client"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
 

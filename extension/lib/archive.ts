@@ -54,22 +54,6 @@ export function requireArchiveSettings(settings: Settings): ArchiveSettings {
   return archive;
 }
 
-export function archiveUrl(baseUrl: string, hash: string): string {
-  return `${baseUrl.replace(/\/+$/, "")}/archive/${encodeURIComponent(hash)}`;
-}
-
-/** Firefox can attach an Authorization header to browser downloads. */
-export function archiveDownloadUrl(
-  baseUrl: string,
-  hash: string,
-  token: string,
-  useHeader: boolean,
-): string {
-  const url = new URL(archiveUrl(baseUrl, hash));
-  if (!useHeader) url.searchParams.set("token", token);
-  return url.toString();
-}
-
 /**
  * Suggested download filename. Keeps the torrent's readable name while
  * removing path separators and characters browsers reject.

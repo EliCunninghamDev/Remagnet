@@ -2,8 +2,7 @@ import { browser } from "wxt/browser";
 import type { AddTorrentResult, ConnectionDetails } from "./clients/types";
 import type { TorrentSummary, TorrentTaxonomy } from "./torrents";
 
-/** Progress at or above this is treated as complete everywhere. */
-export const COMPLETE_PROGRESS = 0.999_999;
+export { COMPLETE_PROGRESS } from "./torrents";
 
 export type BackgroundRequest =
   | { type: "connection:test" }

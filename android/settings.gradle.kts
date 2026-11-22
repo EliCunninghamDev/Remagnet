@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "Remagnet"
 include(":app")
+include(":proxy-client")

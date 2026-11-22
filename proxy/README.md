@@ -13,20 +13,40 @@ work unchanged.
 
 ## Endpoints
 
-| Endpoint             | Auth   | Purpose                                         |
-| -------------------- | ------ | ----------------------------------------------- |
-| `GET /`              | none   | Minimal config page (the page itself is static) |
-| `GET /healthz`       | none   | Liveness probe                                  |
-| `GET /api/health`    | bearer | Test the saved qBittorrent connection           |
-| `GET /api/config`    | bearer | Read non-secret settings                        |
-| `PUT /api/config`    | bearer | Update the qBittorrent URL and credentials      |
-| `GET /archive/:hash` | bearer | Stream a completed torrent as a ZIP             |
+| Endpoint                           | Auth   | Purpose                                         |
+| ---------------------------------- | ------ | ----------------------------------------------- |
+| `GET /`                            | none   | Minimal config page (the page itself is static) |
+| `GET /assets/departure-mono.woff2` | none   | Wordmark font used by the config page           |
+| `GET /healthz`                     | none   | Liveness probe                                  |
+| `GET /api/health`                  | bearer | Test the saved qBittorrent connection           |
+| `GET /api/config`                  | bearer | Read non-secret settings                        |
+| `PUT /api/config`                  | bearer | Update the qBittorrent URL and credentials      |
+| `GET /archive/:hash`               | bearer | Stream a completed torrent as a ZIP             |
 
 `Authorization: Bearer <BRIDGE_TOKEN>` is preferred. `?token=` is accepted as a
 fallback for browsers whose download API cannot attach headers.
 
+The machine-readable contract is [`openapi.yaml`](openapi.yaml) (OpenAPI 3.1).
+It documents both authentication styles, the request and response bodies, and
+every error status, so it can be imported into Bruno, Insomnia, Postman or
+rendered with Swagger UI.
+
+The clients are generated from this file rather than maintained by hand:
+`packages/proxy-client/src/schema.d.ts` and the Retrofit sources under
+`android/proxy-client/src/main/java/dev/remagnet/proxy/`. After changing the
+contract, regenerate both and commit the result:
+
+```bash
+bun run api:generate
+```
+
 The config page never receives saved secrets back. Leave an API key or password
 field blank to keep the saved value; use the matching checkbox to clear it.
+
+The page uses the same Remagnet wordmark as the extension. Departure Mono is
+bundled at `src/departure-mono.woff2` under the SIL OFL 1.1
+(`src/OFL-DepartureMono.txt`); keep that copy in sync with
+`extension/public/fonts/departure-mono-regular.woff2`.
 
 ## Configuration
 

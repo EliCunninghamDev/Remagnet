@@ -1,0 +1,408 @@
+openapi: 3.1.0
+info:
+  title: Remagnet proxy API
+  version: 0.1.0
+  summary: ZIP streaming and configuration for the Remagnet proxy.
+  description: |
+    The Remagnet proxy is a small Rust/axum service that turns completed
+    qBittorrent torrents into ZIP streams. It reads file contents through the
+    qBittorrent Web API, so it needs neither the downloads volume nor temporary
+    disk space.
+
+    Every `/api/*` and `/archive/*` request needs the proxy token, sent either as
+    `Authorization: Bearer <BRIDGE_TOKEN>` (preferred) or as `?token=<BRIDGE_TOKEN>`
+    for browser download APIs that cannot attach headers. The same token can be
+    supplied through either scheme; errors use a JSON body with an `error` field.
+servers:
+  - url: http://127.0.0.1:8080
+    description: Local development (`BIND_ADDR` default is `0.0.0.0:8080`).
+  - url: https://remagnet.example.com
+    description: Example deployment behind an HTTPS reverse proxy.
+tags:
+  - name: Service
+    description: Unauthenticated liveness and the configuration page.
+  - name: Configuration
+    description: Read and update the qBittorrent connection.
+  - name: Archives
+    description: Stream completed torrents as ZIP archives.
+security:
+  - bearerAuth: []
+  - tokenQuery: []
+paths:
+  /:
+    get:
+      operationId: getConfigPage
+      summary: Configuration page
+      description: |
+        Static HTML page for setting the qBittorrent Web UI URL and credentials.
+        The page never receives saved secrets back. Served with `Cache-Control: no-store`
+        and `X-Content-Type-Options: nosniff`.
+      tags: [Service]
+      security: []
+      responses:
+        "200":
+          description: HTML configuration page.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+            X-Content-Type-Options:
+              schema:
+                type: string
+                const: nosniff
+          content:
+            text/html:
+              schema:
+                type: string
+  /healthz:
+    get:
+      operationId: getLiveness
+      summary: Liveness probe
+      description: Reports that the process is running. Does not contact qBittorrent.
+      tags: [Service]
+      security: []
+      responses:
+        "200":
+          description: The service is alive.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Liveness"
+              example:
+                ok: true
+                service: remagnet-bridge
+                version: 0.1.0
+  /api/health:
+    get:
+      operationId: checkQbitConnection
+      summary: Test the saved qBittorrent connection
+      description: |
+        Calls qBittorrent's `app/version` and `app/webapiVersion` endpoints with
+        the saved credentials. Used by the extension's "Save & test archive"
+        action and the configuration page.
+      tags: [Configuration]
+      parameters:
+        - $ref: "#/components/parameters/TokenQuery"
+      responses:
+        "200":
+          description: qBittorrent answered with its versions.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectionHealth"
+              example:
+                ok: true
+                appVersion: 5.3.0
+                webApiVersion: 2.16.2
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+  /api/config:
+    get:
+      operationId: getConfig
+      summary: Read non-secret configuration
+      description: |
+        Returns the qBittorrent base URL and username plus flags indicating
+        whether an API key and password are saved. Secret values are never
+        returned, and this endpoint does not contact qBittorrent.
+      tags: [Configuration]
+      parameters:
+        - $ref: "#/components/parameters/TokenQuery"
+      responses:
+        "200":
+          description: Current public configuration.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicConfig"
+              example:
+                qbitBaseUrl: http://gluetun:8080
+                qbitUsername: ""
+                hasApiKey: true
+                hasPassword: false
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    put:
+      operationId: updateConfig
+      summary: Update the qBittorrent connection
+      description: |
+        Replaces the saved qBittorrent settings and returns the new public
+        configuration. `qbitBaseUrl` is required and is normalized by trimming
+        whitespace and trailing slashes; credentials in the URL, query strings
+        and fragments are rejected.
+
+        For the secret fields (`qbitApiKey`, `qbitUsername`, `qbitPassword`),
+        omitting a field keeps the saved value and sending an empty string clears
+        it. At least one of `qbitApiKey` or `qbitUsername` must remain set. A
+        request that fails validation leaves the stored configuration untouched.
+      tags: [Configuration]
+      parameters:
+        - $ref: "#/components/parameters/TokenQuery"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfigUpdate"
+            examples:
+              changeUrl:
+                summary: Change the URL and keep saved secrets
+                value:
+                  qbitBaseUrl: https://qbt.example.com
+              replaceCredentials:
+                summary: Switch to username/password and clear the API key
+                value:
+                  qbitBaseUrl: http://gluetun:8080
+                  qbitApiKey: ""
+                  qbitUsername: admin
+                  qbitPassword: secret
+      responses:
+        "200":
+          description: Configuration saved; the returned values are the effective ones.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicConfig"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /archive/{hash}:
+    get:
+      operationId: downloadArchive
+      summary: Stream a completed torrent as a ZIP
+      description: |
+        Looks up the torrent by info hash, requires that it is complete (progress
+        1, no bytes left, and not in `missingFiles` or `error`), lists its files
+        and streams each one from qBittorrent into a stored ZIP entry. Nothing is
+        buffered or written to disk.
+
+        The response has no `Content-Length` because the archive is produced
+        while it is downloaded. If an upstream file stream fails after the
+        response has started, the connection is aborted instead of ending
+        cleanly, so browsers do not save a truncated ZIP as a completed
+        download.
+      tags: [Archives]
+      parameters:
+        - name: hash
+          in: path
+          required: true
+          description: |
+            Torrent info hash. Accepts a 40-character BitTorrent v1 hash or a
+            64-character v2 hash, case-insensitively.
+          schema:
+            type: string
+            pattern: "^([0-9a-fA-F]{40}|[0-9a-fA-F]{64})$"
+          example: dc555f7a26f1acae38a18edc04e53588ade33051
+        - $ref: "#/components/parameters/TokenQuery"
+      responses:
+        "200":
+          description: |
+            ZIP archive streamed as `application/zip`. Entry names are sanitized
+            relative paths inside the torrent; directories are omitted. The
+            suggested filename is the sanitized torrent name with a `.zip`
+            suffix.
+          headers:
+            Content-Disposition:
+              description: Attachment filename with an ASCII fallback and RFC 5987 form.
+              schema:
+                type: string
+              example: attachment; filename="Example Torrent.zip"; filename*=UTF-8''Example%20Torrent.zip
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+            X-Content-Type-Options:
+              schema:
+                type: string
+                const: nosniff
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+                contentMediaType: application/zip
+        "400":
+          description: The info hash is not 40 or 64 hexadecimal characters.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: Expected a 40 or 64 character hex info hash.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: No torrent with that hash exists in qBittorrent.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: Torrent not found in qBittorrent.
+        "409":
+          description: |
+            The torrent is not complete yet, a file is still downloading, or the
+            torrent has no files to archive.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: Example Torrent is not complete yet (42%).
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: |
+        Send `Authorization: Bearer <BRIDGE_TOKEN>`. Preferred over the query
+        parameter because headers do not appear in proxy access logs.
+    tokenQuery:
+      type: apiKey
+      in: query
+      name: token
+      description: |
+        Fallback for browser download APIs that cannot attach headers, for
+        example `GET /archive/<hash>?token=<BRIDGE_TOKEN>`.
+  parameters:
+    TokenQuery:
+      name: token
+      in: query
+      required: false
+      description: |
+        Proxy token as a query parameter. Alternative to
+        `Authorization: Bearer <token>`; either one is sufficient.
+      schema:
+        type: string
+        minLength: 16
+  responses:
+    Unauthorized:
+      description: Missing or invalid proxy token.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: Missing or invalid bridge token.
+    BadRequest:
+      description: The request was rejected, for example an invalid URL or no usable credentials.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: Enter a valid http:// or https:// URL.
+    InternalError:
+      description: The proxy could not save configuration or start the archive.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    BadGateway:
+      description: qBittorrent could not be reached or returned an error.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+  schemas:
+    Error:
+      type: object
+      description: Error body returned by every failing request.
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: Human-readable message safe to display to the user.
+      additionalProperties: false
+    Liveness:
+      type: object
+      required: [ok, service, version]
+      properties:
+        ok:
+          type: boolean
+          description: Always true for a successful liveness probe.
+          example: true
+        service:
+          type: string
+          description: Historical service name kept for deployment compatibility.
+          example: remagnet-bridge
+        version:
+          type: string
+          description: Crate version from `CARGO_PKG_VERSION`.
+      additionalProperties: false
+    ConnectionHealth:
+      type: object
+      required: [ok, appVersion, webApiVersion]
+      properties:
+        ok:
+          type: boolean
+          description: Always true when qBittorrent answers.
+          example: true
+        appVersion:
+          type: string
+          description: qBittorrent application version reported by qBittorrent.
+          example: 5.3.0
+        webApiVersion:
+          type: string
+          description: qBittorrent Web API version reported by qBittorrent.
+          example: 2.16.2
+      additionalProperties: false
+    PublicConfig:
+      type: object
+      description: |
+        Non-secret view of the saved configuration. Secret values are represented
+        only by booleans.
+      required: [qbitBaseUrl, qbitUsername, hasApiKey, hasPassword]
+      properties:
+        qbitBaseUrl:
+          type: string
+          format: uri
+          description: Normalized qBittorrent Web UI base URL without a trailing slash.
+          example: http://gluetun:8080
+        qbitUsername:
+          type: string
+          description: Saved qBittorrent username, or an empty string.
+        hasApiKey:
+          type: boolean
+          description: Whether a qBittorrent API key is saved.
+        hasPassword:
+          type: boolean
+          description: Whether a qBittorrent password is saved.
+      additionalProperties: false
+    ConfigUpdate:
+      type: object
+      required: [qbitBaseUrl]
+      properties:
+        qbitBaseUrl:
+          type: string
+          format: uri
+          minLength: 1
+          description: |
+            qBittorrent Web UI URL. Must use `http://` or `https://`, must not
+            contain credentials, a query or a fragment, and is stored without
+            trailing slashes.
+          example: http://gluetun:8080
+        qbitApiKey:
+          type: string
+          description: |
+            qBittorrent 5.2+ API key. Omit to keep the saved key; send an empty
+            string to clear it.
+        qbitUsername:
+          type: string
+          description: |
+            Username for cookie-based login. Omit to keep the saved username;
+            send an empty string to clear it.
+        qbitPassword:
+          type: string
+          description: |
+            Password for cookie-based login. Omit to keep the saved password;
+            send an empty string to clear it.

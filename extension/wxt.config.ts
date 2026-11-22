@@ -15,6 +15,15 @@ export default defineConfig({
     keepProfileChanges: true,
   },
   hooks: {
+    // The gallery is a development aid. Keep it out of packaged builds unless
+    // explicitly requested with REMAGNET_GALLERY=1 (useful for design review
+    // against an installed build).
+    "entrypoints:resolved": (wxt, entrypoints) => {
+      if (wxt.config.command !== "build" || process.env.REMAGNET_GALLERY === "1") return;
+      for (const entrypoint of entrypoints) {
+        if (entrypoint.name === "gallery") entrypoint.skipped = true;
+      }
+    },
     // The link context menu is Chrome-only; Firefox has a `magnet:` protocol
     // handler and should not ask for access to every page just to filter it.
     "build:manifestGenerated": (_wxt, manifest) => {

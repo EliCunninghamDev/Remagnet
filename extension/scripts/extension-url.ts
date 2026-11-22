@@ -1,6 +1,6 @@
 /**
- * Print direct URLs for the development extension's popup, add and options
- * pages.
+ * Print direct URLs for the development extension's popup, add, options and
+ * gallery pages.
  *
  * Firefox maps each extension ID to a random `moz-extension://<uuid>` origin
  * and stores the mapping in the profile's prefs.js. Reusing a profile keeps the
@@ -42,3 +42,4 @@ const base = `moz-extension://${uuid}`;
 console.log(`popup    ${base}/popup.html`);
 console.log(`add      ${base}/add.html`);
 console.log(`options  ${base}/options.html`);
+console.log(`gallery  ${base}/gallery.html`);

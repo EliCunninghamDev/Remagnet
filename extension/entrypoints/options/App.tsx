@@ -1,4 +1,5 @@
 import { createMemo, createSignal, For, onMount, Show } from "solid-js";
+import Wordmark from "../../components/Wordmark";
 import { validateArchiveSettings } from "../../lib/archive";
 import { getTorrentClientDefinition, TORRENT_CLIENT_LIST } from "../../lib/clients/catalog";
 import type { AuthMode, ClientKind } from "../../lib/clients/types";
@@ -140,7 +141,7 @@ export default function App() {
   return (
     <main class="options">
       <header class="options-header">
-        <p class="eyebrow">Remagnet</p>
+        <Wordmark as="p" size="lg" surface="Settings" />
         <h1>Torrent client</h1>
         <p class="muted">
           Point the extension at your torrent client's Web UI. API keys are preferred; username and
@@ -339,8 +340,8 @@ export default function App() {
           fallback={
             <p>
               Use the <strong>Add</strong> button in the popup to paste a magnet link, or
-              right-click a magnet link on a page and choose <strong>Add to Remagnet</strong>
-              (the item only appears for magnet links). Chrome does not support extension protocol
+              right-click a magnet link on a page and choose <strong>Add to Remagnet</strong> (the
+              item only appears for magnet links). Chrome does not support extension protocol
               handlers, so magnet links cannot open Remagnet automatically.
             </p>
           }

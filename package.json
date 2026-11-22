@@ -14,7 +14,10 @@
     "build": "bun run --cwd extension build",
     "build:firefox": "bun run --cwd extension build:firefox",
     "zip": "bun run --cwd extension zip",
-    "test": "bun test",
+    "test": "bun run test:unit && bun run test:ui",
+    "test:unit": "bun test",
+    "test:ui": "bun run --cwd extension test:ui",
+    "api:generate": "bun run scripts/generate-api-clients.ts",
     "typecheck": "bun run --filter '*' typecheck",
     "check": "biome check .",
     "check:write": "biome check --write .",
@@ -26,7 +29,9 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.8",
+    "@openapitools/openapi-generator-cli": "^2.42.2",
     "@types/bun": "^1.3.0",
+    "openapi-typescript": "^7.13.0",
     "typescript": "^5.9.3"
   }
 }

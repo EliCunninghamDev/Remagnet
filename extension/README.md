@@ -28,13 +28,39 @@ The pause field in the add flow is shown from the adapter's `capabilities`, so
 clients without it degrade cleanly. Category and tags are applied from settings
 automatically, not chosen per torrent.
 
+## Component gallery
+
+`entrypoints/gallery/` is a development-only page at `/gallery.html` that
+renders the real components against fixed fixtures from `gallery/fixtures.ts`.
+Use it to review hover and removal states, compare the popover's dark theme with
+the light pages, and capture before/after screenshots without a torrent client.
+It is skipped in `wxt build`; set `REMAGNET_GALLERY=1` to include it in a build.
+
+When changing a component:
+
+1. Add or update its fixture in `gallery/fixtures.ts`.
+2. Add a specimen to the matching gallery section.
+3. Render it in the browser and check the state at the production width.
+4. Add a Vitest assertion in `components/*.test.tsx`.
+
+The gallery and tests use the same props-driven components, so a state that
+cannot be rendered there is a sign the component still reads storage or the
+background worker directly. `bun run test:ui` runs the Vitest component suite;
+`bun run test` runs both it and the Bun unit tests.
+
 ## ZIP downloads
 
-If **Archive downloads** is configured in settings, completed rows get a **ZIP**
-button. The background worker validates the torrent, asks the browser to
-download `/archive/<info-hash>` and attaches `Authorization: Bearer <token>` in
-Firefox; other browsers use the proxy's `?token=` fallback. The proxy itself
+If **Archive downloads** is configured in settings, completed rows get a
+**Download** button. The background worker validates the torrent, asks the
+browser to download `/archive/<info-hash>` and attaches
+`Authorization: Bearer <token>` in Firefox; other browsers use the proxy's
+`?token=` fallback. The proxy itself
 lives in `proxy/` (Rust/axum) and is documented there.
+
+Proxy requests use `@remagnet/proxy-client`, whose types and fetch wrapper are
+generated from `proxy/openapi.yaml`. Run `bun run api:generate` at the repository
+root after changing the spec; archive URLs still come from the shared client
+because the browser download API needs a URL rather than a fetched response.
 
 ## Popup behavior
 
@@ -43,19 +69,25 @@ and is also where magnets are reviewed and added (the **Add** button switches it
 to the add view). A separate window is never opened, so clicking a magnet does
 not cover or replace the page you were reading.
 
-- Each torrent gets a square-cell progress bar and a small state label; the bar
-  fills while downloading, sweeps while the ZIP is prepared and finishes with the
-  completed state. Opening the popover starts at the torrent's current progress,
-  so the fill and the completed sweep only animate on real progress or state
-  changes.
-- The interface is set in bundled Geist Mono; the Remagnet wordmark uses bundled
-  Departure Mono. Both are SIL OFL 1.1, and the font files and licenses live in
-  `public/fonts/`.
+- Each torrent is one flat row: name, bar, then live stats with **Download** and
+  remove on the right. The percentage sits at the bar's right end as a 3×5
+  tile-font counter that pops only the tiles that change, and the bar's fill
+  color carries the status (blue downloading, ochre stalled or zipping, sage
+  ready, gray paused or errored); stalled, paused and errored rows say so in the
+  space the Download action would use.
+  The bar fills while downloading, sweeps while the ZIP is prepared and finishes
+  with the completed state. Opening the popover starts at the torrent's current
+  progress, so the fill and the completed sweep only animate on real progress or
+  state changes.
+- The interface is set in bundled Geist Mono on every surface. The shared
+  `Wordmark` component renders the Remagnet mark in bundled Departure Mono with
+  an optional surface label (Settings, Add torrent, Components, Bridge). Both
+  fonts are SIL OFL 1.1, and the files and licenses live in `public/fonts/`.
 - The list is filtered to the configured default category/tags. With both
   defaults blank, filtering is disabled because there is no way to tell which
   torrents belong to Remagnet.
-- **Remove** asks whether to keep or delete the files, then deletes the torrent
-  through the client adapter.
+- **Remove** asks whether to keep or delete the files; the confirmation swaps in
+  over the row's stats line, then deletes the torrent through the client adapter.
 - While open, the popover polls the list once a second while any torrent is
   still downloading (every five seconds when everything is complete), so the
   bars and speed readouts stay live. Requests are serialized, and polling pauses
@@ -149,6 +181,7 @@ bun run urls           # from extension/
 # popup    moz-extension://<uuid>/popup.html
 # add      moz-extension://<uuid>/add.html
 # options  moz-extension://<uuid>/options.html
+# gallery  moz-extension://<uuid>/gallery.html
 ```
 
 The UUID comes from the dev profile's `prefs.js`. `about:debugging#/runtime/this-firefox`

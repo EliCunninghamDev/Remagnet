@@ -11,15 +11,21 @@
     "zip": "wxt zip",
     "urls": "bun scripts/extension-url.ts",
     "typecheck": "tsc --noEmit",
+    "test:ui": "vitest run",
     "postinstall": "wxt prepare"
   },
   "dependencies": {
+    "@remagnet/proxy-client": "workspace:*",
     "@remagnet/qbittorrent": "workspace:*",
     "solid-js": "^1.9.20"
   },
   "devDependencies": {
+    "@solidjs/testing-library": "^0.8.10",
     "@wxt-dev/module-solid": "^1.1.4",
+    "happy-dom": "^21.0.4",
     "typescript": "^5.9.3",
+    "vite-plugin-solid": "^2.11.17",
+    "vitest": "^5.1.1",
     "web-ext": "^10.8.0",
     "wxt": "^0.21.5"
   }

@@ -1,14 +1,7 @@
-import { createMemo, createSignal, For, onMount, Show } from "solid-js";
+import { createMemo, createSignal, onMount, Show } from "solid-js";
 import { browser } from "wxt/browser";
 import { getTorrentClientDefinition } from "../lib/clients/catalog";
-import { formatBytes, formatPercent, stateLabel } from "../lib/format";
-import {
-  isMagnetLink,
-  type MagnetLink,
-  magnetLabel,
-  parseMagnet,
-  trackerHosts,
-} from "../lib/magnet";
+import { isMagnetLink, type MagnetLink, magnetLabel, parseMagnet } from "../lib/magnet";
 import {
   type AddTorrentsResult,
   sendBackgroundMessage,
@@ -16,11 +9,11 @@ import {
 } from "../lib/messages";
 import { DEFAULT_SETTINGS, getSettings, type Settings } from "../lib/settings";
 import type { TorrentSummary } from "../lib/torrents";
-
-interface Status {
-  tone: "ok" | "error" | "warn";
-  message: string;
-}
+import AddedSummary from "./AddedSummary";
+import type { FlowStatus } from "./flow-status";
+import MagnetForm from "./MagnetForm";
+import MagnetReview from "./MagnetReview";
+import Wordmark from "./Wordmark";
 
 interface AddedState extends AddTorrentsResult {
   name: string;
@@ -59,7 +52,7 @@ export default function AddTorrent(props: AddTorrentProps) {
   const [existing, setExisting] = createSignal<TorrentSummary | null>(null);
   const [loading, setLoading] = createSignal(true);
   const [busy, setBusy] = createSignal(false);
-  const [status, setStatus] = createSignal<Status>();
+  const [status, setStatus] = createSignal<FlowStatus>();
   const [added, setAdded] = createSignal<AddedState>();
 
   let lookupToken = 0;
@@ -190,169 +183,55 @@ export default function AddTorrent(props: AddTorrentProps) {
   }
 
   const body = (
-    <>
-      <Show when={!loading()} fallback={<p class="muted">Loading…</p>}>
-        <Show when={added()}>
-          {(result) => (
-            <section class="panel stack">
-              <p class="status ok">
-                Added “{result().name}” to {definition().label}.
-              </p>
-              <p class="muted">
-                <Show when={result().category}>Category: {result().category}. </Show>
-                <Show when={result().tags.length > 0}>Tags: {result().tags.join(", ")}. </Show>
-                Metadata and file names arrive shortly.
-              </p>
-              <div class="actions">
-                <button type="button" onClick={openClient}>
-                  Open {definition().label}
-                </button>
-                <button type="button" class="ghost" onClick={reset}>
-                  Add another
-                </button>
-                <button type="button" class="ghost" onClick={() => props.onClose()}>
-                  {props.embedded ? "View downloads" : "Close"}
-                </button>
-              </div>
-            </section>
-          )}
-        </Show>
-
-        <Show when={!added()}>
+    <Show when={!loading()} fallback={<p class="muted">Loading…</p>}>
+      <Show
+        when={added()}
+        fallback={
           <Show
             when={!editing() && magnet()}
             fallback={
-              <form class="panel stack" onSubmit={applyDraft}>
-                <label class="field">
-                  <span>Magnet link</span>
-                  <textarea
-                    rows={3}
-                    spellcheck={false}
-                    placeholder="magnet:?xt=urn:btih:…"
-                    value={draft()}
-                    onInput={(event) => setDraft(event.currentTarget.value)}
-                  />
-                  <small>
-                    Click a magnet link in Firefox and it opens here, or paste one above.
-                  </small>
-                </label>
-                <div class="actions">
-                  <button type="submit" disabled={!draft().trim()}>
-                    Continue
-                  </button>
-                  <Show when={magnetUri()}>
-                    <button class="ghost" type="button" onClick={() => setEditing(false)}>
-                      Cancel
-                    </button>
-                  </Show>
-                </div>
-                <Show when={status()}>
-                  {(current) => <p class={`status ${current().tone}`}>{current().message}</p>}
-                </Show>
-              </form>
+              <MagnetForm
+                draft={draft()}
+                status={status()}
+                canCancel={Boolean(magnetUri())}
+                onDraftChange={setDraft}
+                onSubmit={applyDraft}
+                onCancel={() => setEditing(false)}
+              />
             }
           >
             {(link) => (
-              <div class="stack">
-                <section class="panel magnet-card">
-                  <div class="magnet-head">
-                    <h2>{magnetLabel(link())}</h2>
-                    <button class="ghost" type="button" onClick={editMagnet}>
-                      Edit
-                    </button>
-                  </div>
-
-                  <dl class="kv">
-                    <Show when={link().infoHash}>
-                      {(hash) => (
-                        <div>
-                          <dt>Info hash</dt>
-                          <dd class="mono">{hash()}</dd>
-                        </div>
-                      )}
-                    </Show>
-                    <Show when={link().size !== null}>
-                      <div>
-                        <dt>Size</dt>
-                        <dd>{formatBytes(link().size ?? 0)}</dd>
-                      </div>
-                    </Show>
-                    <Show when={link().trackers.length > 0}>
-                      <div>
-                        <dt>Trackers</dt>
-                        <dd>
-                          {link().trackers.length}
-                          {trackerHosts(link()).length > 0
-                            ? ` · ${trackerHosts(link()).join(", ")}`
-                            : ""}
-                        </dd>
-                      </div>
-                    </Show>
-                    <Show when={link().webSeeds.length > 0}>
-                      <div>
-                        <dt>Web seeds</dt>
-                        <dd>{link().webSeeds.length}</dd>
-                      </div>
-                    </Show>
-                  </dl>
-
-                  <Show when={link().trackers.length > 0}>
-                    <details class="trackers">
-                      <summary>Show tracker URLs</summary>
-                      <ul>
-                        <For each={link().trackers}>
-                          {(tracker) => <li class="mono">{tracker}</li>}
-                        </For>
-                      </ul>
-                    </details>
-                  </Show>
-                </section>
-
-                <Show when={existing()}>
-                  {(torrent) => (
-                    <p class="status warn">
-                      Already in {definition().label}: <strong>{torrent().name}</strong> (
-                      {stateLabel(torrent().state)} · {formatPercent(torrent().progress)}).
-                    </p>
-                  )}
-                </Show>
-
-                <form class="panel stack" onSubmit={submit}>
-                  <div class="submit-row">
-                    <div class="submit-main">
-                      <button type="submit" disabled={busy() || Boolean(existing()) || !magnet()}>
-                        {busy() ? "Sending…" : `Send to ${definition().label}`}
-                      </button>
-                      <Show when={capabilities().pauseOnAdd}>
-                        <label
-                          class="check compact"
-                          title={`Add stopped, and start it manually in ${definition().label}`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={paused()}
-                            onChange={(event) => setPaused(event.currentTarget.checked)}
-                          />
-                          <span>Add paused</span>
-                        </label>
-                      </Show>
-                    </div>
-
-                    <button type="button" class="client-link" onClick={openClient}>
-                      Open {definition().label}
-                    </button>
-                  </div>
-
-                  <Show when={status()}>
-                    {(current) => <p class={`status ${current().tone}`}>{current().message}</p>}
-                  </Show>
-                </form>
-              </div>
+              <MagnetReview
+                link={link()}
+                clientLabel={definition().label}
+                capabilities={capabilities()}
+                existing={existing()}
+                paused={paused()}
+                busy={busy()}
+                status={status()}
+                onEdit={editMagnet}
+                onSubmit={submit}
+                onPausedChange={setPaused}
+                onOpenClient={openClient}
+              />
             )}
           </Show>
-        </Show>
+        }
+      >
+        {(result) => (
+          <AddedSummary
+            name={result().name}
+            category={result().category}
+            tags={result().tags}
+            clientLabel={definition().label}
+            embedded={Boolean(props.embedded)}
+            onOpenClient={openClient}
+            onAddAnother={reset}
+            onClose={props.onClose}
+          />
+        )}
       </Show>
-    </>
+    </Show>
   );
 
   if (props.embedded) {
@@ -363,7 +242,7 @@ export default function AddTorrent(props: AddTorrentProps) {
     <main class="add">
       <header class="add-header">
         <div class="header-text">
-          <p class="eyebrow">Remagnet</p>
+          <Wordmark as="p" size="lg" surface="Add torrent" />
           <h1>Send to {definition().label}</h1>
           <p class="muted mono">{settings().baseUrl || definition().defaultBaseUrl}</p>
         </div>

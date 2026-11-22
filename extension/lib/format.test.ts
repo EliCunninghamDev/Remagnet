@@ -4,6 +4,7 @@ import {
   formatEta,
   formatPercent,
   formatSpeed,
+  splitTorrentName,
   stateLabel,
   stateTone,
 } from "./format";
@@ -38,6 +39,41 @@ describe("formatPercent", () => {
     expect(formatPercent(1)).toBe("100%");
     expect(formatPercent(1.4)).toBe("100%");
     expect(formatPercent(-1)).toBe("0%");
+  });
+});
+
+describe("splitTorrentName", () => {
+  test("leaves short names intact", () => {
+    expect(splitTorrentName("ubuntu-26.04-desktop.iso")).toEqual({
+      head: "ubuntu-26.04-desktop.iso",
+      tail: "",
+    });
+  });
+
+  test("keeps the end and extension visible for long names", () => {
+    const name = "debian-13.8.0-amd64-netinst.iso";
+    const parts = splitTorrentName(name);
+
+    expect(parts.head + parts.tail).toBe(name);
+    expect(parts.head.length).toBeGreaterThan(0);
+    expect(parts.tail).toBe("amd64-netinst.iso");
+  });
+
+  test("splits on a natural boundary when one is close", () => {
+    const name = "Some.Distributor.Linux.2026.11.Desktop.2160p.HDR.x86_64.iso";
+    const parts = splitTorrentName(name);
+
+    expect(parts.head + parts.tail).toBe(name);
+    expect(parts.tail).toBe("2160p.HDR.x86_64.iso");
+  });
+
+  test("does not split surrogate pairs", () => {
+    const name = `${"🎬".repeat(20)}-release.iso`;
+    const parts = splitTorrentName(name);
+
+    expect(parts.head + parts.tail).toBe(name);
+    expect(parts.head.endsWith("\uD83C")).toBe(false);
+    expect(parts.tail.startsWith("\uDFAC")).toBe(false);
   });
 });
 
