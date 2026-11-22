@@ -9,7 +9,7 @@ without leaving throwaway scaffolding behind.
 | ----------------------------------------------- | ----------- |
 | 1. Settings, secure storage, onboarding, health | Implemented |
 | 2. qBittorrent client                           | Implemented |
-| 3. Magnet intake and review                     | Next        |
+| 3. Magnet intake and review                     | Implemented |
 | 4. Torrent list and archive downloads           | Planned     |
 | 5. Polish and release                           | Planned     |
 
@@ -316,13 +316,13 @@ source, plus a passing lint, unit and UI test run.
 
 ## Testing strategy
 
-| Layer       | Tool                        | What it covers                                    |
-| ----------- | --------------------------- | ------------------------------------------------- |
-| Pure Kotlin | JUnit 4                     | validation, formatting, QR parsing, state mapping |
-| Repository  | JUnit 4 + fake store/cipher | defaults, round-trips, corrupt ciphertext         |
-| HTTP        | JUnit 4 + JDK HttpServer    | qBittorrent auth, add/remove, error mapping       |
-| Compose     | Compose UI test             | settings validation, save, connection status      |
-| Device      | emulator + adb              | install, intent intake, QR import, download       |
+| Layer       | Tool                        | What it covers                                                       |
+| ----------- | --------------------------- | -------------------------------------------------------------------- |
+| Pure Kotlin | JUnit 4                     | validation, formatting, QR parsing, state mapping, intent extraction |
+| Repository  | JUnit 4 + fake store/cipher | defaults, round-trips, corrupt ciphertext                            |
+| HTTP        | JUnit 4 + JDK HttpServer    | qBittorrent auth, add/remove, error mapping                          |
+| Compose     | Compose UI test             | settings validation, save, connection status                         |
+| Device      | emulator + adb              | install, intent intake, QR import, download                          |
 
 The emulator runs inside the agent's private desktop session, never the host
 display. Mock services bind to the host and are reached from the emulator at

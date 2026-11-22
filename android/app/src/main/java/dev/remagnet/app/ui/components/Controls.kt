@@ -4,6 +4,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -24,7 +25,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
@@ -173,6 +176,74 @@ fun SecondaryButton(
         contentPadding = ButtonDefaults.ContentPadding,
     ) {
         Text(text, fontFamily = GeistMono, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+/** A square check row, matching the extension's checkbox styling. */
+@Composable
+fun CheckRow(
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    help: String? = null,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .toggleable(
+                value = checked,
+                enabled = enabled,
+                role = Role.Checkbox,
+                onValueChange = onCheckedChange,
+            ),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(18.dp)
+                .border(
+                    width = 1.dp,
+                    color = if (enabled) {
+                        if (checked) RemagnetPalette.Accent else RemagnetPalette.Line
+                    } else {
+                        RemagnetPalette.Line
+                    },
+                )
+                .background(
+                    if (checked && enabled) RemagnetPalette.Accent else Color.Transparent,
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (checked) {
+                Box(
+                    Modifier
+                        .size(8.dp)
+                        .background(
+                            if (enabled) RemagnetPalette.OnAccent else RemagnetPalette.Muted,
+                        ),
+                )
+            }
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                text = label,
+                color = if (enabled) RemagnetPalette.Text else RemagnetPalette.Muted,
+                fontFamily = GeistMono,
+                fontSize = 12.sp,
+            )
+            if (help != null) {
+                Text(
+                    text = help,
+                    color = RemagnetPalette.Muted,
+                    fontFamily = GeistMono,
+                    fontSize = 10.sp,
+                    lineHeight = 14.sp,
+                )
+            }
+        }
     }
 }
 

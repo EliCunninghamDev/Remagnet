@@ -6,6 +6,7 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -25,6 +26,12 @@ fun RemagnetApp(viewModel: RemagnetViewModel = viewModel()) {
     val context = LocalContext.current
     var screen by rememberSaveable { mutableStateOf(Screen.Home) }
     var scanResult by rememberSaveable { mutableStateOf<String?>(null) }
+
+    // A magnet can arrive from another app while Settings is open. The sheet
+    // belongs over Home, so bring that screen back before it appears.
+    LaunchedEffect(state.addSheet) {
+        if (state.addSheet !is AddSheetState.Closed) screen = Screen.Home
+    }
 
     val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
         val contents = result.contents
@@ -69,6 +76,7 @@ fun RemagnetApp(viewModel: RemagnetViewModel = viewModel()) {
             onScanCode = ::startScan,
             onTestConnection = viewModel::checkConnection,
             onTestQbitConnection = viewModel::checkQbitConnection,
+            onAddMagnet = viewModel::openAddSheet,
         )
 
         Screen.Settings -> SettingsScreen(
@@ -81,6 +89,25 @@ fun RemagnetApp(viewModel: RemagnetViewModel = viewModel()) {
                 screen = Screen.Home
             },
             onSave = viewModel::save,
+        )
+    }
+
+    if (state.addSheet !is AddSheetState.Closed) {
+        AddMagnetSheet(
+            state = state.addSheet,
+            settings = state.settings,
+            onDismiss = viewModel::closeAddSheet,
+            onDraftChange = viewModel::updateDraft,
+            onReview = viewModel::reviewDraft,
+            onPausedChange = viewModel::setPaused,
+            onSubmit = viewModel::submitMagnet,
+            onRetryDuplicate = viewModel::retryDuplicateCheck,
+            onEdit = viewModel::editReviewedMagnet,
+            onAddAnother = viewModel::addAnother,
+            onOpenSettings = {
+                viewModel.closeAddSheet()
+                screen = Screen.Settings
+            },
         )
     }
 }

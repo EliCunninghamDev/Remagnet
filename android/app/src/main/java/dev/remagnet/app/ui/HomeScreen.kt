@@ -42,6 +42,7 @@ fun HomeScreen(
     onScanCode: () -> Unit,
     onTestConnection: () -> Unit,
     onTestQbitConnection: () -> Unit,
+    onAddMagnet: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(
@@ -79,6 +80,14 @@ fun HomeScreen(
                     lineHeight = 19.sp,
                 )
             }
+        }
+
+        item {
+            PrimaryButton(
+                text = "Add magnet",
+                onClick = onAddMagnet,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
 
         if (!state.loaded) {

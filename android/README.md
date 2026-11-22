@@ -10,7 +10,7 @@ CI and release signing; this README covers what is implemented today.
 
 ## Current status
 
-Phases 1 and 2 are complete:
+Phases 1-3 are complete:
 
 - A connection screen for qBittorrent and the optional proxy.
 - Settings that validate URLs, authentication and the proxy pair before saving.
@@ -25,11 +25,17 @@ Phases 1 and 2 are complete:
   a proxy whose own qBittorrent connection is failing.
 - A home screen that tests qBittorrent directly and reports its version without
   involving the proxy.
+- Magnet intake from `VIEW magnet:` links and shared `text/plain` text, with a
+  review sheet over the home screen.
+- Duplicate detection, category and tag defaults, pause-on-add, and retry after
+  a rejected or failed add.
+- Intent and draft state kept in saved state, so a review survives rotation and
+  process death.
 - Bundled Geist Mono and Departure Mono, so Android matches the browser
   clients.
 
-Magnet intake and the add sheet are Phase 3. The torrent list, archive
-downloads and the foreground download notification are Phase 4.
+The torrent list, archive downloads and the foreground download notification are
+Phase 4.
 
 ```
 android/
@@ -38,9 +44,10 @@ android/
     MainActivity.kt        Entry point and Compose host
     data/                  Settings, encrypted storage, onboarding payloads
     client/                qBittorrent client, proxy health, neutral models
-    magnet/MagnetLink.kt   Magnet URI parser (mirrors the extension)
+    magnet/                Magnet parser, intent extraction, VIEW/SEND intake
     proxy/ProxyApi.kt      Configures the generated Retrofit client
-    ui/                    Screens, theme and shared controls
+    ui/                    Screens, add sheet, theme and shared controls
+    util/Format.kt         Byte, speed and percentage formatting
   proxy-client/            Generated Kotlin/Retrofit proxy client (library)
   gradle/libs.versions.toml Version catalog
   PLAN.md                  Phased buildout, CI and signing notes
@@ -94,6 +101,48 @@ there is no spinner that can hang.
 Adding a torrent creates the configured category and tags first when they are
 missing. The add form sends both `paused` and `stopped` so the same request
 works with qBittorrent 4.x and 5.x.
+
+## Magnet intake and review
+
+The activity registers two intake paths:
+
+| Intent                   | Data                         | Use                                         |
+| ------------------------ | ---------------------------- | ------------------------------------------- |
+| `VIEW`                   | `magnet:` URI                | A magnet link opened from a browser         |
+| `SEND` / `SEND_MULTIPLE` | `text/plain` in `EXTRA_TEXT` | A magnet shared from a chat or file manager |
+
+`MainActivity` uses `singleTop`, so a link opened while the app is already
+running arrives through `onNewIntent` instead of stacking a second copy. The
+magnet is read from the intent's data first, then from the first magnet found in
+shared text. Quotes, brackets and trailing punctuation around a shared link are
+stripped. A link without a BitTorrent v1 hash opens the sheet in paste mode with
+an explanation, so the user can correct it instead of losing the share.
+
+The parser normalizes base32 info hashes to hex, decodes `+` as a space in query
+values, reads `xl` only when it is all digits, and collects `tr` trackers and
+`ws` web seeds. It matches the extension's parser, including the label and
+tracker-host helpers.
+
+The review sheet is a Material 3 modal over the home screen:
+
+- It shows the display name, info hash, size, tracker hosts and web-seed count.
+- It asks qBittorrent for the hash before enabling **Send**. An existing torrent
+  is named in the warning and blocks the add. A lookup failure still allows the
+  attempt and explains that duplicates could not be checked.
+- The configured category and tags are shown and applied, and **Add paused**
+  sends the torrent stopped.
+- A rejected or failed add keeps the magnet and its settings in the sheet, with
+  the error visible. Pressing **Send** again retries the same link.
+- A successful add shows the name, category and tags, with **Add another** and
+  **Done** actions.
+- With qBittorrent unconfigured, the link can still be reviewed; sending is
+  blocked and **Open settings** goes straight to the connection form.
+
+A pending magnet, the paused choice and an unsent paste draft live in
+`SavedStateHandle`. Rotation keeps the sheet in place; process death restores the
+review and re-runs the duplicate check. A request that is already sending
+refuses to be swiped away or dismissed until it returns. **Add magnet** on the
+home screen opens the same sheet in paste mode.
 
 ## QR onboarding
 
@@ -222,8 +271,10 @@ ciphertext recovery, QR parsing, settings merging, proxy error mapping,
 qBittorrent state and filter rules, and the qBittorrent client against an
 in-process HTTP server. That server exercises API-key and cookie auth,
 re-login after an expired session, list and lookup, category/tag creation, add,
-remove, rejected magnets and malformed responses. They run on the JVM and do
-not need an emulator.
+remove, rejected magnets and malformed responses. Magnet tests cover hex and
+base32 hashes, web seeds, wrapped shared text, `VIEW` and `SEND` intake,
+duplicate-state mapping, add-request defaults and byte formatting. They run on
+the JVM and do not need an emulator.
 
 ## CI
 
@@ -244,6 +295,17 @@ emulator -avd remagnet-api36 -gpu host &    # windowed
 emulator -avd remagnet-api36 -no-window -no-audio -no-boot-anim -gpu host &
 adb wait-for-device
 adb shell getprop sys.boot_completed   # 1 when booted
+```
+
+Exercise the two intake paths without a browser:
+
+```bash
+adb shell "am start -a android.intent.action.VIEW \
+  -d 'magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&dn=Test+ISO'"
+
+adb shell "am start -a android.intent.action.SEND -t text/plain \
+  --es android.intent.extra.TEXT \
+  'Look at this: magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567'"
 ```
 
 `-gpu host` uses the host GPU through XWayland (NVIDIA here) and boots in about

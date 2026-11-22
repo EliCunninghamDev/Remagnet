@@ -177,14 +177,17 @@ for deployment, configuration and tests.
 
 ## Android Client - Kotlin
 
-`android/` builds the Kotlin + Jetpack Compose client. The first two phases
+`android/` builds the Kotlin + Jetpack Compose client. The first three phases
 provide the connection settings screen, QR code import, credential storage
 encrypted by the Android Keystore, and a direct qBittorrent Web API client for
 listing, adding and removing torrents with API-key or cookie authentication.
-The magnet parser mirrors the extension's semantics, and `ProxyApi` configures
-the generated Retrofit client with a proxy URL and bearer token. `:proxy-client`
-holds the generated proxy sources; the archive endpoint is a streaming response,
-so downloads stream to disk instead of buffering the ZIP in memory.
+Magnets arrive through `VIEW magnet:` links or shared text and open a review
+sheet over the home screen, with duplicate detection, category/tag defaults and
+pause-on-add. The magnet parser mirrors the extension's semantics, and
+`ProxyApi` configures the generated Retrofit client with a proxy URL and bearer
+token. `:proxy-client` holds the generated proxy sources; the archive endpoint
+is a streaming response, so downloads stream to disk instead of buffering the ZIP
+in memory.
 
 ```bash
 bun run android:build                 # ./gradlew :app:assembleDebug
