@@ -1,0 +1,120 @@
+package dev.remagnet.app.client
+
+import com.google.gson.JsonParser
+import dev.remagnet.app.data.RemagnetSettings
+import dev.remagnet.app.data.validateProxySettings
+import dev.remagnet.app.proxy.ProxyApi
+import java.io.IOException
+import kotlinx.coroutines.CancellationException
+import retrofit2.Response
+
+/** What the proxy can tell us about itself and its qBittorrent link. */
+sealed interface ProxyStatus {
+    data object NotConfigured : ProxyStatus
+
+    data class Online(
+        val appVersion: String,
+        val webApiVersion: String,
+    ) : ProxyStatus
+
+    data class Unauthorized(val message: String) : ProxyStatus
+
+    /** The proxy answered, but its saved qBittorrent connection did not. */
+    data class QbitUnavailable(val message: String) : ProxyStatus
+
+    data class Unreachable(val message: String) : ProxyStatus
+
+    data class Misconfigured(val message: String) : ProxyStatus
+}
+
+/**
+ * Check the proxy in two steps: liveness proves the URL is reachable, then
+ * `/api/health` proves the token and the proxy's qBittorrent connection.
+ * Splitting the calls gives the user an actionable message instead of one
+ * generic failure.
+ */
+class ProxyHealthClient(
+    private val createApi: (baseUrl: String, token: String) -> ProxyApi = { url, token ->
+        ProxyApi(url, token)
+    },
+) {
+    suspend fun check(settings: RemagnetSettings): ProxyStatus {
+        if (!settings.proxyConfigured) return ProxyStatus.NotConfigured
+        if (validateProxySettings(settings).isNotEmpty()) {
+            return ProxyStatus.Misconfigured(
+                "The proxy settings are incomplete. Check the URL and token in Settings.",
+            )
+        }
+
+        val api = try {
+            createApi(settings.proxyBaseUrl, settings.proxyToken)
+        } catch (error: IllegalArgumentException) {
+            return ProxyStatus.Misconfigured(error.message ?: "The proxy URL is not valid.")
+        }
+
+        val liveness = try {
+            api.service.getLiveness()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: IOException) {
+            return ProxyStatus.Unreachable(
+                "Could not reach the proxy at ${settings.proxyBaseUrl}. Check the URL and network.",
+            )
+        } catch (error: Exception) {
+            return ProxyStatus.Unreachable(
+                error.message ?: "Could not reach the proxy at ${settings.proxyBaseUrl}.",
+            )
+        }
+
+        if (!liveness.isSuccessful) {
+            return ProxyStatus.Unreachable(
+                "The proxy answered with HTTP ${liveness.code()} instead of its liveness status.",
+            )
+        }
+
+        val health = try {
+            api.configuration.checkQbitConnection()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: IOException) {
+            return ProxyStatus.Unreachable(
+                "The proxy stopped responding while checking qBittorrent.",
+            )
+        } catch (error: Exception) {
+            return ProxyStatus.Unreachable(
+                error.message ?: "The proxy stopped responding while checking qBittorrent.",
+            )
+        }
+
+        val body = health.body()
+        if (health.isSuccessful && body != null) {
+            return ProxyStatus.Online(body.appVersion, body.webApiVersion)
+        }
+
+        if (health.code() == 401) {
+            return ProxyStatus.Unauthorized(
+                errorMessage(health) ?: "The proxy token is missing or invalid.",
+            )
+        }
+
+        return ProxyStatus.QbitUnavailable(
+            errorMessage(health)
+                ?: "The proxy could not reach qBittorrent (HTTP ${health.code()}).",
+        )
+    }
+
+    private fun errorMessage(response: Response<*>): String? {
+        val text = try {
+            response.errorBody()?.string()
+        } catch (_: IOException) {
+            null
+        } ?: return null
+
+        return try {
+            val entry = JsonParser.parseString(text).asJsonObject.get("error")
+            if (entry != null && entry.isJsonPrimitive) entry.asString else null
+        } catch (_: Exception) {
+            null
+        }
+    }
+}

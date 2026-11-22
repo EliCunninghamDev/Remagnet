@@ -11,18 +11,19 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.remagnet.app.R
+import dev.remagnet.app.ui.theme.DepartureMono
+import dev.remagnet.app.ui.theme.GeistMono
 
 /**
  * The Remagnet wordmark, shared by Android screens.
  *
- * The web clients use bundled Departure Mono. Android currently renders the
- * same mark with the platform monospace face until the font is packaged as a
- * mobile resource, so the casing, size and surface label stay aligned.
+ * The mark uses the bundled Departure Mono face and the same 1em icon lockup as
+ * the browser clients, so the product keeps one identity across platforms.
  */
 @Composable
 fun RemagnetWordmark(
@@ -30,7 +31,7 @@ fun RemagnetWordmark(
     surface: String? = null,
 ) {
     Row(
-        modifier = modifier,
+        modifier = modifier.semantics(mergeDescendants = true) { },
         verticalAlignment = Alignment.Bottom,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -46,7 +47,7 @@ fun RemagnetWordmark(
             Text(
                 text = "Remagnet",
                 color = MaterialTheme.colorScheme.onBackground,
-                fontFamily = FontFamily.Monospace,
+                fontFamily = DepartureMono,
                 fontSize = 22.sp,
                 fontWeight = FontWeight.Normal,
                 lineHeight = 22.sp,
@@ -57,7 +58,7 @@ fun RemagnetWordmark(
             Text(
                 text = surface.uppercase(),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontFamily = FontFamily.Monospace,
+                fontFamily = GeistMono,
                 fontSize = 10.sp,
                 fontWeight = FontWeight.SemiBold,
                 lineHeight = 10.sp,

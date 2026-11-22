@@ -7,7 +7,8 @@
 A torrent forwarding and download proxy for Firefox, Chrome, and Android.
 
 Firefox handles magnet links through a `magnet:` protocol handler. Chrome adds a
-context menu item on magnet links. Android registers a system-wide link handler.
+context menu item on magnet links. The Android client is being built around a
+system-wide link handler.
 
 Remagnet talks to your torrent client directly with an API key, or through a
 token-secured proxy that zips completed torrents. Android client onboarding uses
@@ -176,20 +177,25 @@ for deployment, configuration and tests.
 
 ## Android Client - Kotlin
 
-`android/` builds the Kotlin + Jetpack Compose client. The app module contains
-the Compose home screen, a magnet parser that mirrors the extension's semantics,
-and `ProxyApi`, which configures the generated Retrofit client with a proxy URL
-and token. `:proxy-client` holds the generated proxy sources; the archive
-endpoint is a streaming response, so downloads stream to disk instead of
-buffering the ZIP in memory.
+`android/` builds the Kotlin + Jetpack Compose client. The first two phases
+provide the connection settings screen, QR code import, credential storage
+encrypted by the Android Keystore, and a direct qBittorrent Web API client for
+listing, adding and removing torrents with API-key or cookie authentication.
+The magnet parser mirrors the extension's semantics, and `ProxyApi` configures
+the generated Retrofit client with a proxy URL and bearer token. `:proxy-client`
+holds the generated proxy sources; the archive endpoint is a streaming response,
+so downloads stream to disk instead of buffering the ZIP in memory.
 
 ```bash
 bun run android:build                 # ./gradlew :app:assembleDebug
 bun run android:test                  # ./gradlew :app:testDebugUnitTest
+cd android && ./gradlew :app:lintDebug
 cd android && ./gradlew :app:installDebug
 ```
 
-The toolchain, emulator setup and install steps are documented in
+Magnet intake, the torrent list, archive downloads and release signing are
+planned in [`android/PLAN.md`](android/PLAN.md). The toolchain, emulator setup,
+QR payload format and install steps are documented in
 [`android/README.md`](android/README.md). Cleartext HTTP is allowed only for the
 emulator host (`10.0.2.2`) and loopback; a deployed proxy must use HTTPS.
 

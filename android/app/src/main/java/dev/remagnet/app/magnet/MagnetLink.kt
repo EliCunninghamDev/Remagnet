@@ -1,7 +1,6 @@
 package dev.remagnet.app.magnet
 
 import java.net.URLDecoder
-import java.nio.charset.StandardCharsets
 
 /**
  * The parts of a magnet URI that are useful before a client resolves metadata.
@@ -60,5 +59,7 @@ fun parseMagnet(uri: String): MagnetLink? {
 /** Magnet query strings percent-encode values; `+` is literal, not a space. */
 private fun decode(value: String): String =
     runCatching {
-        URLDecoder.decode(value.replace("+", "%2B"), StandardCharsets.UTF_8)
+        // The String overload is the one available on API 26; the Charset
+        // overload arrived in API 33.
+        URLDecoder.decode(value.replace("+", "%2B"), "UTF-8")
     }.getOrDefault(value)

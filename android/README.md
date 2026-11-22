@@ -1,19 +1,154 @@
 # Remagnet for Android
 
-Kotlin/Jetpack Compose client for Android. The app module contains the Compose
-home screen, a magnet parser with unit tests, and configuration for the
-generated Retrofit proxy client.
+Kotlin/Jetpack Compose client for Android. The finished app will handle magnet
+links, add them to qBittorrent with the same category and tag rules as the
+browser extension, and download completed torrents as ZIPs through a Remagnet
+proxy.
+
+The build is landing in phases. [`PLAN.md`](PLAN.md) is the full plan, including
+CI and release signing; this README covers what is implemented today.
+
+## Current status
+
+Phases 1 and 2 are complete:
+
+- A connection screen for qBittorrent and the optional proxy.
+- Settings that validate URLs, authentication and the proxy pair before saving.
+- Encrypted credential storage using the Android Keystore.
+- QR import for `remagnet://connect` links and JSON connect codes, with a paste
+  fallback for devices without a camera.
+- A direct qBittorrent Web API client with API-key and cookie authentication,
+  torrent listing and lookup, add and remove, and category/tag creation.
+- Neutral torrent models, qBittorrent state normalization and the same
+  category/tag filter the extension uses.
+- A proxy health check that distinguishes an unreachable proxy, a bad token and
+  a proxy whose own qBittorrent connection is failing.
+- A home screen that tests qBittorrent directly and reports its version without
+  involving the proxy.
+- Bundled Geist Mono and Departure Mono, so Android matches the browser
+  clients.
+
+Magnet intake and the add sheet are Phase 3. The torrent list, archive
+downloads and the foreground download notification are Phase 4.
 
 ```
 android/
   app/                     Application module (Compose)
   app/src/main/java/dev/remagnet/app/
-    MainActivity.kt        Entry point and Compose home screen
+    MainActivity.kt        Entry point and Compose host
+    data/                  Settings, encrypted storage, onboarding payloads
+    client/                qBittorrent client, proxy health, neutral models
     magnet/MagnetLink.kt   Magnet URI parser (mirrors the extension)
-    proxy/ProxyApi.kt      Configures the generated client with a base URL/token
-  proxy-client/            Generated Kotlin/Retrofit proxy client (library module)
+    proxy/ProxyApi.kt      Configures the generated Retrofit client
+    ui/                    Screens, theme and shared controls
+    util/                  Formatting shared with the extension
+  proxy-client/            Generated Kotlin/Retrofit proxy client (library)
   gradle/libs.versions.toml Version catalog
+  PLAN.md                  Phased buildout, CI and signing notes
 ```
+
+## Settings
+
+The settings screen accepts:
+
+| Setting                | Notes                                                      |
+| ---------------------- | ---------------------------------------------------------- |
+| qBittorrent Web UI URL | `http://` or `https://`, no credentials, query or fragment |
+| Authentication         | qBittorrent 5.2+ API key, or username and password         |
+| Category / tags        | Applied to magnets added from Remagnet                     |
+| Proxy URL and token    | Optional; both blank disables ZIP downloads                |
+
+The default qBittorrent URL is `http://127.0.0.1:8080`, matching the
+extension. Inside the emulator, use `http://10.0.2.2:8080` to reach a service on
+the host. A deployed instance normally uses an HTTPS URL.
+
+Saving validates the whole form, writes the settings, and immediately checks
+qBittorrent and the proxy when either is configured. The home screen shows the
+qBittorrent version it read directly, and the proxy's view separately, so a
+failure in one does not hide the other.
+
+## qBittorrent client
+
+`client/QBittorrentClient.kt` implements the Web API subset the app needs
+against OkHttp:
+
+| Operation     | Endpoint                                |
+| ------------- | --------------------------------------- |
+| Versions      | `app/version`, `app/webapiVersion`      |
+| List / lookup | `torrents/info` (`sort=added_on`)       |
+| Add           | `torrents/add`                          |
+| Remove        | `torrents/delete`                       |
+| Categories    | `torrents/categories`, `createCategory` |
+| Tags          | `torrents/tags`, `createTags`           |
+
+An API key is sent as `Authorization: Bearer <key>`. Username/password auth
+posts to `auth/login`, keeps the `SID` cookie, and retries a request once after
+a 401 or 403 so an expired session recovers on its own. Requests include a
+same-origin `Referer`, which qBittorrent's CSRF protection expects from a
+non-browser client.
+
+Every method returns `QbitResult`: `Success` with a neutral model, or `Failure`
+with a typed `QbitError` (invalid settings, unauthorized, unreachable, HTTP,
+rejected torrent, unreadable response). Screens render those states directly;
+there is no spinner that can hang.
+
+Adding a torrent creates the configured category and tags first when they are
+missing. The add form sends both `paused` and `stopped` so the same request
+works with qBittorrent 4.x and 5.x.
+
+## QR onboarding
+
+A connect code can carry either connection or both, so one scan can set up a
+phone without typing secrets. The documented URI form is:
+
+```
+remagnet://connect?qbit=https%3A%2F%2Fqbt.example.com&apiKey=...&proxy=https%3A%2F%2Fremagnet.example.com&token=...
+```
+
+Recognised query keys:
+
+| Purpose         | Keys                                                |
+| --------------- | --------------------------------------------------- |
+| qBittorrent URL | `qbit`, `qbitUrl`, `qbitBaseUrl`, `qbittorrent`     |
+| API key         | `apiKey`, `qbitApiKey`, `key`                       |
+| Username        | `username`, `qbitUsername`, `user`                  |
+| Password        | `password`, `qbitPassword`, `pass`                  |
+| Auth mode       | `auth`, `authMode` (`apiKey` or `password`)         |
+| Category        | `category`, `defaultCategory`                       |
+| Tags            | `tags`, `defaultTags`                               |
+| Proxy URL       | `proxy`, `proxyUrl`, `archive`, `archiveUrl`, `url` |
+| Proxy token     | `token`, `proxyToken`, `archiveToken`               |
+
+A JSON object with the same keys is accepted. A bare `http://` or `https://` URL
+is treated as the proxy URL.
+
+Query values use URL encoding with one deliberate exception: `+` stays a plus so
+Base64 tokens survive. Encode a space as `%20`, not `+`. The scanner shows the
+imported values in the form and writes nothing until **Save settings** is
+pressed.
+
+The app asks for camera access the first time a code is scanned. **Paste code**
+in the proxy section accepts the same payload without a camera, which is also
+the path used in emulator tests.
+
+## Security
+
+Credentials are encrypted with an AES-256-GCM key generated inside the Android
+Keystore. The key is non-exportable and is not tied to biometrics or a PIN, so
+background health checks work without an unlock prompt.
+
+Public values (URLs, auth mode, username, category, tags) stay readable in
+SharedPreferences so the settings screen can render without decrypting
+anything. The API key, password and proxy token are stored only as ciphertext in
+one encrypted JSON value.
+
+If the Keystore key is lost (a cleared app, a restored backup, a reset device),
+the app treats the ciphertext as absent, removes it, and asks for the secret
+again. It does not fail to start or keep retrying a value it can never read.
+
+A copied preference file does not reveal the secrets. Code running as the app
+can still decrypt them while the device is unlocked, the same limit the
+extension's non-extractable WebCrypto key has.
 
 ## Generated proxy client
 
@@ -83,6 +218,25 @@ bun run android:build
 bun run android:test
 ```
 
+Unit tests cover settings validation, encrypted storage round-trips, corrupt
+ciphertext recovery, QR parsing, settings merging, proxy error mapping,
+qBittorrent state and filter rules, and the qBittorrent client against an
+in-process HTTP server. That server exercises API-key and cookie auth,
+re-login after an expired session, list and lookup, category/tag creation, add,
+remove, rejected magnets and malformed responses. They run on the JVM and do
+not need an emulator.
+
+## CI
+
+`.github/workflows/android.yml` runs the unit tests and lint, builds a debug APK
+and uploads it as an artifact on changes under `android/`, `packages/proxy-client/`
+or the proxy contract. Debug builds are signed with the runner's generated debug
+key, so they install without repository secrets.
+
+Release signing needs a keystore kept outside the repository. `PLAN.md` covers
+key generation, the Gradle wiring and the environment variables the release
+workflow will use. `*.jks`, `*.keystore` and `keystore.properties` are ignored.
+
 ## Emulator
 
 ```bash
@@ -95,7 +249,9 @@ adb shell getprop sys.boot_completed   # 1 when booted
 
 `-gpu host` uses the host GPU through XWayland (NVIDIA here) and boots in about
 12 seconds. Software rendering is much slower, and the Android 36.1 image's
-SurfaceFlinger aborts on this host, so the AVD uses the stable 36.0 image.
+SurfaceFlinger aborts on this host, so the AVD uses the stable 36.0 image. In a
+private headless desktop, `-gpu swiftshader_indirect` also works and takes about
+a minute to boot.
 
 Install and launch:
 
@@ -113,3 +269,18 @@ host loopback, either use `http://10.0.2.2:8080` or forward the port:
 adb reverse tcp:8080 tcp:8080
 # then use http://127.0.0.1:8080 inside the app
 ```
+
+To inspect stored settings without printing secrets:
+
+```bash
+adb shell run-as dev.remagnet.app cat shared_prefs/remagnet.settings.xml
+```
+
+The public JSON is readable; the secret value is Base64 ciphertext.
+
+## Fonts
+
+`app/src/main/res/font/` contains Geist Mono (regular and semibold) and
+Departure Mono, converted from the extension's WOFF2 files. Both are licensed
+under the SIL Open Font License; the license texts are packaged under
+`app/src/main/assets/licenses/`.

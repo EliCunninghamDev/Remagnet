@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Alpha-only silhouette for Android's themed launcher icon. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="128dp"
+    android:height="128dp"
+    android:viewportWidth="128"
+    android:viewportHeight="128">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M16,16h32v16h-32zM80,16h32v16h-32zM16,32h32v16h-32zM80,32h32v16h-32z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M16,48h32v16h-32zM80,48h32v16h-32zM16,64h32v16h-32zM80,64h32v16h-32zM16,80h32v16h-32zM80,80h32v16h-32zM16,96h96v16h-96z" />
+</vector>

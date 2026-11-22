@@ -2,8 +2,10 @@ package dev.remagnet.app.proxy
 
 import dev.remagnet.proxy.apis.ArchivesApi
 import dev.remagnet.proxy.apis.ConfigurationApi
+import dev.remagnet.proxy.apis.ServiceApi
 import dev.remagnet.proxy.infrastructure.ApiClient
 import okhttp3.OkHttpClient
+import java.util.concurrent.TimeUnit
 
 /**
  * Construction layer for the generated Remagnet proxy client.
@@ -17,6 +19,7 @@ class ProxyApi(
     baseUrl: String,
     token: String,
 ) {
+    val service: ServiceApi
     val configuration: ConfigurationApi
     val archives: ArchivesApi
 
@@ -31,12 +34,21 @@ class ProxyApi(
             "The archive bridge token is required."
         }
 
+        val http = OkHttpClient.Builder()
+            // A phone may leave the proxy URL pointed at a LAN address that is
+            // no longer reachable. Fail in a time the UI can explain instead of
+            // waiting out the platform default.
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(20, TimeUnit.SECONDS)
+            .build()
+
         val client = ApiClient(
             baseUrl = normalizedUrl,
-            okHttpClientBuilder = OkHttpClient.Builder(),
+            okHttpClientBuilder = http.newBuilder(),
             authNames = arrayOf(BEARER_AUTH),
         ).setBearerToken(normalizedToken)
 
+        service = client.createService(ServiceApi::class.java)
         configuration = client.createService(ConfigurationApi::class.java)
         archives = client.createService(ArchivesApi::class.java)
     }
