@@ -76,6 +76,8 @@ jobs:
           name: remagnet-extension-chrome
           path: extension/.output/*-chrome.zip
           if-no-files-found: error
+          # .output is a hidden directory, which upload-artifact skips by default.
+          include-hidden-files: true
 
       - name: Package Firefox extension
         run: bun run zip:firefox
@@ -88,6 +90,7 @@ jobs:
             extension/.output/*-firefox.zip
             extension/.output/*-sources.zip
           if-no-files-found: error
+          include-hidden-files: true
 
   proxy:
     name: Remagnet Proxy
