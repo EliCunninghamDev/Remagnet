@@ -5,7 +5,7 @@ export interface ArchiveSettings {
   token: string;
 }
 
-const DISABLED = "The archive bridge is not configured. Add its URL and token in settings.";
+const DISABLED = "The Remagnet Proxy is not configured. Add its URL and token in settings.";
 
 /** Return usable archive settings, or null when the feature is turned off. */
 export function getArchiveSettings(settings: Settings): ArchiveSettings | null {
@@ -26,21 +26,21 @@ export function validateArchiveSettings(settings: Settings): string | null {
   };
 
   if (!baseUrl && !token) return null;
-  if (!baseUrl) return "Enter the archive bridge URL, or clear the bridge token.";
-  if (!token) return "Enter the archive bridge token, or clear the bridge URL.";
-  if (token.length < 16) return "The archive bridge token must be at least 16 characters.";
+  if (!baseUrl) return "Enter the Remagnet Proxy URL, or clear the Remagnet Proxy token.";
+  if (!token) return "Enter the Remagnet Proxy token, or clear the Remagnet Proxy URL.";
+  if (token.length < 16) return "The Remagnet Proxy token must be at least 16 characters.";
 
   try {
     const url = new URL(baseUrl);
     if (url.protocol !== "http:" && url.protocol !== "https:") {
-      return "The archive bridge URL must use http:// or https://.";
+      return "The Remagnet Proxy URL must use http:// or https://.";
     }
-    if (!url.hostname) return "The archive bridge URL needs a host.";
+    if (!url.hostname) return "The Remagnet Proxy URL needs a host.";
     if (url.username || url.password) {
-      return "Put the bridge token in its own field, not in the URL.";
+      return "Put the Remagnet Proxy token in its own field, not in the URL.";
     }
   } catch {
-    return "Enter a valid archive bridge URL.";
+    return "Enter a valid Remagnet Proxy URL.";
   }
 
   return null;

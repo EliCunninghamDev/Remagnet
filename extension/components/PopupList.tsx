@@ -15,7 +15,7 @@ export interface PopupListProps {
   clientLabel: string;
   /** Shown alongside the client in the wordmark tooltip. */
   serverLabel?: string;
-  /** The archive bridge is configured, so completed rows can offer ZIP. */
+  /** The archive bridge is configured, so completed rows can download a ZIP. */
   archiveReady: boolean;
   downloadingHash?: string;
   removingHash?: string;

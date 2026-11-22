@@ -8,6 +8,8 @@ import androidx.lifecycle.viewModelScope
 import dev.remagnet.app.client.QBittorrentClient
 import dev.remagnet.app.client.QbitError
 import dev.remagnet.app.client.QbitResult
+import dev.remagnet.app.client.PairingClaim
+import dev.remagnet.app.client.PairingClient
 import dev.remagnet.app.client.ProxyHealthClient
 import dev.remagnet.app.client.ProxyStatus
 import dev.remagnet.app.client.TorrentClient
@@ -15,6 +17,7 @@ import dev.remagnet.app.client.TorrentSummary
 import dev.remagnet.app.client.filterTorrents
 import dev.remagnet.app.client.torrentFilterFor
 import dev.remagnet.app.data.AuthMode
+import dev.remagnet.app.data.PairingLink
 import dev.remagnet.app.data.RemagnetSettings
 import dev.remagnet.app.data.SettingsError
 import dev.remagnet.app.data.SettingsRepository
@@ -59,6 +62,7 @@ data class RemagnetUiState(
     val download: ArchiveDownloadState = ArchiveDownloadState.Idle,
     val addSheet: AddSheetState = AddSheetState.Closed,
     val notice: String? = null,
+    val pairing: PairingState = PairingState.Idle,
 )
 
 /** What a direct qBittorrent check found, independent of the optional proxy. */
@@ -88,12 +92,25 @@ sealed interface SaveResult {
     data class Failed(val message: String) : SaveResult
 }
 
+/** Progress while a scanned `remagnet://pair` code is claimed. */
+sealed interface PairingState {
+    data object Idle : PairingState
+
+    data object Claiming : PairingState
+
+    data class Failed(val message: String) : PairingState
+
+    /** Claimed settings, not saved yet; the settings screen reviews them. */
+    data class Paired(val settings: RemagnetSettings) : PairingState
+}
+
 class RemagnetViewModel(
     application: Application,
     private val repository: SettingsRepository,
     private val proxyHealth: ProxyHealthClient,
     private val clientFactory: (RemagnetSettings) -> TorrentClient,
     private val savedState: SavedStateHandle,
+    private val pairingClient: PairingClient = PairingClient(),
 ) : AndroidViewModel(application) {
     /**
      * The default factory in [androidx.lifecycle.SavedStateViewModelFactory]
@@ -195,6 +212,44 @@ class RemagnetViewModel(
             if (result.settings.proxyConfigured) checkConnection()
         }
         return result
+    }
+
+    // ---- Mobile pairing ---------------------------------------------------
+
+    /**
+     * Claim a scanned code. The result is presented as form values, not saved:
+     * the user still reviews and confirms them on the settings screen.
+     */
+    fun pairDevice(link: PairingLink) {
+        if (_state.value.pairing == PairingState.Claiming) return
+        _state.update { it.copy(pairing = PairingState.Claiming) }
+
+        viewModelScope.launch {
+            when (val result = pairingClient.claim(link)) {
+                is PairingClaim.Failed -> _state.update {
+                    it.copy(pairing = PairingState.Failed(result.message))
+                }
+
+                is PairingClaim.Success -> {
+                    val connection = result.connection
+                    val current = _state.value.settings
+                    val paired = current.copy(
+                        qbitBaseUrl = connection.qbitBaseUrl,
+                        authMode = connection.authMode,
+                        qbitApiKey = connection.apiKey ?: current.qbitApiKey,
+                        qbitUsername = connection.username ?: current.qbitUsername,
+                        qbitPassword = connection.password ?: current.qbitPassword,
+                        proxyBaseUrl = link.proxyBaseUrl,
+                        proxyToken = connection.proxyToken,
+                    ).normalized()
+                    _state.update { it.copy(pairing = PairingState.Paired(paired)) }
+                }
+            }
+        }
+    }
+
+    fun clearPairing() {
+        _state.update { it.copy(pairing = PairingState.Idle) }
     }
 
     // ---- Torrent list -----------------------------------------------------
@@ -332,7 +387,7 @@ class RemagnetViewModel(
         val current = _state.value
         if (!current.settings.archiveReady) {
             _state.update {
-                it.copy(actionError = "Add the proxy URL and token in Settings to download archives.")
+                it.copy(actionError = "Add the Remagnet Proxy URL and token in Settings to download archives.")
             }
             return
         }

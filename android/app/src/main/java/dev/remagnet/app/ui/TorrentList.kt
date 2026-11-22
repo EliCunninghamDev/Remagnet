@@ -12,6 +12,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -29,6 +31,7 @@ import dev.remagnet.app.ui.components.SquareBar
 import dev.remagnet.app.ui.components.StatusNote
 import dev.remagnet.app.ui.components.StatusTone
 import dev.remagnet.app.ui.components.TileBarPhase
+import dev.remagnet.app.ui.components.isLargeText
 import dev.remagnet.app.ui.theme.GeistMono
 import dev.remagnet.app.ui.theme.RemagnetPalette
 import dev.remagnet.app.util.formatBytes
@@ -174,27 +177,40 @@ private fun TorrentRow(
     val name = splitTorrentName(torrent.name)
 
     Column(Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+        if (isLargeText()) {
+            // At 2x text the fixed head/tail split cannot fit, so show the
+            // whole name and let it use two lines.
             Text(
-                text = name.head,
+                text = torrent.name,
                 color = RemagnetPalette.Text,
                 fontFamily = GeistMono,
                 fontSize = 12.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Clip,
-                modifier = Modifier.weight(1f),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
             )
-            if (name.tail.isNotEmpty()) {
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Text(
-                    text = name.tail,
+                    text = name.head,
                     color = RemagnetPalette.Text,
                     fontFamily = GeistMono,
                     fontSize = 12.sp,
                     maxLines = 1,
+                    overflow = TextOverflow.Clip,
+                    modifier = Modifier.weight(1f),
                 )
+                if (name.tail.isNotEmpty()) {
+                    Text(
+                        text = name.tail,
+                        color = RemagnetPalette.Text,
+                        fontFamily = GeistMono,
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                    )
+                }
             }
         }
 
@@ -288,67 +304,148 @@ private fun TorrentRow(
                 fontWeight = FontWeight.SemiBold,
             )
             Spacer(Modifier.height(6.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                SecondaryButton(
-                    text = "Keep files",
-                    onClick = { onRemove(false) },
-                    enabled = !removing,
-                    modifier = Modifier.weight(1f),
-                )
-                SecondaryButton(
-                    text = "Delete files",
-                    onClick = { onRemove(true) },
-                    enabled = !removing,
-                    danger = true,
-                    modifier = Modifier.weight(1f),
-                )
-                SecondaryButton(
-                    text = "Cancel",
-                    onClick = onCancelRemove,
-                    enabled = !removing,
-                    modifier = Modifier.weight(1f),
-                )
+            if (isLargeText()) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    SecondaryButton(
+                        text = "Keep files",
+                        onClick = { onRemove(false) },
+                        enabled = !removing,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    SecondaryButton(
+                        text = "Delete files",
+                        onClick = { onRemove(true) },
+                        enabled = !removing,
+                        danger = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    SecondaryButton(
+                        text = "Cancel",
+                        onClick = onCancelRemove,
+                        enabled = !removing,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            } else {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    SecondaryButton(
+                        text = "Keep files",
+                        onClick = { onRemove(false) },
+                        enabled = !removing,
+                        modifier = Modifier.weight(1f),
+                    )
+                    SecondaryButton(
+                        text = "Delete files",
+                        onClick = { onRemove(true) },
+                        enabled = !removing,
+                        danger = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                    SecondaryButton(
+                        text = "Cancel",
+                        onClick = onCancelRemove,
+                        enabled = !removing,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
             }
         } else {
             Spacer(Modifier.height(8.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text(
-                    text = rowNote(torrent, activeDownload, removing),
-                    color = noteColor(torrent, activeDownload),
-                    fontFamily = GeistMono,
-                    fontSize = 10.sp,
-                    modifier = Modifier.weight(1f),
-                )
-
-                if (download is ArchiveDownloadState.Active) {
-                    SecondaryButton(
-                        text = "Cancel",
-                        onClick = onCancelDownload,
+            if (isLargeText()) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        text = rowNote(torrent, activeDownload, removing),
+                        color = noteColor(torrent, activeDownload),
+                        fontFamily = GeistMono,
+                        fontSize = 10.sp,
                     )
-                } else if (complete && archiveReady &&
-                    download !is ArchiveDownloadState.Complete &&
-                    download !is ArchiveDownloadState.Failed &&
-                    download !is ArchiveDownloadState.Cancelled
-                ) {
-                    SecondaryButton(
-                        text = "Download",
-                        onClick = onDownload,
-                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        DownloadButton(
+                            torrent = torrent,
+                            archiveReady = archiveReady,
+                            download = download,
+                            onDownload = onDownload,
+                            onCancelDownload = onCancelDownload,
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (download !is ArchiveDownloadState.Active) {
+                            SecondaryButton(
+                                text = "Remove",
+                                onClick = onRemoveToggle,
+                                enabled = !removing && !anyRemoving,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
                 }
-
-                if (download !is ArchiveDownloadState.Active) {
-                    SecondaryButton(
-                        text = "Remove",
-                        onClick = onRemoveToggle,
-                        enabled = !removing && !anyRemoving,
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = rowNote(torrent, activeDownload, removing),
+                        color = noteColor(torrent, activeDownload),
+                        fontFamily = GeistMono,
+                        fontSize = 10.sp,
+                        modifier = Modifier.weight(1f),
                     )
+                    DownloadButton(
+                        torrent = torrent,
+                        archiveReady = archiveReady,
+                        download = download,
+                        onDownload = onDownload,
+                        onCancelDownload = onCancelDownload,
+                    )
+                    if (download !is ArchiveDownloadState.Active) {
+                        SecondaryButton(
+                            text = "Remove",
+                            onClick = onRemoveToggle,
+                            enabled = !removing && !anyRemoving,
+                        )
+                    }
                 }
             }
         }
+    }
+}
+
+/** The Cancel/Download control that depends on this torrent's archive state. */
+@Composable
+private fun DownloadButton(
+    torrent: TorrentSummary,
+    archiveReady: Boolean,
+    download: ArchiveDownloadState?,
+    onDownload: () -> Unit,
+    onCancelDownload: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (download is ArchiveDownloadState.Active) {
+        SecondaryButton(
+            text = "Cancel",
+            onClick = onCancelDownload,
+            modifier = modifier,
+        )
+    } else if (torrent.isComplete &&
+        download !is ArchiveDownloadState.Complete &&
+        download !is ArchiveDownloadState.Failed &&
+        download !is ArchiveDownloadState.Cancelled
+    ) {
+        SecondaryButton(
+            text = "Download",
+            onClick = onDownload,
+            enabled = archiveReady,
+            modifier =
+                if (archiveReady) {
+                    modifier
+                } else {
+                    modifier.semantics {
+                        contentDescription =
+                            "Download unavailable. Configure Remagnet Proxy in Settings."
+                    }
+                },
+        )
     }
 }
 

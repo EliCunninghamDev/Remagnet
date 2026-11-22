@@ -12,19 +12,22 @@ CI and release signing; this README covers what is implemented today.
 
 Phases 1-4 are complete:
 
-- A connection screen for qBittorrent and the optional proxy.
-- Settings that validate URLs, authentication and the proxy pair before saving.
+- A connection screen for qBittorrent and the optional Remagnet Proxy.
+- Settings that validate URLs, authentication and the Remagnet Proxy pair before
+  saving.
 - Encrypted credential storage using the Android Keystore.
 - QR import for `remagnet://connect` links and JSON connect codes, with a paste
   fallback for devices without a camera.
+- Mobile pairing from rotating `remagnet://pair` codes: claims the code from the
+  proxy, decrypts the connection payload, and fills the form for review.
 - A direct qBittorrent Web API client with API-key and cookie authentication,
   torrent listing and lookup, add and remove, and category/tag creation.
 - Neutral torrent models, qBittorrent state normalization and the same
   category/tag filter the extension uses.
-- A proxy health check that distinguishes an unreachable proxy, a bad token and
-  a proxy whose own qBittorrent connection is failing.
-- A home screen that tests qBittorrent directly and reports its version without
-  involving the proxy.
+- A Remagnet Proxy health check that distinguishes an unreachable proxy, a bad
+  token and a proxy whose own qBittorrent connection is failing.
+- The settings screen tests qBittorrent directly and reports its version without
+  involving the Remagnet Proxy.
 - Magnet intake from `VIEW magnet:` links and shared `text/plain` text, with a
   review sheet over the home screen.
 - Duplicate detection, category and tag defaults, pause-on-add, and retry after
@@ -34,7 +37,7 @@ Phases 1-4 are complete:
 - A torrent list with the shared square-cell bar, percentage counter, state
   colors and live stats, refreshed only while the home screen is visible.
 - Removal with keep-files and delete-files choices.
-- ZIP downloads through the proxy in a foreground service, with a live
+- ZIP downloads through the Remagnet Proxy in a foreground service, with a live
   notification and cancel and retry actions.
 - Bundled Geist Mono and Departure Mono, so Android matches the browser
   clients.
@@ -61,21 +64,21 @@ android/
 
 The settings screen accepts:
 
-| Setting                | Notes                                                      |
-| ---------------------- | ---------------------------------------------------------- |
-| qBittorrent Web UI URL | `http://` or `https://`, no credentials, query or fragment |
-| Authentication         | qBittorrent 5.2+ API key, or username and password         |
-| Category / tags        | Applied to magnets added from Remagnet                     |
-| Proxy URL and token    | Optional; both blank disables ZIP downloads                |
+| Setting                      | Notes                                                      |
+| ---------------------------- | ---------------------------------------------------------- |
+| qBittorrent Web UI URL       | `http://` or `https://`, no credentials, query or fragment |
+| Authentication               | qBittorrent 5.2+ API key, or username and password         |
+| Category / tags              | Defaults for new magnets                                   |
+| Remagnet Proxy URL and token | Optional; both blank disables ZIP downloads                |
 
 The default qBittorrent URL is `http://127.0.0.1:8080`, matching the
 extension. Inside the emulator, use `http://10.0.2.2:8080` to reach a service on
 the host. A deployed instance normally uses an HTTPS URL.
 
-Saving validates the whole form, writes the settings, and immediately checks
-qBittorrent and the proxy when either is configured. The home screen shows the
-qBittorrent version it read directly, and the proxy's view separately, so a
-failure in one does not hide the other.
+Saving validates the whole form, writes the settings, and immediately refreshes
+the torrent list and checks qBittorrent and the Remagnet Proxy when either is
+configured. The home screen lists torrents, while the connection form and its
+status are part of the settings screen.
 
 ## qBittorrent client
 
@@ -167,17 +170,18 @@ Pressing **Remove** expands a confirmation in the row with **Keep files** and
 **Delete files**. Removal is refused while that torrent's own archive is
 downloading.
 
-Completed rows that match the proxy settings get a **Download** action. The
+Completed rows that match the Remagnet Proxy settings get a **Download** action. The
 archive is streamed from `GET /archive/<hash>` by a foreground service, which
 keeps the bearer token in a header and reports bytes and speed. The in-app row
 and the notification both track the same state:
 
 - Progress is determinate against the torrent size and smoothed over recent
-  samples. The proxy streams ZIPs without `Content-Length`, so an unknown size
-  falls back to an indeterminate bar.
+  samples. The Remagnet Proxy streams ZIPs without `Content-Length`, so an
+  unknown size falls back to an indeterminate bar.
 - **Cancel** stops the stream and deletes the partial file. A cancelled download
   keeps **Retry** and **Dismiss** actions in the row and the notification.
-- A failure keeps the proxy or network message, with **Retry** and **Dismiss**.
+- A failure keeps the Remagnet Proxy or network message, with **Retry** and
+  **Dismiss**.
 - Completion saves the file, posts a notification with an **Open** action, and
   shows **Open** and **Dismiss** in the row. `OpenArchiveActivity` tries a ZIP
   viewer and falls back to a share sheet when none is installed.
@@ -193,14 +197,25 @@ declines, but progress is only visible inside the app.
 
 ## QR onboarding
 
-A connect code can carry either connection or both, so one scan can set up a
-phone without typing secrets. The documented URI form is:
+There are two code forms. The Remagnet Proxy page's **Pair a device** panel
+displays a `remagnet://pair` code minted by the proxy. The code rotates every
+minute, works once, and carries only the proxy URL and a short-lived secret. When
+the app scans it, it claims the session and receives the qBittorrent URL,
+credentials and proxy token that the proxy has saved, encrypted with a key
+derived from the scanned code. Pairing requires an HTTPS proxy origin.
+
+The same link can configure the extension instead: paste it into the extension's
+**Remagnet Proxy → Pairing code** field. A code is single-use, so copy a fresh one
+for each device.
+
+A `remagnet://connect` code remains available for manually generated codes and
+for the paste box. It can carry the connection, the proxy pair, or both:
 
 ```
 remagnet://connect?qbit=https%3A%2F%2Fqbt.example.com&apiKey=...&proxy=https%3A%2F%2Fremagnet.example.com&token=...
 ```
 
-Recognised query keys:
+Recognised connect query keys:
 
 | Purpose         | Keys                                                |
 | --------------- | --------------------------------------------------- |
@@ -214,8 +229,19 @@ Recognised query keys:
 | Proxy URL       | `proxy`, `proxyUrl`, `archive`, `archiveUrl`, `url` |
 | Proxy token     | `token`, `proxyToken`, `archiveToken`               |
 
-A JSON object with the same keys is accepted. A bare `http://` or `https://` URL
-is treated as the proxy URL.
+The pairing form is:
+
+```
+remagnet://pair?url=https%3A%2F%2Fremagnet.example.com&id=...&code=...
+```
+
+`id` names the in-memory session on the proxy and `code` is the 32-byte secret.
+The app sends only `SHA-256(code)` when claiming; the returned settings are
+AES-256-GCM encrypted with a key derived from the secret and id, so a logged
+request or response cannot be decrypted without the QR image.
+
+A JSON object with the same connect keys is accepted. A bare `http://` or
+`https://` URL is treated as the proxy URL.
 
 Query values use URL encoding with one deliberate exception: `+` stays a plus so
 Base64 tokens survive. Encode a space as `%20`, not `+`. The scanner shows the
@@ -223,8 +249,8 @@ imported values in the form and writes nothing until **Save settings** is
 pressed.
 
 The app asks for camera access the first time a code is scanned. **Paste code**
-in the proxy section accepts the same payload without a camera, which is also
-the path used in emulator tests.
+in the Remagnet Proxy section accepts the same payload without a camera, which is
+also the path used in emulator tests.
 
 ## Security
 
@@ -234,8 +260,8 @@ background health checks work without an unlock prompt.
 
 Public values (URLs, auth mode, username, category, tags) stay readable in
 SharedPreferences so the settings screen can render without decrypting
-anything. The API key, password and proxy token are stored only as ciphertext in
-one encrypted JSON value.
+anything. The API key, password and Remagnet Proxy token are stored only as
+ciphertext in one encrypted JSON value.
 
 If the Keystore key is lost (a cleared app, a restored backup, a reset device),
 the app treats the ciphertext as absent, removes it, and asks for the secret

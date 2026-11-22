@@ -24,8 +24,8 @@ export interface ProxyClientOptions {
 export function createProxyClient(options: ProxyClientOptions): ProxyClient {
   const baseUrl = normalizeBaseUrl(options.baseUrl);
   const token = options.token.trim();
-  if (!baseUrl) throw new Error("The archive bridge URL is required.");
-  if (!token) throw new Error("The archive bridge token is required.");
+  if (!baseUrl) throw new Error("The Remagnet Proxy URL is required.");
+  if (!token) throw new Error("The Remagnet Proxy token is required.");
 
   return createClient<paths>({
     baseUrl,
@@ -44,7 +44,7 @@ export function createProxyClient(options: ProxyClientOptions): ProxyClient {
 export function proxyErrorMessage(response: Response, error?: ProxyError): string {
   const statusText = response.statusText ? ` ${response.statusText}` : "";
   const detail = error?.error ? `: ${error.error}` : "";
-  return `The archive bridge returned ${response.status}${statusText}${detail}`;
+  return `The Remagnet Proxy returned ${response.status}${statusText}${detail}`;
 }
 
 /** Proxy ZIP URL without credentials, for diagnostics and tests. */

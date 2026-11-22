@@ -62,8 +62,24 @@ data class OnboardingPayload(
 sealed interface OnboardingResult {
     data class Parsed(val payload: OnboardingPayload) : OnboardingResult
 
+    /** A short-lived code that must be claimed from the proxy. */
+    data class Pairing(val link: PairingLink) : OnboardingResult
+
     data class Invalid(val message: String) : OnboardingResult
 }
+
+/**
+ * The payload of a `remagnet://pair` QR code.
+ *
+ * The proxy URL travels with the code, so the phone never asks the user to
+ * type it. The id names the short-lived in-memory session on the proxy and the
+ * code is the secret that both finds and decrypts the response.
+ */
+data class PairingLink(
+    val proxyBaseUrl: String,
+    val id: String,
+    val code: String,
+)
 
 fun parseOnboarding(text: String): OnboardingResult {
     val trimmed = text.trim()
@@ -71,7 +87,7 @@ fun parseOnboarding(text: String): OnboardingResult {
 
     return when {
         trimmed.startsWith("{") -> parseJson(trimmed)
-        trimmed.startsWith("remagnet:", ignoreCase = true) -> parseConnectUri(trimmed)
+        trimmed.startsWith("remagnet:", ignoreCase = true) -> parseRemagnetUri(trimmed)
         trimmed.startsWith("http://", ignoreCase = true) ||
             trimmed.startsWith("https://", ignoreCase = true) ->
             OnboardingResult.Parsed(OnboardingPayload(proxyBaseUrl = trimmed))
@@ -82,7 +98,7 @@ fun parseOnboarding(text: String): OnboardingResult {
     }
 }
 
-private fun parseConnectUri(text: String): OnboardingResult {
+private fun parseRemagnetUri(text: String): OnboardingResult {
     val uri: URI = try {
         URI(text)
     } catch (_: Exception) {
@@ -92,11 +108,56 @@ private fun parseConnectUri(text: String): OnboardingResult {
     if (!uri.scheme.equals("remagnet", ignoreCase = true)) {
         return OnboardingResult.Invalid("The connect link must use the remagnet:// scheme.")
     }
-    if (!uri.host.equals("connect", ignoreCase = true)) {
-        return OnboardingResult.Invalid("The connect link must point at remagnet://connect.")
+
+    return when {
+        uri.host.equals("connect", ignoreCase = true) -> fromValues(parseQuery(uri.rawQuery))
+        uri.host.equals("pair", ignoreCase = true) -> fromPairingValues(parseQuery(uri.rawQuery))
+        else -> OnboardingResult.Invalid(
+            "The connect link must point at remagnet://connect or remagnet://pair.",
+        )
+    }
+}
+
+private fun fromPairingValues(values: Map<String, String>): OnboardingResult {
+    fun value(vararg keys: String): String? = keys.firstNotNullOfOrNull { key ->
+        values[key]?.takeIf { it.isNotBlank() }
     }
 
-    return fromValues(parseQuery(uri.rawQuery))
+    val proxy = value("url", "proxy", "proxyUrl")?.trim()?.trimEnd('/')
+    val id = value("id")?.trim()
+    val code = value("code", "pairingCode")?.trim()
+
+    if (proxy.isNullOrEmpty() || id.isNullOrEmpty() || code.isNullOrEmpty()) {
+        return OnboardingResult.Invalid("The pairing code is incomplete. Show a new code and scan it again.")
+    }
+
+    val uri = try {
+        URI(proxy)
+    } catch (_: Exception) {
+        return OnboardingResult.Invalid("The pairing code does not contain a valid proxy URL.")
+    }
+    if (!uri.scheme.equals("http", ignoreCase = true) &&
+        !uri.scheme.equals("https", ignoreCase = true)
+    ) {
+        return OnboardingResult.Invalid("The pairing proxy URL must use http:// or https://.")
+    }
+    if (uri.host.isNullOrEmpty()) {
+        return OnboardingResult.Invalid("The pairing proxy URL needs a host.")
+    }
+    // The pairing response carries credentials, so a non-loopback plain HTTP
+    // origin would let anyone on the path read them despite the inner
+    // encryption. The Android network security config also blocks cleartext.
+    val loopback = uri.host == "127.0.0.1" || uri.host == "localhost" ||
+        uri.host == "::1" || uri.host == "[::1]" || uri.host == "10.0.2.2"
+    if (!uri.scheme.equals("https", ignoreCase = true) && !loopback) {
+        return OnboardingResult.Invalid(
+            "Pairing needs an HTTPS Remagnet Proxy URL. Put the proxy behind HTTPS and try again.",
+        )
+    }
+
+    return OnboardingResult.Pairing(
+        PairingLink(proxyBaseUrl = proxy, id = id, code = code),
+    )
 }
 
 private fun parseJson(text: String): OnboardingResult {

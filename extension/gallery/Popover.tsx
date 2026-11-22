@@ -52,7 +52,7 @@ export default function Popover() {
               <PopupList
                 torrents={popoverTorrents}
                 loading={false}
-                actionError="The archive bridge could not reach qBittorrent."
+                actionError="The Remagnet Proxy could not reach qBittorrent."
                 filterActive
                 filterDescription="category 'remagnet'"
                 clientLabel={clientLabel}

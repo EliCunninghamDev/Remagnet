@@ -76,7 +76,7 @@ export default function App() {
             </a>
             <a class="page-link" href="/options.html">
               <strong>Options</strong>
-              <span>Client settings, archive bridge and permission prompts.</span>
+              <span>Client settings, Remagnet Proxy and permission prompts.</span>
             </a>
           </div>
         </Section>

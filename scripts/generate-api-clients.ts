@@ -3,7 +3,7 @@
  *
  * Run from the repository root with `bun run api:generate`.
  */
-import { cp, mkdtemp, rm } from "node:fs/promises";
+import { cp, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { $ } from "bun";
@@ -33,10 +33,29 @@ try {
 
   await rm(androidPackage, { recursive: true, force: true });
   await cp(join(output, "src/main/java/dev/remagnet/proxy"), androidPackage, { recursive: true });
+  await trimTrailingWhitespace(androidPackage);
   await makeArchiveStreaming(androidPackage);
   console.log(`Wrote ${androidPackage}`);
 } finally {
   await rm(output, { recursive: true, force: true });
+}
+
+/**
+ * The Kotlin generator copies descriptions into KDoc verbatim, including the
+ * trailing spaces in the OpenAPI prose. Strip them so `git diff --check` stays
+ * clean.
+ */
+async function trimTrailingWhitespace(directory: string): Promise<void> {
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) {
+      await trimTrailingWhitespace(path);
+    } else if (entry.name.endsWith(".kt")) {
+      const source = await Bun.file(path).text();
+      const trimmed = source.replace(/[ \t]+$/gm, "");
+      if (trimmed !== source) await Bun.write(path, trimmed);
+    }
+  }
 }
 
 /**

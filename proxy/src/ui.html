@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="light dark" />
-    <title>Remagnet bridge</title>
+    <title>Remagnet Proxy</title>
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <style>
       :root {
@@ -49,12 +49,55 @@
         color: var(--text);
         font: 14px/1.5 var(--font-ui);
       }
-      main { width: min(680px, calc(100% - 2rem)); margin: 2rem auto 4rem; }
-      .wordmark {
+      h2 { margin: 0; font-size: 17px; line-height: 1.2; }
+      input {
+        width: 100%;
+        padding: 8px 10px;
+        border: 1px solid var(--line);
+        border-radius: 0;
+        background: var(--panel);
+        color: var(--text);
+        font: inherit;
+      }
+      button {
+        padding: 8px 14px;
+        border: 1px solid transparent;
+        border-radius: 0;
+        background: var(--accent);
+        color: var(--accent-text);
+        font: inherit;
+        font-weight: 600;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      code {
+        display: block;
+        overflow-wrap: anywhere;
+        padding: 8px 10px;
+        border-radius: 0;
+        background: var(--bg);
+        border: 1px solid var(--line);
+        font: 13px/1.4 var(--font-ui);
+      }
+      details { border-top: 1px solid var(--line); padding-top: 16px; }
+      summary { cursor: pointer; font-weight: 600; }
+      small code { display: inline; padding: 0 4px; background: transparent; border: 0; }
+
+      main {
+        max-width: 680px;
+        min-height: 100vh;
+        margin: 0 auto;
+        padding: 40px 24px 64px;
         display: flex;
+        flex-direction: column;
+        gap: 20px;
+      }
+      .options-header { display: flex; flex-direction: column; gap: 8px; }
+      .wordmark {
+        display: inline-flex;
         align-items: baseline;
-        gap: .5rem;
-        margin: 0 0 .75rem;
+        gap: 8px;
+        margin: 0;
         font-family: "Departure Mono", var(--font-ui);
         font-size: 33px;
         font-weight: 400;
@@ -64,7 +107,7 @@
       }
       .wordmark-surface {
         border-left: 1px solid var(--line);
-        padding-left: .5rem;
+        padding-left: 8px;
         color: var(--muted);
         font-family: var(--font-ui);
         font-size: 11px;
@@ -75,115 +118,117 @@
       .wordmark-lockup {
         display: inline-flex;
         align-items: center;
-        gap: .5rem;
+        gap: 8px;
       }
       .wordmark-icon { width: 1em; height: 1em; flex: none; }
-      h1 { margin: 0 0 .25rem; font-size: 1.25rem; letter-spacing: -.01em; }
-      h2 { margin: 0 0 .9rem; font-size: 1.05rem; }
-      header p, .hint, small { color: var(--muted); }
-      header > p:not(.wordmark) { margin: 0 0 1.5rem; }
+      .lede { color: var(--muted); font-size: 13px; }
       .panel {
         background: var(--panel);
         border: 1px solid var(--line);
         border-radius: 0;
-        padding: 1.15rem;
-        margin-bottom: 1rem;
+        padding: 20px;
       }
-      .stack { display: grid; gap: .9rem; }
-      label { display: grid; gap: .35rem; font-weight: 600; font-size: .92rem; }
-      input {
-        width: 100%;
-        padding: .55rem .65rem;
-        border: 1px solid var(--line);
-        border-radius: 0;
-        background: var(--bg);
-        color: var(--text);
-        font: inherit;
-      }
-      input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-      .row { display: flex; gap: .6rem; }
-      .row input { flex: 1; }
-      button {
-        padding: .55rem .9rem;
-        border: 1px solid transparent;
-        border-radius: 0;
-        background: var(--accent);
-        color: var(--accent-text);
-        font: inherit;
-        font-weight: 600;
-        cursor: pointer;
-        white-space: nowrap;
-      }
-      button:hover:not(:disabled) { filter: brightness(1.08); }
-      button:disabled { opacity: .55; cursor: default; }
-      button.ghost { background: transparent; border-color: var(--line); color: var(--text); }
-      .actions { display: flex; gap: .6rem; flex-wrap: wrap; }
-      .check { display: flex; align-items: center; gap: .45rem; font-weight: 400; }
-      .check input { width: auto; }
-      details { border-top: 1px solid var(--line); padding-top: .9rem; }
-      summary { cursor: pointer; font-weight: 600; font-size: .92rem; }
-      details .stack { margin-top: .9rem; }
-      code {
-        display: block;
-        overflow-wrap: anywhere;
-        padding: .55rem .65rem;
-        border-radius: 0;
-        background: var(--bg);
-        border: 1px solid var(--line);
-        font: .88rem/1.4 var(--font-ui);
-      }
-      .hint code {
-        display: inline;
-        padding: 0 .25rem;
-        background: transparent;
+      .stack { display: flex; flex-direction: column; gap: 16px; }
+      .field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        margin: 0;
+        padding: 0;
         border: 0;
       }
-      .status { min-height: 1.5em; margin: .2rem 0 0; font-size: .92rem; }
+      .field-inline { display: flex; align-items: stretch; gap: 8px; }
+      .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+      .check { display: flex; align-items: center; gap: 8px; font-weight: 400; }
+      .hint { color: var(--muted); font-size: 12px; }
+      .status { min-height: 1.5em; margin: 0; font-size: 13px; }
+
+      .field > span { font-weight: 600; padding: 0; }
+      .field small { color: var(--muted); font-size: 12px; }
+      .field-inline input { min-width: 0; }
+      .field-inline button { flex: none; }
+      .check input { width: auto; }
+      .hint code { display: inline; padding: 0 4px; background: transparent; border: 0; }
+      details .stack { margin-top: 12px; }
+      input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+      button:disabled { opacity: .55; cursor: default; }
+      button.ghost {
+        background: transparent;
+        border-color: var(--line);
+        color: var(--text);
+        font-weight: 500;
+      }
+
       .status.ok { color: var(--ok); }
       .status.error { color: var(--error); }
       .status.muted { color: var(--muted); }
+
+      .qr-pair {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        align-items: flex-start;
+      }
+      .qr-pair small { max-width: 480px; }
+      .qr-code {
+        width: 100%;
+        max-width: 232px;
+        padding: 8px;
+        background: #fff;
+        border: 1px solid var(--line);
+      }
+      .qr-code svg { display: block; width: 100%; height: auto; }
+
+      /* Keep the source order after the flex/grid rules so it wins without
+         `!important`; the attribute selector has the same specificity. */
+      [hidden] { display: none; }
+
+      button:hover:not(:disabled) { filter: brightness(1.08); }
     </style>
   </head>
   <body>
     <main>
-      <header>
+      <header class="options-header">
         <p class="wordmark">
           <span class="wordmark-lockup">
             <img class="wordmark-icon" src="/icon.svg" alt="" />
             <span>Remagnet</span>
           </span>
-          <span class="wordmark-surface">Bridge</span>
+          <span class="wordmark-surface">Proxy</span>
         </p>
-        <h1>qBittorrent archive bridge</h1>
-        <p>
-          Streams completed torrents from qBittorrent to the Remagnet extension as ZIP files.
-          Nothing is stored on this server.
+        <p class="lede">
+          Streams completed torrents from qBittorrent to the Remagnet extension and Android app as
+          ZIP files. Torrent files are never stored on this server.
         </p>
       </header>
 
       <section class="panel stack">
-        <label>
-          Bridge token
-          <div class="row">
+        <h2>Access</h2>
+        <label class="field">
+          <span>Token</span>
+          <div class="field-inline">
             <input id="token" type="password" autocomplete="off" spellcheck="false"
               placeholder="Paste BRIDGE_TOKEN" />
             <button id="load" type="button" class="ghost">Load</button>
           </div>
-          <small>Kept in this tab only. Treat it like a password.</small>
+          <small>
+            The <code>BRIDGE_TOKEN</code> from your Compose <code>.env</code>. It unlocks this page
+            and is the same token you enter in Remagnet. Kept in this tab only.
+          </small>
         </label>
       </section>
 
       <form id="config" class="panel stack">
         <h2>qBittorrent</h2>
 
-        <label>
-          Web UI URL
+        <label class="field">
+          <span>Web UI URL</span>
           <input id="url" type="url" required spellcheck="false" placeholder="http://gluetun:8080" />
-          <small>Where this bridge reaches qBittorrent. The default is the container network name.</small>
+          <small>Where Remagnet Proxy reaches qBittorrent. The default is the container network name.</small>
         </label>
 
-        <label>
-          API key
+        <label class="field">
+          <span>API key</span>
           <input id="apiKey" type="password" autocomplete="off" spellcheck="false" placeholder="qbt_…" />
           <small id="apiKeyHint">A saved key is never sent back to this page.</small>
         </label>
@@ -195,12 +240,12 @@
         <details>
           <summary>Username and password fallback</summary>
           <div class="stack">
-            <label>
-              Username
+            <label class="field">
+              <span>Username</span>
               <input id="username" type="text" autocomplete="username" spellcheck="false" />
             </label>
-            <label>
-              Password
+            <label class="field">
+              <span>Password</span>
               <input id="password" type="password" autocomplete="current-password" />
               <small>Leave blank to keep the saved password.</small>
             </label>
@@ -216,17 +261,39 @@
           <button id="test" type="button" class="ghost">Test connection</button>
         </div>
         <p id="status" class="status muted" role="status" aria-live="polite">
-          Enter the bridge token to load the current settings.
+          Enter the Remagnet Proxy token to load the current settings.
         </p>
       </form>
 
       <section class="panel stack">
-        <h2>Archive URL</h2>
-        <code id="archiveUrl">/archive/&lt;info-hash&gt;</code>
+        <h2>Connect Remagnet</h2>
+        <code id="proxyUrl">http://127.0.0.1:8080</code>
         <p class="hint">
-          The extension calls this URL with <code>Authorization: Bearer &lt;bridge token&gt;</code>.
-          It only works for completed torrents.
+          Use this origin as the Remagnet Proxy URL in the extension or Android settings, with the
+          same token. Downloads only work for completed torrents.
         </p>
+      </section>
+
+      <section class="panel stack">
+        <h2>Pair a device</h2>
+        <p class="hint">
+          Show a one-time code for the Remagnet Android app. The phone receives the qBittorrent
+          connection and Remagnet Proxy token saved on this server, so it does not need to type
+          either. You can also copy the link into Remagnet's <strong>Pairing code</strong> field to
+          configure the extension. The code rotates every minute, works once, and is revoked when
+          you hide it.
+        </p>
+        <div class="actions">
+          <button id="pairStart" type="button" class="ghost">Show QR code</button>
+          <button id="pairCopy" type="button" class="ghost" hidden>Copy link</button>
+        </div>
+        <p id="pairStatus" class="status muted" role="status" aria-live="polite"></p>
+        <div id="pairPanel" class="qr-pair" hidden>
+          <div id="pairSvg" class="qr-code" role="img"
+            aria-label="QR code for pairing the Remagnet Android app"></div>
+          <code id="pairLink" hidden></code>
+          <small id="pairCountdown"></small>
+        </div>
       </section>
     </main>
 
@@ -239,9 +306,10 @@
       tokenInput.value = sessionStorage.getItem(tokenKey) || "";
       tokenInput.addEventListener("input", () => {
         sessionStorage.setItem(tokenKey, tokenInput.value.trim());
+        if (pairing) hidePairing();
       });
 
-      byId("archiveUrl").textContent = `${location.origin}/archive/<info-hash>`;
+      byId("proxyUrl").textContent = location.origin;
 
       function currentToken() {
         return tokenInput.value.trim();
@@ -254,7 +322,7 @@
 
       async function api(path, options = {}) {
         const token = currentToken();
-        if (!token) throw new Error("Enter the bridge token first.");
+        if (!token) throw new Error("Enter the Remagnet Proxy token first.");
         const headers = { ...(options.headers || {}), Authorization: `Bearer ${token}` };
         const response = await fetch(path, { ...options, headers, cache: "no-store" });
         const text = await response.text();
@@ -272,7 +340,7 @@
 
       async function load() {
         if (!currentToken()) {
-          setStatus("Enter the bridge token to load the current settings.", "muted");
+          setStatus("Enter the Remagnet Proxy token to load the current settings.", "muted");
           return;
         }
         setStatus("Loading…");
@@ -293,6 +361,161 @@
           setStatus(error.message, "error");
         }
       }
+
+      // ---- Android pairing -------------------------------------------------
+
+      const pairStart = byId("pairStart");
+      const pairCopy = byId("pairCopy");
+      const pairStatus = byId("pairStatus");
+      const pairPanel = byId("pairPanel");
+      const pairLink = byId("pairLink");
+      const pairCountdown = byId("pairCountdown");
+
+      let pairing = null;
+      let pairingTimer = null;
+      let pairingBusy = false;
+
+      function setPairStatus(message, tone = "muted") {
+        pairStatus.textContent = message;
+        pairStatus.className = `status ${tone}`;
+      }
+
+      function pairingAllowed() {
+        if (location.protocol === "https:") return true;
+        const host = location.hostname;
+        return host === "127.0.0.1" || host === "localhost" ||
+          host === "[::1]" || host === "10.0.2.2";
+      }
+
+      function stopCountdown() {
+        if (pairingTimer !== null) {
+          clearInterval(pairingTimer);
+          pairingTimer = null;
+        }
+      }
+
+      function startCountdown() {
+        stopCountdown();
+        const tick = () => {
+          if (!pairing) return;
+          const seconds = Math.max(
+            0,
+            Math.ceil((pairing.expiresAt - Date.now()) / 1000),
+          );
+          pairCountdown.textContent = `New code in ${seconds}s. Single use — scan it only on ` +
+            "your own device.";
+          if (seconds <= 5) void rotatePairing();
+        };
+        tick();
+        pairingTimer = setInterval(tick, 1000);
+      }
+
+      function showPairing(created) {
+        pairing = {
+          id: created.id,
+          uri: created.uri,
+          expiresAt: Date.now() + created.expiresIn * 1000,
+          token: currentToken(),
+        };
+        byId("pairSvg").innerHTML = created.svg;
+        pairLink.textContent = created.uri;
+        pairLink.hidden = true;
+        pairPanel.hidden = false;
+        pairStart.textContent = "Hide QR code";
+        pairCopy.hidden = false;
+        pairCopy.textContent = "Copy link";
+        setPairStatus("");
+        startCountdown();
+      }
+
+      function revokePairing(id, token) {
+        if (!token) return Promise.resolve();
+        return fetch(`/api/pair/${encodeURIComponent(id)}`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
+          keepalive: true,
+        }).catch(() => {});
+      }
+
+      function hidePairing() {
+        const current = pairing;
+        pairing = null;
+        stopCountdown();
+        if (current) void revokePairing(current.id, current.token);
+        pairPanel.hidden = true;
+        pairCopy.hidden = true;
+        pairLink.hidden = true;
+        pairStart.textContent = "Show QR code";
+        setPairStatus("");
+      }
+
+      async function mintPairing() {
+        return api("/api/pair", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: location.origin }),
+        });
+      }
+
+      async function startPairing() {
+        if (pairingBusy) return;
+        if (!pairingAllowed()) {
+          setPairStatus(
+            "Android pairing needs an HTTPS Remagnet Proxy URL. Put this page behind HTTPS " +
+              "and try again.",
+            "error",
+          );
+          return;
+        }
+
+        pairingBusy = true;
+        setPairStatus("Creating a one-time code…");
+        try {
+          showPairing(await mintPairing());
+        } catch (error) {
+          setPairStatus(error.message, "error");
+        } finally {
+          pairingBusy = false;
+        }
+      }
+
+      async function rotatePairing() {
+        if (!pairing || pairingBusy) return;
+        pairingBusy = true;
+        const previous = pairing;
+        try {
+          const created = await mintPairing();
+          showPairing(created);
+          void revokePairing(previous.id, previous.token);
+        } catch (error) {
+          hidePairing();
+          setPairStatus(error.message, "error");
+        } finally {
+          pairingBusy = false;
+        }
+      }
+
+      pairStart.addEventListener("click", () => {
+        if (pairing) hidePairing();
+        else void startPairing();
+      });
+
+      pairCopy.addEventListener("click", async () => {
+        if (!pairing) return;
+        try {
+          await navigator.clipboard.writeText(pairing.uri);
+          pairCopy.textContent = "Copied";
+          pairLink.hidden = true;
+        } catch {
+          pairLink.hidden = false;
+          setPairStatus("Could not copy. Select the link below instead.", "error");
+        }
+      });
+
+      window.addEventListener("pagehide", () => {
+        if (pairing) void revokePairing(pairing.id, pairing.token);
+      });
 
       function payload() {
         const body = {

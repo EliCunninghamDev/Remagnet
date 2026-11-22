@@ -48,11 +48,11 @@ class ArchiveDownloader(
             http.newCall(request).execute()
         } catch (_: IOException) {
             return ArchiveOpenResult.Failed(
-                "Could not reach the proxy at $baseUrl. Check the URL and network.",
+                "Could not reach the Remagnet Proxy at $baseUrl. Check the URL and network.",
             )
         } catch (error: Exception) {
             return ArchiveOpenResult.Failed(
-                error.message ?: "Could not reach the proxy at $baseUrl.",
+                error.message ?: "Could not reach the Remagnet Proxy at $baseUrl.",
             )
         }
 
@@ -79,14 +79,14 @@ class ArchiveDownloader(
 /** A message that tells the user what to do about each documented status. */
 fun archiveErrorMessage(status: Int, detail: String? = null): String {
     val base = when (status) {
-        400 -> "The proxy rejected that info hash."
-        401 -> "The proxy rejected the token. Check the token in Settings."
+        400 -> "The Remagnet Proxy rejected that info hash."
+        401 -> "The Remagnet Proxy rejected the token. Check the token in Settings."
         404 -> "qBittorrent does not have a torrent with that hash."
         409 -> "That torrent is not complete yet. Wait for it to finish, then try again."
-        429 -> "The proxy is busy. Try again in a moment."
-        500 -> "The proxy could not start the archive."
-        502 -> "The proxy could not reach qBittorrent."
-        else -> "The proxy returned HTTP $status while creating the archive."
+        429 -> "The Remagnet Proxy is busy. Try again in a moment."
+        500 -> "The Remagnet Proxy could not start the archive."
+        502 -> "The Remagnet Proxy could not reach qBittorrent."
+        else -> "The Remagnet Proxy returned HTTP $status while creating the archive."
     }
 
     if (status != 500 && status != 502) return base

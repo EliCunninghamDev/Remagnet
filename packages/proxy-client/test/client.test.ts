@@ -48,7 +48,7 @@ describe("createProxyClient", () => {
     expect(data).toBeUndefined();
     expect(error?.error).toBe("Missing or invalid bridge token.");
     expect(proxyErrorMessage(response, error)).toBe(
-      "The archive bridge returned 401 Unauthorized: Missing or invalid bridge token.",
+      "The Remagnet Proxy returned 401 Unauthorized: Missing or invalid bridge token.",
     );
   });
 });

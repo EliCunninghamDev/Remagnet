@@ -139,25 +139,25 @@ fun validateProxySettings(settings: RemagnetSettings): List<SettingsError> {
         errors += if (hasProxyUrl) {
             SettingsError(
                 SettingsField.ProxyToken,
-                "Enter the proxy token, or clear the proxy URL.",
+                "Enter the Remagnet Proxy token, or clear the Remagnet Proxy URL.",
             )
         } else {
             SettingsError(
                 SettingsField.ProxyUrl,
-                "Enter the proxy URL, or clear the proxy token.",
+                "Enter the Remagnet Proxy URL, or clear the Remagnet Proxy token.",
             )
         }
     } else if (hasProxyUrl) {
         if (parseHttpUrl(values.proxyBaseUrl) == null) {
             errors += SettingsError(
                 SettingsField.ProxyUrl,
-                "Enter a valid http:// or https:// proxy URL without credentials, a query or a fragment.",
+                "Enter a valid http:// or https:// Remagnet Proxy URL without credentials, a query or a fragment.",
             )
         }
         if (values.proxyToken.length < MIN_PROXY_TOKEN_LENGTH) {
             errors += SettingsError(
                 SettingsField.ProxyToken,
-                "The proxy token must be at least $MIN_PROXY_TOKEN_LENGTH characters.",
+                "The Remagnet Proxy token must be at least $MIN_PROXY_TOKEN_LENGTH characters.",
             )
         }
     }

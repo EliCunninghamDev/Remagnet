@@ -162,6 +162,7 @@ export const tokens = {
       body: px(13),
       bodyLarge: px(14),
       title: px(16),
+      section: px(17),
       titleLarge: px(18),
       heading: px(20),
       display: px(22),

@@ -11,8 +11,11 @@ info:
 
     Every `/api/*` and `/archive/*` request needs the proxy token, sent either as
     `Authorization: Bearer <BRIDGE_TOKEN>` (preferred) or as `?token=<BRIDGE_TOKEN>`
-    for browser download APIs that cannot attach headers. The same token can be
-    supplied through either scheme; errors use a JSON body with an `error` field.
+    for browser download APIs that cannot attach headers. The one exception is
+    `POST /api/pair/claim`, which a device calls before it has any credentials;
+    the short-lived pairing proof in the body authorizes it instead. The same
+    token can be supplied through either scheme; errors use a JSON body with an
+    `error` field.
 servers:
   - url: http://127.0.0.1:8080
     description: Local development (`BIND_ADDR` default is `0.0.0.0:8080`).
@@ -23,6 +26,8 @@ tags:
     description: Unauthenticated liveness and the configuration page.
   - name: Configuration
     description: Read and update the qBittorrent connection.
+  - name: Pairing
+    description: Short-lived codes for onboarding the Android app.
   - name: Archives
     description: Stream completed torrents as ZIP archives.
 security:
@@ -79,7 +84,7 @@ paths:
       summary: Test the saved qBittorrent connection
       description: |
         Calls qBittorrent's `app/version` and `app/webapiVersion` endpoints with
-        the saved credentials. Used by the extension's "Save & test archive"
+        the saved credentials. Used by the extension's "Save & test Remagnet Proxy"
         action and the configuration page.
       tags: [Configuration]
       parameters:
@@ -171,6 +176,119 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "500":
           $ref: "#/components/responses/InternalError"
+  /api/pair:
+    post:
+      operationId: createPairing
+      summary: Mint a short-lived device pairing code
+      description: |
+        Creates an in-memory pairing session and returns the `remagnet://pair`
+        link plus a ready-to-display SVG QR code. The Remagnet Proxy page shows
+        the QR for the Android app and copies the link for the extension, which
+        claims it from Settings. The code is single-use and is never stored on
+        disk; restarting the proxy invalidates outstanding sessions.
+
+        Minting requires the proxy token. Claiming the code does not, because
+        the device or extension claiming it has not been configured yet. Pairing
+        carries credentials, so the origin must use HTTPS unless it is loopback
+        or the Android emulator host (`10.0.2.2`).
+      tags: [Pairing]
+      parameters:
+        - $ref: "#/components/parameters/TokenQuery"
+      requestBody:
+        required: false
+        description: |
+          The origin to encode in the link. The proxy page sends
+          `location.origin`, which is the address the phone must be able to
+          reach. When omitted, the proxy falls back to the `Host` and
+          `X-Forwarded-Proto` headers.
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePairingRequest"
+      responses:
+        "200":
+          description: A pairing session and its rendered QR code.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PairingSession"
+        "400":
+          description: The supplied origin is invalid, unreachable without HTTPS, or missing.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: Android pairing needs an HTTPS Remagnet Proxy URL.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/pair/{id}:
+    delete:
+      operationId: revokePairing
+      summary: Revoke an outstanding pairing code
+      description: |
+        Called when the proxy page hides or rotates the QR code. Revoking an
+        unknown or expired id is not an error, so a retry is safe.
+      tags: [Pairing]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/TokenQuery"
+      responses:
+        "204":
+          description: The session is gone.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/pair/claim:
+    post:
+      operationId: claimPairing
+      summary: Claim a pairing code and receive encrypted connection settings
+      description: |
+        The Android app, or the extension's pairing field, sends the session id
+        and `SHA-256(code)`, not the code itself. On success the proxy consumes
+        the session and returns the qBittorrent URL, credentials, and proxy
+        token encrypted with AES-256-GCM. Both sides derive the key from the
+        scanned code and the session id, so a logged request or response is
+        useless without the code.
+
+        The plaintext is a JSON object described by `PairingPayload`. Invalid,
+        expired, or already-claimed codes return `400` and no payload.
+      tags: [Pairing]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PairingClaim"
+      responses:
+        "200":
+          description: Encrypted connection settings for the scanning device.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EncryptedPayload"
+        "400":
+          description: The pairing code is invalid, expired, or already used.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: The pairing code is invalid or expired.
   /archive/{hash}:
     get:
       operationId: downloadArchive
@@ -406,3 +524,108 @@ components:
           description: |
             Password for cookie-based login. Omit to keep the saved password;
             send an empty string to clear it.
+    CreatePairingRequest:
+      type: object
+      properties:
+        url:
+          type: string
+          format: uri
+          description: |
+            Proxy origin to put in the pairing link, such as
+            `https://remagnet.example.com`. Must not contain credentials, a
+            path, a query, or a fragment. Plain HTTP is accepted only for
+            loopback and `10.0.2.2`.
+          example: https://remagnet.example.com
+      additionalProperties: false
+    PairingSession:
+      type: object
+      description: Credentials for one QR image. The code is shown only once.
+      required: [id, code, expiresIn, url, uri, svg]
+      properties:
+        id:
+          type: string
+          description: Base64url session id; safe to send back when claiming.
+          example: 5J0m3x0YbqQ0m9jX8m3c2A
+        code:
+          type: string
+          description: |
+            Base64url 32-byte secret. Put it in the QR image, never in logs or
+            analytics.
+          example: 8m3c2A5J0m3x0YbqQ0m9jX8m3c2A5J0m3x0YbqQ0m9jX8
+        expiresIn:
+          type: integer
+          description: Seconds until the code stops working.
+          example: 60
+        url:
+          type: string
+          format: uri
+          description: Normalized proxy origin encoded in the link.
+          example: https://remagnet.example.com
+        uri:
+          type: string
+          description: |
+            `remagnet://pair` link for the Android app and the extension's
+            pairing field.
+          example: remagnet://pair?url=https%3A%2F%2Fremagnet.example.com&id=…&code=…
+        svg:
+          type: string
+          description: |
+            Inline SVG QR code for `uri`, black on white. Generated by the proxy
+            so the page does not load a QR library.
+      additionalProperties: false
+    PairingClaim:
+      type: object
+      required: [id, proof]
+      properties:
+        id:
+          type: string
+          description: Session id from the scanned QR code.
+        proof:
+          type: string
+          description: |
+            Base64url `SHA-256(code)`. The code itself is not sent, so request
+            logs do not contain the key used for the response.
+      additionalProperties: false
+    EncryptedPayload:
+      type: object
+      description: |
+        AES-256-GCM output. The key is
+        `SHA-256("remagnet-pair-v1" || id || code)`; the same derivation is used
+        by the Android client.
+      required: [iv, data]
+      properties:
+        iv:
+          type: string
+          description: Base64url 12-byte nonce.
+        data:
+          type: string
+          description: Base64url ciphertext with the 16-byte GCM tag appended.
+      additionalProperties: false
+    PairingPayload:
+      type: object
+      description: Plaintext inside `EncryptedPayload.data` after decryption.
+      required: [version, qbitBaseUrl, authMode, proxyToken]
+      properties:
+        version:
+          type: integer
+          const: 1
+        qbitBaseUrl:
+          type: string
+          format: uri
+          description: qBittorrent Web UI URL saved on the proxy.
+        authMode:
+          type: string
+          enum: [apiKey, password]
+        apiKey:
+          type: string
+          description: Present when `authMode` is `apiKey`.
+        username:
+          type: string
+          description: Present when `authMode` is `password`.
+        password:
+          type: string
+          description: Present when `authMode` is `password`.
+        proxyToken:
+          type: string
+          description: The proxy's `BRIDGE_TOKEN`, so the app can download ZIPs.
+      additionalProperties: false

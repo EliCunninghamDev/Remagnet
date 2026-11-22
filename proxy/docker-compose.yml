@@ -1,7 +1,7 @@
 services:
   remagnet-bridge:
     build: .
-    image: remagnet-bridge:local
+    image: ghcr.io/elicunninghamdev/remagnet-bridge:latest
     container_name: remagnet-bridge
     restart: unless-stopped
     env_file: .env

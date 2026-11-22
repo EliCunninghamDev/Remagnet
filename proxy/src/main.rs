@@ -1,6 +1,7 @@
 mod auth;
 mod config;
 mod error;
+mod pairing;
 mod qbit;
 mod routes;
 mod zipstream;
@@ -8,7 +9,7 @@ mod zipstream;
 use std::{
     env,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, Mutex},
 };
 
 use anyhow::{bail, Context, Result};
@@ -27,6 +28,7 @@ pub struct AppState {
     pub config: RwLock<Config>,
     pub qbit: RwLock<QbitClient>,
     pub token: String,
+    pub pairings: Mutex<pairing::PairingStore>,
 }
 
 #[tokio::main]
@@ -64,6 +66,7 @@ async fn main() -> Result<()> {
         config: RwLock::new(config),
         qbit: RwLock::new(qbit),
         token,
+        pairings: Mutex::new(pairing::PairingStore::default()),
     });
 
     let bind = env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0:8080".to_string());

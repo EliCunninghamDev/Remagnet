@@ -126,7 +126,7 @@ class ArchiveDownloadService : Service() {
         try {
             val settings = settingsRepositoryFor(this).load()
             if (!settings.proxyConfigured || validateProxySettings(settings).isNotEmpty()) {
-                throw ArchiveFailure("Configure the download proxy URL and token in Settings.")
+                throw ArchiveFailure("Configure the Remagnet Proxy URL and token in Settings.")
             }
 
             val opened = ArchiveDownloader(

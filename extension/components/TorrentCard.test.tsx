@@ -64,10 +64,14 @@ describe("TorrentCard", () => {
     expect(handlers.onZip).toHaveBeenCalledOnce();
   });
 
-  test("hides Download when the archive bridge is not configured", () => {
-    renderCard(torrentCase("complete"), { archiveReady: false });
-    expect(screen.getByText("Ready")).toBeTruthy();
-    expect(screen.queryByText("Download")).toBeNull();
+  test("disables Download when the Remagnet Proxy is not configured", () => {
+    renderCard(torrentCase("complete-no-proxy"));
+
+    const download = screen.getByText("Download") as HTMLButtonElement;
+    expect(download.disabled).toBe(true);
+    expect(download.title).toBe(
+      "Configure Remagnet Proxy in settings to download completed torrents",
+    );
   });
 
   test("marks stalled torrents amber without an unknown ETA field", () => {

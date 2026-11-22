@@ -77,6 +77,45 @@ class OnboardingTest {
     }
 
     @Test
+    fun parsesAPairingUri() {
+        val result = parseOnboarding(
+            "remagnet://pair?url=https%3A%2F%2Fproxy.example.com&id=session-1&code=abc%2Bdef",
+        ) as OnboardingResult.Pairing
+
+        assertEquals("https://proxy.example.com", result.link.proxyBaseUrl)
+        assertEquals("session-1", result.link.id)
+        assertEquals("abc+def", result.link.code)
+    }
+
+    @Test
+    fun acceptsPlainHttpPairingOnlyForLoopback() {
+        val loopback = parseOnboarding(
+            "remagnet://pair?url=http%3A%2F%2F127.0.0.1%3A8080&id=a&code=b",
+        )
+        val ipv6Loopback = parseOnboarding(
+            "remagnet://pair?url=http%3A%2F%2F%5B%3A%3A1%5D%3A8080&id=a&code=b",
+        )
+        val remote = parseOnboarding(
+            "remagnet://pair?url=http%3A%2F%2Fproxy.example.com&id=a&code=b",
+        )
+
+        assertTrue(loopback is OnboardingResult.Pairing)
+        assertTrue(ipv6Loopback is OnboardingResult.Pairing)
+        assertTrue(remote is OnboardingResult.Invalid)
+    }
+
+    @Test
+    fun rejectsIncompletePairingCodes() {
+        val missingCode = parseOnboarding(
+            "remagnet://pair?url=https%3A%2F%2Fproxy.example.com&id=session-1",
+        )
+        val missingUrl = parseOnboarding("remagnet://pair?id=session-1&code=abc")
+
+        assertTrue(missingCode is OnboardingResult.Invalid)
+        assertTrue(missingUrl is OnboardingResult.Invalid)
+    }
+
+    @Test
     fun mergesOnlyPresentFields() {
         val current = RemagnetSettings(
             qbitBaseUrl = "http://old.example.com",

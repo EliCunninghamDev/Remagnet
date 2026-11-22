@@ -42,14 +42,14 @@ class ProxyHealthClient(
         if (!settings.proxyConfigured) return ProxyStatus.NotConfigured
         if (validateProxySettings(settings).isNotEmpty()) {
             return ProxyStatus.Misconfigured(
-                "The proxy settings are incomplete. Check the URL and token in Settings.",
+                "The Remagnet Proxy settings are incomplete. Check the URL and token in Settings.",
             )
         }
 
         val api = try {
             createApi(settings.proxyBaseUrl, settings.proxyToken)
         } catch (error: IllegalArgumentException) {
-            return ProxyStatus.Misconfigured(error.message ?: "The proxy URL is not valid.")
+            return ProxyStatus.Misconfigured(error.message ?: "The Remagnet Proxy URL is not valid.")
         }
 
         val liveness = try {
@@ -58,17 +58,17 @@ class ProxyHealthClient(
             throw cancelled
         } catch (_: IOException) {
             return ProxyStatus.Unreachable(
-                "Could not reach the proxy at ${settings.proxyBaseUrl}. Check the URL and network.",
+                "Could not reach the Remagnet Proxy at ${settings.proxyBaseUrl}. Check the URL and network.",
             )
         } catch (error: Exception) {
             return ProxyStatus.Unreachable(
-                error.message ?: "Could not reach the proxy at ${settings.proxyBaseUrl}.",
+                error.message ?: "Could not reach the Remagnet Proxy at ${settings.proxyBaseUrl}.",
             )
         }
 
         if (!liveness.isSuccessful) {
             return ProxyStatus.Unreachable(
-                "The proxy answered with HTTP ${liveness.code()} instead of its liveness status.",
+                "The Remagnet Proxy answered with HTTP ${liveness.code()} instead of its liveness status.",
             )
         }
 
@@ -78,11 +78,11 @@ class ProxyHealthClient(
             throw cancelled
         } catch (_: IOException) {
             return ProxyStatus.Unreachable(
-                "The proxy stopped responding while checking qBittorrent.",
+                "The Remagnet Proxy stopped responding while checking qBittorrent.",
             )
         } catch (error: Exception) {
             return ProxyStatus.Unreachable(
-                error.message ?: "The proxy stopped responding while checking qBittorrent.",
+                error.message ?: "The Remagnet Proxy stopped responding while checking qBittorrent.",
             )
         }
 
@@ -93,13 +93,13 @@ class ProxyHealthClient(
 
         if (health.code() == 401) {
             return ProxyStatus.Unauthorized(
-                errorMessage(health) ?: "The proxy token is missing or invalid.",
+                errorMessage(health) ?: "The Remagnet Proxy token is missing or invalid.",
             )
         }
 
         return ProxyStatus.QbitUnavailable(
             errorMessage(health)
-                ?: "The proxy could not reach qBittorrent (HTTP ${health.code()}).",
+                ?: "The Remagnet Proxy could not reach qBittorrent (HTTP ${health.code()}).",
         )
     }
 

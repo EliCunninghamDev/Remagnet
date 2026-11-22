@@ -69,11 +69,11 @@ class ApiClient(
         authNames: Array<String>
     ) : this(baseUrl, okHttpClientBuilder, serializerBuilder) {
         authNames.forEach { authName ->
-            val auth: Interceptor? = when (authName) { 
+            val auth: Interceptor? = when (authName) {
                 "bearerAuth" -> HttpBearerAuth("bearer")
-                
+
                 "tokenQuery" -> ApiKeyAuth("query", "token")
-                
+
                 else -> throw RuntimeException("auth name $authName not found in available auth names")
             }
             if (auth != null) {

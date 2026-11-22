@@ -38,6 +38,7 @@ import dev.remagnet.app.ui.components.SecondaryButton
 import dev.remagnet.app.ui.components.SectionLabel
 import dev.remagnet.app.ui.components.StatusNote
 import dev.remagnet.app.ui.components.StatusTone
+import dev.remagnet.app.ui.components.isLargeText
 import dev.remagnet.app.ui.theme.GeistMono
 import dev.remagnet.app.ui.theme.RemagnetPalette
 import dev.remagnet.app.util.formatBytes
@@ -157,18 +158,34 @@ private fun PasteContent(
         error = state.error,
         maxLines = 4,
     )
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        PrimaryButton(
-            text = "Review",
-            onClick = onReview,
-            enabled = state.draft.isNotBlank(),
-            modifier = Modifier.weight(1f),
-        )
-        SecondaryButton(
-            text = "Cancel",
-            onClick = onDismiss,
-            modifier = Modifier.weight(1f),
-        )
+    if (isLargeText()) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            PrimaryButton(
+                text = "Review",
+                onClick = onReview,
+                enabled = state.draft.isNotBlank(),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            SecondaryButton(
+                text = "Cancel",
+                onClick = onDismiss,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    } else {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            PrimaryButton(
+                text = "Review",
+                onClick = onReview,
+                enabled = state.draft.isNotBlank(),
+                modifier = Modifier.weight(1f),
+            )
+            SecondaryButton(
+                text = "Cancel",
+                onClick = onDismiss,
+                modifier = Modifier.weight(1f),
+            )
+        }
     }
     if (!settings.qbitConfigured) {
         StatusNote(
@@ -253,23 +270,41 @@ private fun ReviewContent(
 
     state.error?.let { StatusNote(text = it, tone = StatusTone.Error) }
 
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        PrimaryButton(
-            text = when {
-                state.submitting -> "Sending…"
-                state.duplicate is DuplicateState.Checking -> "Checking…"
-                else -> "Send to qBittorrent"
-            },
-            onClick = onSubmit,
-            enabled = state.canSubmit,
-            modifier = Modifier.weight(1f),
-        )
-        SecondaryButton(
-            text = "Cancel",
-            onClick = onDismiss,
-            enabled = !state.submitting,
-            modifier = Modifier.weight(1f),
-        )
+    val sendLabel = when {
+        state.submitting -> "Sending…"
+        state.duplicate is DuplicateState.Checking -> "Checking…"
+        else -> "Send to qBittorrent"
+    }
+    if (isLargeText()) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            PrimaryButton(
+                text = sendLabel,
+                onClick = onSubmit,
+                enabled = state.canSubmit,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            SecondaryButton(
+                text = "Cancel",
+                onClick = onDismiss,
+                enabled = !state.submitting,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    } else {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            PrimaryButton(
+                text = sendLabel,
+                onClick = onSubmit,
+                enabled = state.canSubmit,
+                modifier = Modifier.weight(1.6f),
+            )
+            SecondaryButton(
+                text = "Cancel",
+                onClick = onDismiss,
+                enabled = !state.submitting,
+                modifier = Modifier.weight(1f),
+            )
+        }
     }
 }
 
@@ -342,17 +377,32 @@ private fun AddedContent(
     if (state.category.isNotEmpty()) MetadataRow("Category", state.category)
     if (state.tags.isNotEmpty()) MetadataRow("Tags", state.tags.joinToString(", "))
 
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        PrimaryButton(
-            text = "Add another",
-            onClick = onAddAnother,
-            modifier = Modifier.weight(1f),
-        )
-        SecondaryButton(
-            text = "Done",
-            onClick = onDismiss,
-            modifier = Modifier.weight(1f),
-        )
+    if (isLargeText()) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            PrimaryButton(
+                text = "Add another",
+                onClick = onAddAnother,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            SecondaryButton(
+                text = "Done",
+                onClick = onDismiss,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    } else {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            PrimaryButton(
+                text = "Add another",
+                onClick = onAddAnother,
+                modifier = Modifier.weight(1f),
+            )
+            SecondaryButton(
+                text = "Done",
+                onClick = onDismiss,
+                modifier = Modifier.weight(1f),
+            )
+        }
     }
 }
 

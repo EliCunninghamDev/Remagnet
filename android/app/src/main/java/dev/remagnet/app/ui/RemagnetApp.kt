@@ -110,8 +110,6 @@ fun RemagnetApp(viewModel: RemagnetViewModel = viewModel()) {
                 screen = Screen.Settings
             },
             onScanCode = ::startScan,
-            onTestConnection = viewModel::checkConnection,
-            onTestQbitConnection = viewModel::checkQbitConnection,
             onAddMagnet = viewModel::openAddSheet,
             onRefreshTorrents = viewModel::refreshTorrents,
             onDownload = ::startDownload,
@@ -128,12 +126,21 @@ fun RemagnetApp(viewModel: RemagnetViewModel = viewModel()) {
             saved = state.settings,
             scanResult = scanResult,
             onScanResultConsumed = { scanResult = null },
+            pairing = state.pairing,
+            onScanPairing = viewModel::pairDevice,
+            onPairingConsumed = viewModel::clearPairing,
             onScanCode = ::startScan,
             onBack = {
                 viewModel.clearNotice()
                 screen = Screen.Home
             },
             onSave = viewModel::save,
+            qbitStatus = state.qbitStatus,
+            checkingQbit = state.checkingQbit,
+            proxyStatus = state.proxyStatus,
+            checkingProxy = state.checking,
+            onTestQbitConnection = viewModel::checkQbitConnection,
+            onTestConnection = viewModel::checkConnection,
         )
     }
 
@@ -159,7 +166,7 @@ fun RemagnetApp(viewModel: RemagnetViewModel = viewModel()) {
 
 private fun scanOptions(): ScanOptions = ScanOptions().apply {
     setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-    setPrompt("Scan a Remagnet connect code")
+    setPrompt("Scan a Remagnet connect or pairing code")
     setBeepEnabled(false)
     setOrientationLocked(false)
 }

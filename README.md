@@ -4,6 +4,9 @@
 
 # Remagnet
 
+[![CI](https://github.com/EliCunninghamDev/Remagnet/actions/workflows/ci.yml/badge.svg)](https://github.com/EliCunninghamDev/Remagnet/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+
 A torrent forwarding and download proxy for Firefox, Chrome, and Android.
 
 Firefox handles magnet links through a `magnet:` protocol handler. Chrome adds a
@@ -23,6 +26,110 @@ a QR code.
   Chrome is shown; in Firefox a <code>magnet:</code> click opens the same popover.
 </sub></p>
 
+## Quick start
+
+Remagnet has three pieces: the browser extension or Android app, qBittorrent,
+and an optional **Remagnet Proxy**. The proxy is a small Docker service that
+streams completed torrents to the client as ZIP files. Magnet forwarding works
+without it; deploy it when you want the Download action.
+
+### 1. Prepare qBittorrent
+
+Enable the Web UI and generate an API key under **Preferences → Web UI → API
+Key** (qBittorrent 5.2 or newer). Note the Web UI URL; Remagnet talks to
+qBittorrent directly for everything except ZIP downloads.
+
+### 2. Deploy Remagnet Proxy
+
+Create a directory on the Docker host and add `compose.yaml`:
+
+```yaml
+services:
+  remagnet-bridge:
+    image: ghcr.io/elicunninghamdev/remagnet-bridge:latest
+    container_name: remagnet-bridge
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATA_DIR: /data
+      BIND_ADDR: 0.0.0.0:8080
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8080:8080"
+    volumes:
+      - remagnet-data:/data
+
+volumes:
+  remagnet-data:
+```
+
+Then create `.env` beside it:
+
+```dotenv
+# Generate with: openssl rand -hex 32
+BRIDGE_TOKEN=replace-with-32-bytes-of-hex
+
+# Where the proxy reaches qBittorrent's Web UI. If qBittorrent is another
+# Compose service, use its service name and a shared network instead.
+QBIT_BASE_URL=http://host.docker.internal:8080
+QBIT_API_KEY=qbt_replace_with_your_key
+```
+
+Start the service:
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+To build the image from this repository instead of pulling it:
+
+```bash
+git clone https://github.com/EliCunninghamDev/Remagnet.git
+cd Remagnet/proxy
+cp .env.example .env    # set BRIDGE_TOKEN and QBIT_* values
+docker compose up -d --build
+```
+
+### 3. Configure the proxy
+
+Open `http://<docker-host>:8080` and paste the same `BRIDGE_TOKEN`. That field
+only unlocks the proxy's own settings page; it is not a second password. Point
+the proxy at qBittorrent with the Web UI URL and API key, then choose **Test
+connection**.
+
+### 4. Connect Remagnet
+
+In the extension's **Settings → Remagnet Proxy**, enter the proxy origin (for
+example `https://remagnet.example.com`) and the same token. The Download action
+on completed torrents stays disabled until both fields are saved.
+
+For Android, open the **Remagnet Proxy** page (the URL you deployed in step 2)
+and choose **Show QR code**, then scan it from the app. The phone claims a
+one-time code from the proxy and receives the qBittorrent connection and proxy
+token that are saved on the proxy server. The code rotates every minute and
+works once, so keep it private. Pairing needs an HTTPS proxy origin; you can also
+enter the values under **Settings**, or import a `remagnet://connect` code with
+the QR scanner or paste box.
+
+The same page's **Copy link** button produces a pairing link. Paste it into the
+extension's **Remagnet Proxy → Pairing code** field to fill in the proxy URL,
+token, and qBittorrent connection without typing them. A code is single-use, so
+copy a fresh one for each device.
+
+Expose the proxy over HTTPS before using it from another machine. A minimal
+Caddy route for the Compose setup in this repository looks like:
+
+```caddyfile
+remagnet.example.com {
+  reverse_proxy remagnet-bridge:8080
+}
+```
+
+The proxy never stores torrent contents; it streams each completed file from
+qBittorrent's Web API into the ZIP response.
+
 ## Layout
 
 ```
@@ -38,7 +145,7 @@ scripts/              Client and banner generation
 tokens.js             Design tokens (DTCG 2025.10)
 ```
 
-## Getting started
+## Development
 
 ```bash
 bun install
@@ -167,7 +274,7 @@ or `QBIT_USERNAME`/`QBIT_PASSWORD`, `DATA_DIR` and `BIND_ADDR` configure the
 service. The first boot writes `config.json` (mode `0600`) from the environment;
 subsequent changes come from the config page and survive restarts. Deploy behind
 an HTTPS reverse proxy, then enter that URL and the same token under **Settings
-→ Archive downloads** in the extension. A compose file is included for the
+→ Remagnet Proxy** in the extension. A compose file is included for the
 shared `media` network.
 
 The crate, binary, Docker image and container keep the historical
@@ -202,6 +309,19 @@ format and install steps are documented in
 [`android/README.md`](android/README.md). Cleartext HTTP is allowed only for the
 emulator host (`10.0.2.2`) and loopback; a deployed proxy must use HTTPS.
 
+## Sponsor this project
+
+Remagnet is built and maintained in the open. If it saves you time, you can
+[support this project on Ko-fi](https://ko-fi.com/elijahcunninghamdev).
+
+## Privacy and license
+
+Remagnet runs entirely on your devices and your own server. It has no accounts,
+analytics, or telemetry, and it sends nothing to the project. See
+[`PRIVACY.md`](PRIVACY.md) for what each component stores locally.
+
+The source is licensed under the [Apache License 2.0](LICENSE).
+
 ## Commands
 
 | Command                   | Description                            |
@@ -235,7 +355,7 @@ emulator host (`10.0.2.2`) and loopback; a deployed proxy must use HTTPS.
 - Some qBittorrent versions apply CSRF/Referer checks to the Web UI API. If
   requests are rejected, enable "Bypass authentication for clients on localhost"
   or add the extension origin to the Web UI's trusted sources.
-- API key, password and bridge token are encrypted with an AES-GCM key that
+- API key, password and Remagnet Proxy token are encrypted with an AES-GCM key that
   JavaScript cannot export before they are written to `browser.storage.local`.
   Extension pages and the background worker decrypt them on demand; web page
   content cannot read the key or the plaintext. Prefer an API key or a

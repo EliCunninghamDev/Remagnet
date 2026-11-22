@@ -104,9 +104,23 @@ export const torrentCases: TorrentCase[] = [
     archiveReady: true,
   },
   {
+    id: "complete-no-proxy",
+    label: "Complete, no proxy",
+    description: "Download stays visible but disabled until the Remagnet Proxy is configured.",
+    torrent: torrent("d7", "ubuntu-26.04-server-amd64.iso", {
+      state: "seeding",
+      progress: 1,
+      downloadSpeed: 0,
+      eta: 0,
+      peers: 4,
+      seeds: 21,
+    }),
+    archiveReady: false,
+  },
+  {
     id: "zipping",
     label: "Zipping",
-    description: "The bridge is preparing the archive; the bar sweeps.",
+    description: "The Remagnet Proxy is preparing the archive; the bar sweeps.",
     torrent: torrent("e5", "linuxmint-22.3-cinnamon-64bit.iso", {
       state: "seeding",
       progress: 1,

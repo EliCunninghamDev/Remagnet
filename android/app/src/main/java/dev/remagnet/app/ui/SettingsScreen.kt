@@ -41,8 +41,10 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.remagnet.app.client.ProxyStatus
 import dev.remagnet.app.data.AuthMode
 import dev.remagnet.app.data.OnboardingResult
+import dev.remagnet.app.data.PairingLink
 import dev.remagnet.app.data.RemagnetSettings
 import dev.remagnet.app.data.SettingsError
 import dev.remagnet.app.data.SettingsField
@@ -64,9 +66,18 @@ fun SettingsScreen(
     saved: RemagnetSettings,
     scanResult: String?,
     onScanResultConsumed: () -> Unit,
+    pairing: PairingState,
+    onScanPairing: (PairingLink) -> Unit,
+    onPairingConsumed: () -> Unit,
     onScanCode: () -> Unit,
     onBack: () -> Unit,
     onSave: suspend (RemagnetSettings) -> SaveResult,
+    qbitStatus: QbitStatus?,
+    checkingQbit: Boolean,
+    proxyStatus: ProxyStatus?,
+    checkingProxy: Boolean,
+    onTestQbitConnection: () -> Unit,
+    onTestConnection: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var draft by remember(saved) { mutableStateOf(saved) }
@@ -88,6 +99,11 @@ fun SettingsScreen(
                     "Imported connection settings. Review the values, then save.",
                     StatusTone.Ok,
                 )
+            }
+
+            is OnboardingResult.Pairing -> {
+                message = FormMessage("Claiming pairing code…", StatusTone.Neutral)
+                onScanPairing(result.link)
             }
 
             is OnboardingResult.Invalid -> {
@@ -115,6 +131,38 @@ fun SettingsScreen(
         }
     }
 
+    LaunchedEffect(pairing) {
+        when (val current = pairing) {
+            PairingState.Idle -> Unit
+            PairingState.Claiming -> {
+                message = FormMessage("Claiming pairing code…", StatusTone.Neutral)
+            }
+
+            is PairingState.Failed -> {
+                message = FormMessage(current.message, StatusTone.Error)
+                onPairingConsumed()
+            }
+
+            is PairingState.Paired -> {
+                draft = draft.copy(
+                    qbitBaseUrl = current.settings.qbitBaseUrl,
+                    authMode = current.settings.authMode,
+                    qbitApiKey = current.settings.qbitApiKey,
+                    qbitUsername = current.settings.qbitUsername,
+                    qbitPassword = current.settings.qbitPassword,
+                    proxyBaseUrl = current.settings.proxyBaseUrl,
+                    proxyToken = current.settings.proxyToken,
+                ).normalized()
+                errors = emptyList()
+                message = FormMessage(
+                    "Paired with Remagnet Proxy. Review the connection, then save.",
+                    StatusTone.Ok,
+                )
+                onPairingConsumed()
+            }
+        }
+    }
+
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
@@ -124,14 +172,11 @@ fun SettingsScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                RemagnetWordmark(surface = "Settings")
-                Spacer(Modifier.weight(1f))
-                SecondaryButton(text = "Done", onClick = ::requestBack)
-            }
+            ScreenHeader(
+                surface = "Settings",
+                actionText = "Done",
+                onAction = ::requestBack,
+            )
         }
 
         item {
@@ -144,8 +189,7 @@ fun SettingsScreen(
                 )
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    text = "Point Remagnet at your qBittorrent Web UI. The download " +
-                        "proxy is optional and only used for completed ZIP downloads.",
+                    text = "Point Remagnet at your qBittorrent Web UI.",
                     color = RemagnetPalette.Muted,
                     style = MaterialTheme.typography.bodyMedium,
                     lineHeight = 19.sp,
@@ -219,22 +263,21 @@ fun SettingsScreen(
                     onValueChange = {
                         edit(draft.copy(defaultCategory = it))
                     },
-                    help = "Applied to magnets added from Remagnet. Optional.",
                 )
                 Field(
                     label = "Tags",
                     value = draft.defaultTags,
                     onValueChange = { edit(draft.copy(defaultTags = it)) },
-                    help = "Comma-separated. Applied to magnets added from Remagnet.",
+                    help = "Comma-separated.",
                 )
             }
         }
 
         item {
             Panel {
-                SectionLabel("Download proxy (optional)")
+                SectionLabel("Remagnet Proxy")
                 Field(
-                    label = "Proxy URL",
+                    label = "Remagnet Proxy URL",
                     value = draft.proxyBaseUrl,
                     onValueChange = {
                         edit(draft.copy(proxyBaseUrl = it))
@@ -248,11 +291,10 @@ fun SettingsScreen(
                     ),
                 )
                 SecretField(
-                    label = "Proxy token",
+                    label = "Remagnet Proxy token",
                     value = draft.proxyToken,
                     onValueChange = { edit(draft.copy(proxyToken = it)) },
                     error = errors.messageFor(SettingsField.ProxyToken),
-                    help = "The same BRIDGE_TOKEN configured on the proxy.",
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     SecondaryButton(
@@ -314,10 +356,36 @@ fun SettingsScreen(
             )
         }
 
+        if (!dirty && (saved.qbitConfigured || saved.proxyConfigured)) {
+            item { SectionLabel("Connection status") }
+
+            if (saved.qbitConfigured) {
+                item {
+                    TorrentClientPanel(
+                        settings = saved,
+                        status = qbitStatus,
+                        checking = checkingQbit,
+                        onTest = onTestQbitConnection,
+                    )
+                }
+            }
+
+            if (saved.proxyConfigured) {
+                item {
+                    ProxyPanel(
+                        settings = saved,
+                        status = proxyStatus,
+                        checking = checkingProxy,
+                        onTest = onTestConnection,
+                    )
+                }
+            }
+        }
+
         item {
             Text(
-                text = "The API key, password and proxy token are encrypted with a " +
-                    "key held by the Android Keystore.",
+                text = "The API key, password and Remagnet Proxy token are encrypted " +
+                    "with a key held by the Android Keystore.",
                 color = RemagnetPalette.Muted,
                 fontFamily = GeistMono,
                 fontSize = 10.sp,
@@ -411,7 +479,7 @@ private fun PasteCodeDialog(
         text = {
             Column {
                 Text(
-                    text = "Paste a remagnet://connect link or the JSON from a code.",
+                    text = "Paste a remagnet://connect or remagnet://pair link, or the JSON from a code.",
                     color = RemagnetPalette.Muted,
                     fontSize = 12.sp,
                     lineHeight = 17.sp,

@@ -16,8 +16,7 @@ const qbittorrent: TorrentClientDefinition = {
   authModes: ["apiKey", "password"],
   defaultBaseUrl: "http://127.0.0.1:8080",
   apiKeyPlaceholder: "qbt_…",
-  apiKeyHelp:
-    "qBittorrent 5.2+ API keys are sent as a Bearer token. Generate one under Preferences → Web UI → API Key.",
+  apiKeyHelp: "Generate one under Preferences → Web UI → API Key.",
   capabilities: {
     categories: true,
     tags: true,

@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    name: Extension and packages
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.5"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Prepare WXT types
+        run: bun run --cwd extension postinstall
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Lint and format
+        run: bun run check
+
+      - name: Unit and UI tests
+        run: bun run test
+
+      - name: Build extension
+        run: bun run build
+
+  proxy:
+    name: Remagnet Proxy
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: proxy -> target
+
+      - name: Format check
+        run: cargo fmt --manifest-path proxy/Cargo.toml --check
+
+      - name: Clippy
+        run: cargo clippy --manifest-path proxy/Cargo.toml --all-targets -- -D warnings
+
+      - name: Tests
+        run: cargo test --manifest-path proxy/Cargo.toml

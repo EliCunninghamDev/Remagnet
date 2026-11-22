@@ -26,6 +26,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -34,6 +35,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.remagnet.app.ui.theme.GeistMono
 import dev.remagnet.app.ui.theme.RemagnetPalette
+
+/**
+ * True when the system font scale is large enough that side-by-side controls
+ * stop fitting. Screens switch to stacked layouts above this threshold rather
+ * than clipping labels or squeezing actions into a sliver.
+ */
+@Composable
+fun isLargeText(): Boolean = LocalDensity.current.fontScale >= 1.5f
 
 @Composable
 fun SectionLabel(

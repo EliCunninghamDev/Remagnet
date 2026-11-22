@@ -56,7 +56,7 @@ export interface paths {
         /**
          * Test the saved qBittorrent connection
          * @description Calls qBittorrent's `app/version` and `app/webapiVersion` endpoints with
-         *     the saved credentials. Used by the extension's "Save & test archive"
+         *     the saved credentials. Used by the extension's "Save & test Remagnet Proxy"
          *     action and the configuration page.
          */
         get: operations["checkQbitConnection"];
@@ -96,6 +96,84 @@ export interface paths {
          */
         put: operations["updateConfig"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/pair": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mint a short-lived device pairing code
+         * @description Creates an in-memory pairing session and returns the `remagnet://pair`
+         *     link plus a ready-to-display SVG QR code. The Remagnet Proxy page shows
+         *     the QR for the Android app and copies the link for the extension, which
+         *     claims it from Settings. The code is single-use and is never stored on
+         *     disk; restarting the proxy invalidates outstanding sessions.
+         *
+         *     Minting requires the proxy token. Claiming the code does not, because
+         *     the device or extension claiming it has not been configured yet. Pairing
+         *     carries credentials, so the origin must use HTTPS unless it is loopback
+         *     or the Android emulator host (`10.0.2.2`).
+         */
+        post: operations["createPairing"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/pair/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke an outstanding pairing code
+         * @description Called when the proxy page hides or rotates the QR code. Revoking an
+         *     unknown or expired id is not an error, so a retry is safe.
+         */
+        delete: operations["revokePairing"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/pair/claim": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Claim a pairing code and receive encrypted connection settings
+         * @description The Android app, or the extension's pairing field, sends the session id
+         *     and `SHA-256(code)`, not the code itself. On success the proxy consumes
+         *     the session and returns the qBittorrent URL, credentials, and proxy
+         *     token encrypted with AES-256-GCM. Both sides derive the key from the
+         *     scanned code and the session id, so a logged request or response is
+         *     useless without the code.
+         *
+         *     The plaintext is a JSON object described by `PairingPayload`. Invalid,
+         *     expired, or already-claimed codes return `400` and no payload.
+         */
+        post: operations["claimPairing"];
         delete?: never;
         options?: never;
         head?: never;
@@ -213,6 +291,93 @@ export interface components {
              *     send an empty string to clear it.
              */
             qbitPassword?: string;
+        };
+        CreatePairingRequest: {
+            /**
+             * Format: uri
+             * @description Proxy origin to put in the pairing link, such as
+             *     `https://remagnet.example.com`. Must not contain credentials, a
+             *     path, a query, or a fragment. Plain HTTP is accepted only for
+             *     loopback and `10.0.2.2`.
+             * @example https://remagnet.example.com
+             */
+            url?: string;
+        };
+        /** @description Credentials for one QR image. The code is shown only once. */
+        PairingSession: {
+            /**
+             * @description Base64url session id; safe to send back when claiming.
+             * @example 5J0m3x0YbqQ0m9jX8m3c2A
+             */
+            id: string;
+            /**
+             * @description Base64url 32-byte secret. Put it in the QR image, never in logs or
+             *     analytics.
+             * @example 8m3c2A5J0m3x0YbqQ0m9jX8m3c2A5J0m3x0YbqQ0m9jX8
+             */
+            code: string;
+            /**
+             * @description Seconds until the code stops working.
+             * @example 60
+             */
+            expiresIn: number;
+            /**
+             * Format: uri
+             * @description Normalized proxy origin encoded in the link.
+             * @example https://remagnet.example.com
+             */
+            url: string;
+            /**
+             * @description `remagnet://pair` link for the Android app and the extension's
+             *     pairing field.
+             * @example remagnet://pair?url=https%3A%2F%2Fremagnet.example.com&id=…&code=…
+             */
+            uri: string;
+            /**
+             * @description Inline SVG QR code for `uri`, black on white. Generated by the proxy
+             *     so the page does not load a QR library.
+             */
+            svg: string;
+        };
+        PairingClaim: {
+            /** @description Session id from the scanned QR code. */
+            id: string;
+            /**
+             * @description Base64url `SHA-256(code)`. The code itself is not sent, so request
+             *     logs do not contain the key used for the response.
+             */
+            proof: string;
+        };
+        /**
+         * @description AES-256-GCM output. The key is
+         *     `SHA-256("remagnet-pair-v1" || id || code)`; the same derivation is used
+         *     by the Android client.
+         */
+        EncryptedPayload: {
+            /** @description Base64url 12-byte nonce. */
+            iv: string;
+            /** @description Base64url ciphertext with the 16-byte GCM tag appended. */
+            data: string;
+        };
+        /** @description Plaintext inside `EncryptedPayload.data` after decryption. */
+        PairingPayload: {
+            /** @constant */
+            version: 1;
+            /**
+             * Format: uri
+             * @description qBittorrent Web UI URL saved on the proxy.
+             */
+            qbitBaseUrl: string;
+            /** @enum {string} */
+            authMode: "apiKey" | "password";
+            /** @description Present when `authMode` is `apiKey`. */
+            apiKey?: string;
+            /** @description Present when `authMode` is `password`. */
+            username?: string;
+            /** @description Present when `authMode` is `password`. */
+            password?: string;
+            /** @description The proxy's `BRIDGE_TOKEN`, so the app can download ZIPs. */
+            proxyToken: string;
         };
     };
     responses: {
@@ -426,6 +591,124 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             500: components["responses"]["InternalError"];
+        };
+    };
+    createPairing: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Proxy token as a query parameter. Alternative to
+                 *     `Authorization: Bearer <token>`; either one is sufficient.
+                 */
+                token?: components["parameters"]["TokenQuery"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description The origin to encode in the link. The proxy page sends
+         *     `location.origin`, which is the address the phone must be able to
+         *     reach. When omitted, the proxy falls back to the `Host` and
+         *     `X-Forwarded-Proto` headers.
+         */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["CreatePairingRequest"];
+            };
+        };
+        responses: {
+            /** @description A pairing session and its rendered QR code. */
+            200: {
+                headers: {
+                    "Cache-Control"?: "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PairingSession"];
+                };
+            };
+            /** @description The supplied origin is invalid, unreachable without HTTPS, or missing. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Android pairing needs an HTTPS Remagnet Proxy URL."
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    revokePairing: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Proxy token as a query parameter. Alternative to
+                 *     `Authorization: Bearer <token>`; either one is sufficient.
+                 */
+                token?: components["parameters"]["TokenQuery"];
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The session is gone. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    claimPairing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PairingClaim"];
+            };
+        };
+        responses: {
+            /** @description Encrypted connection settings for the scanning device. */
+            200: {
+                headers: {
+                    "Cache-Control"?: "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EncryptedPayload"];
+                };
+            };
+            /** @description The pairing code is invalid, expired, or already used. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "The pairing code is invalid or expired."
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     downloadArchive: {

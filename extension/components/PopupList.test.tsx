@@ -91,10 +91,10 @@ describe("PopupList", () => {
 
   test("keeps the list when only a row action failed", () => {
     const handlers = renderList({
-      actionError: "The archive bridge could not reach qBittorrent.",
+      actionError: "The Remagnet Proxy could not reach qBittorrent.",
     });
 
-    expect(screen.getByText("The archive bridge could not reach qBittorrent.")).toBeTruthy();
+    expect(screen.getByText("The Remagnet Proxy could not reach qBittorrent.")).toBeTruthy();
     expect(screen.getByTitle("debian-13.8.0-amd64-netinst.iso")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));

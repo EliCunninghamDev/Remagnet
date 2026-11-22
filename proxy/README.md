@@ -1,4 +1,4 @@
-# Remagnet proxy
+# Remagnet Proxy
 
 The Remagnet proxy is a Rust/axum service that turns completed qBittorrent
 torrents into ZIP streams for the browser extension and the Android client. It
@@ -21,10 +21,33 @@ work unchanged.
 | `GET /api/health`                  | bearer | Test the saved qBittorrent connection           |
 | `GET /api/config`                  | bearer | Read non-secret settings                        |
 | `PUT /api/config`                  | bearer | Update the qBittorrent URL and credentials      |
+| `POST /api/pair`                   | bearer | Mint a short-lived mobile pairing code          |
+| `DELETE /api/pair/:id`             | bearer | Revoke a pairing code                           |
+| `POST /api/pair/claim`             | none   | Claim a code; returns encrypted settings        |
 | `GET /archive/:hash`               | bearer | Stream a completed torrent as a ZIP             |
 
 `Authorization: Bearer <BRIDGE_TOKEN>` is preferred. `?token=` is accepted as a
 fallback for browsers whose download API cannot attach headers.
+
+Pairing is how the proxy hands a device the qBittorrent credentials and proxy
+token without embedding them in a QR image. `POST /api/pair` requires the bridge
+token and returns an id, a 32-byte code, the `remagnet://pair` link, and an
+inline SVG QR code. The code lives in memory for 60 seconds and is single-use.
+The Android app sends the session id and `SHA-256(code)`; the extension can paste
+the same link into its **Remagnet Proxy → Pairing code** field. The proxy returns
+the settings encrypted with AES-256-GCM under a key derived from the code and id,
+so a logged request or response cannot be decrypted without the code.
+
+The config page's **Pair a device** panel mints and rotates the code, renders the
+QR, and revokes it when hidden. Minting also accepts the origin to encode:
+
+```json
+{ "url": "https://remagnet.example.com" }
+```
+
+If `url` is omitted, the proxy reconstructs the origin from `Host` and
+`X-Forwarded-Proto`. Pairing requires HTTPS unless the origin is loopback or the
+Android emulator host `10.0.2.2`.
 
 The machine-readable contract is [`openapi.yaml`](openapi.yaml) (OpenAPI 3.1).
 It documents both authentication styles, the request and response bodies, and
@@ -79,12 +102,31 @@ Open <http://127.0.0.1:8080/>, paste `BRIDGE_TOKEN`, and test the connection.
 
 ## Docker
 
-The compose file expects the external `media` network shared with Caddy and
-qBittorrent/gluetun:
+Images are published to GHCR as
+`ghcr.io/elicunninghamdev/remagnet-bridge:latest`; make the package public if
+anonymous hosts should be able to pull it without `docker login ghcr.io`. The
+compose file in this directory points at that image and also has a `build: .`
+fallback, so either path works:
 
 ```bash
-docker compose build
+docker compose pull
 docker compose up -d
+# or build the local source
+docker compose up -d --build
+```
+
+The compose file expects the external `media` network shared with Caddy and
+qBittorrent/gluetun. For a standalone host without that network, remove the
+`networks` block, publish port `8080`, and set `QBIT_BASE_URL` to an address the
+container can reach. The root README has a complete
+[Docker Compose quick start](../README.md#quick-start).
+
+The bind mount is owned by the container's `bridge` user (UID 10001). Create it
+before the first start, or replace it with a named volume:
+
+```bash
+mkdir -p data
+sudo chown 10001:10001 data
 ```
 
 Put the service behind a local-only reverse-proxy route, for example:

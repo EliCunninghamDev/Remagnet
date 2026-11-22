@@ -27,10 +27,10 @@ package dev.remagnet.proxy.models
 import com.google.gson.annotations.SerializedName
 
 /**
- * @param qbitBaseUrl qBittorrent Web UI URL. Must use `http://` or `https://`, must not contain credentials, a query or a fragment, and is stored without trailing slashes. 
- * @param qbitApiKey qBittorrent 5.2+ API key. Omit to keep the saved key; send an empty string to clear it. 
- * @param qbitUsername Username for cookie-based login. Omit to keep the saved username; send an empty string to clear it. 
- * @param qbitPassword Password for cookie-based login. Omit to keep the saved password; send an empty string to clear it. 
+ * @param qbitBaseUrl qBittorrent Web UI URL. Must use `http://` or `https://`, must not contain credentials, a query or a fragment, and is stored without trailing slashes.
+ * @param qbitApiKey qBittorrent 5.2+ API key. Omit to keep the saved key; send an empty string to clear it.
+ * @param qbitUsername Username for cookie-based login. Omit to keep the saved username; send an empty string to clear it.
+ * @param qbitPassword Password for cookie-based login. Omit to keep the saved password; send an empty string to clear it.
  */
 
 

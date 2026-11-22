@@ -2,14 +2,19 @@
 name = "remagnet-bridge"
 version = "0.1.0"
 edition = "2021"
+license = "Apache-2.0"
 publish = false
 
 [dependencies]
+aes-gcm = "0.10"
 anyhow = "1"
 async_zip = { version = "0.0.19", features = ["tokio"] }
 axum = { version = "0.8", features = ["macros"] }
+base64 = "0.22"
 futures-lite = "2"
+getrandom = "0.2"
 percent-encoding = "2"
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 reqwest = { version = "0.12", default-features = false, features = [
   "cookies",
   "json",
@@ -18,6 +23,7 @@ reqwest = { version = "0.12", default-features = false, features = [
 ] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.10"
 subtle = "2"
 tokio = { version = "1", features = [
   "fs",

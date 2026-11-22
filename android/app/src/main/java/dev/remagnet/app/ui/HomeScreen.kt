@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -19,12 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import dev.remagnet.app.client.ProxyStatus
 import dev.remagnet.app.client.TorrentSummary
-import dev.remagnet.app.client.torrentFilterDescription
-import dev.remagnet.app.client.torrentFilterFor
-import dev.remagnet.app.data.AuthMode
-import dev.remagnet.app.data.RemagnetSettings
 import dev.remagnet.app.ui.components.Panel
 import dev.remagnet.app.ui.components.PrimaryButton
 import dev.remagnet.app.ui.components.SecondaryButton
@@ -35,17 +29,15 @@ import dev.remagnet.app.ui.theme.GeistMono
 import dev.remagnet.app.ui.theme.RemagnetPalette
 
 /**
- * The app's first screen is a connection status. It is deliberately not a
- * mock torrent list: every state shown here is backed by settings or a real
- * proxy call, so an empty install never looks like a broken library.
+ * The app's first screen is the torrent list. It is deliberately backed by
+ * settings and real client calls, so an empty install never looks like a broken
+ * library.
  */
 @Composable
 fun HomeScreen(
     state: RemagnetUiState,
     onOpenSettings: () -> Unit,
     onScanCode: () -> Unit,
-    onTestConnection: () -> Unit,
-    onTestQbitConnection: () -> Unit,
     onAddMagnet: () -> Unit,
     onRefreshTorrents: () -> Unit,
     onDownload: (TorrentSummary) -> Unit,
@@ -66,14 +58,11 @@ fun HomeScreen(
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                RemagnetWordmark(surface = "Android")
-                Spacer(Modifier.weight(1f))
-                SecondaryButton(text = "Settings", onClick = onOpenSettings)
-            }
+            ScreenHeader(
+                surface = "Android",
+                actionText = "Settings",
+                onAction = onOpenSettings,
+            )
         }
 
         item {
@@ -96,14 +85,8 @@ fun HomeScreen(
                     }
                 }
                 Spacer(Modifier.height(5.dp))
-                val filter = torrentFilterFor(state.settings)
                 Text(
-                    text = if (filter.active) {
-                        "Showing ${torrentFilterDescription(filter)}. Refreshes while " +
-                            "this screen is open."
-                    } else {
-                        "All torrents in qBittorrent. Refreshes while this screen is open."
-                    },
+                    text = "Refreshes while this screen is open.",
                     color = RemagnetPalette.Muted,
                     fontFamily = GeistMono,
                     fontSize = 10.sp,
@@ -197,206 +180,10 @@ fun HomeScreen(
                     )
                 }
             }
-
-            item {
-                SectionLabel("Connections")
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    text = "Remagnet sends magnets to qBittorrent. The optional " +
-                        "proxy turns completed torrents into ZIP downloads.",
-                    color = RemagnetPalette.Muted,
-                    style = MaterialTheme.typography.bodyMedium,
-                    lineHeight = 19.sp,
-                )
-            }
-
-            if (state.settings.qbitConfigured) {
-                item {
-                    TorrentClientPanel(
-                        settings = state.settings,
-                        status = state.qbitStatus,
-                        checking = state.checkingQbit,
-                        onTest = onTestQbitConnection,
-                        onEdit = onOpenSettings,
-                    )
-                }
-            }
-
-            item {
-                ProxyPanel(
-                    settings = state.settings,
-                    status = state.proxyStatus,
-                    checking = state.checking,
-                    onTest = onTestConnection,
-                    onScan = onScanCode,
-                    onEdit = onOpenSettings,
-                )
-            }
         }
 
         state.notice?.let { notice ->
             item { StatusNote(text = notice, tone = StatusTone.Ok) }
         }
-
-        item {
-            Text(
-                text = "Credentials are encrypted on this device. The proxy token " +
-                    "never leaves it in plaintext.",
-                color = RemagnetPalette.Muted,
-                fontFamily = GeistMono,
-                fontSize = 10.sp,
-                lineHeight = 15.sp,
-            )
-        }
     }
 }
-
-@Composable
-private fun TorrentClientPanel(
-    settings: RemagnetSettings,
-    status: QbitStatus?,
-    checking: Boolean,
-    onTest: () -> Unit,
-    onEdit: () -> Unit,
-) {
-    Panel {
-        SectionLabel("Torrent client")
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = "qBittorrent",
-                color = RemagnetPalette.Text,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.weight(1f),
-            )
-            Text(
-                text = if (settings.authMode == AuthMode.ApiKey) "API KEY" else "PASSWORD",
-                color = RemagnetPalette.Done,
-                fontFamily = GeistMono,
-                fontSize = 9.sp,
-                letterSpacing = 1.sp,
-            )
-        }
-        Text(
-            text = settings.qbitBaseUrl,
-            color = RemagnetPalette.Muted,
-            fontFamily = GeistMono,
-            fontSize = 11.sp,
-        )
-        val note = qbitNote(status, checking)
-        StatusNote(text = note.text, tone = note.tone)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            PrimaryButton(
-                text = if (checking) "Checking…" else "Test connection",
-                onClick = onTest,
-                enabled = !checking,
-                modifier = Modifier.weight(1f),
-            )
-            SecondaryButton(
-                text = "Edit",
-                onClick = onEdit,
-                modifier = Modifier.weight(1f),
-            )
-        }
-    }
-}
-
-@Composable
-private fun ProxyPanel(
-    settings: RemagnetSettings,
-    status: ProxyStatus?,
-    checking: Boolean,
-    onTest: () -> Unit,
-    onScan: () -> Unit,
-    onEdit: () -> Unit,
-) {
-    Panel {
-        SectionLabel("Download proxy")
-        if (!settings.proxyConfigured) {
-            Text(
-                text = "Not configured",
-                color = RemagnetPalette.Text,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Text(
-                text = "Add the proxy URL and token to download completed torrents " +
-                    "as ZIP files. The app still adds and manages torrents without it.",
-                color = RemagnetPalette.Muted,
-                fontSize = 12.sp,
-                lineHeight = 17.sp,
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                SecondaryButton(
-                    text = "Set up proxy",
-                    onClick = onEdit,
-                    modifier = Modifier.weight(1f),
-                )
-                SecondaryButton(
-                    text = "Scan code",
-                    onClick = onScan,
-                    modifier = Modifier.weight(1f),
-                )
-            }
-            return@Panel
-        }
-
-        Text(
-            text = settings.proxyBaseUrl,
-            color = RemagnetPalette.Muted,
-            fontFamily = GeistMono,
-            fontSize = 11.sp,
-        )
-        val note = proxyNote(status, checking)
-        StatusNote(text = note.text, tone = note.tone)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            PrimaryButton(
-                text = if (checking) "Checking…" else "Test connection",
-                onClick = onTest,
-                enabled = !checking,
-                modifier = Modifier.weight(1f),
-            )
-            SecondaryButton(
-                text = "Scan code",
-                onClick = onScan,
-                modifier = Modifier.weight(1f),
-            )
-        }
-    }
-}
-
-private fun qbitNote(status: QbitStatus?, checking: Boolean): Note = when {
-    checking -> Note("Checking qBittorrent directly…", StatusTone.Neutral)
-    status == null -> Note("Not tested yet.", StatusTone.Neutral)
-    status is QbitStatus.Online -> Note(
-        "qBittorrent ${status.appVersion} (Web API ${status.webApiVersion}).",
-        StatusTone.Ok,
-    )
-
-    status is QbitStatus.Unauthorized -> Note(status.message, StatusTone.Error)
-    status is QbitStatus.Unreachable -> Note(status.message, StatusTone.Error)
-    status is QbitStatus.Error -> Note(status.message, StatusTone.Error)
-    status is QbitStatus.NotConfigured -> Note("Not configured.", StatusTone.Neutral)
-    else -> Note("Unknown qBittorrent state.", StatusTone.Neutral)
-}
-
-private fun proxyNote(status: ProxyStatus?, checking: Boolean): Note = when {
-    checking -> Note("Checking the proxy and its qBittorrent connection…", StatusTone.Neutral)
-    status == null -> Note("Not tested yet.", StatusTone.Neutral)
-    status is ProxyStatus.Online -> Note(
-        "Proxy online. qBittorrent ${status.appVersion} (Web API ${status.webApiVersion}).",
-        StatusTone.Ok,
-    )
-
-    status is ProxyStatus.Unauthorized -> Note(status.message, StatusTone.Error)
-    status is ProxyStatus.QbitUnavailable -> Note(status.message, StatusTone.Warn)
-    status is ProxyStatus.Unreachable -> Note(status.message, StatusTone.Error)
-    status is ProxyStatus.Misconfigured -> Note(status.message, StatusTone.Error)
-    status is ProxyStatus.NotConfigured -> Note("Not configured.", StatusTone.Neutral)
-    else -> Note("Unknown proxy state.", StatusTone.Neutral)
-}
-
-private data class Note(val text: String, val tone: StatusTone)

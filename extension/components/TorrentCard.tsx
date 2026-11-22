@@ -109,12 +109,16 @@ export default function TorrentCard(props: TorrentCardProps) {
               <span class="torrent-state mono" classList={{ "sr-only": !stateNote() }}>
                 {status().label}
               </span>
-              <Show when={props.archiveReady && complete()}>
+              <Show when={complete()}>
                 <button
                   class="row-icon download-action"
                   type="button"
-                  disabled={props.zipping}
-                  title="Download this completed torrent as a ZIP"
+                  disabled={props.zipping || !props.archiveReady}
+                  title={
+                    props.archiveReady
+                      ? "Download this completed torrent as a ZIP"
+                      : "Configure Remagnet Proxy in settings to download completed torrents"
+                  }
                   onClick={() => props.onZip()}
                 >
                   Download

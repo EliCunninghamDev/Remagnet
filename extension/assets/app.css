@@ -122,6 +122,22 @@ button.ghost {
   font-weight: 500;
 }
 
+.button-link {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font-weight: 500;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.button-link:hover {
+  filter: brightness(1.08);
+}
+
 input,
 select,
 textarea {
@@ -253,6 +269,20 @@ textarea {
 .field > legend {
   font-weight: 600;
   padding: 0;
+}
+
+.field-inline {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.field-inline input {
+  min-width: 0;
+}
+
+.field-inline button {
+  flex: none;
 }
 
 .field small {
@@ -642,6 +672,7 @@ button.client-link:hover:not(:disabled) {
 
 .options {
   max-width: 680px;
+  min-height: 100vh;
   margin: 0 auto;
   padding: 40px 24px 64px;
   display: flex;
@@ -655,6 +686,31 @@ button.client-link:hover:not(:disabled) {
   gap: 8px;
 }
 
+.options-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: center;
+  gap: 6px;
+  margin-top: auto;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.options-footer .sep {
+  opacity: 0.6;
+}
+
+.options-footer a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.options-footer a:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
 .panel {
   background: var(--panel);
   border: 1px solid var(--border);
@@ -662,9 +718,10 @@ button.client-link:hover:not(:disabled) {
   padding: 20px;
 }
 
-.note p {
-  color: var(--muted);
-  font-size: 13px;
+/* Panel headings read as section titles; the stack gap sets the rhythm. */
+.panel > h2 {
+  font-size: 17px;
+  margin-bottom: 0;
 }
 
 /* ---------------------------------------------------------------------------
@@ -1018,6 +1075,12 @@ body.popup-body code {
   font-weight: 600;
   letter-spacing: 0.05em;
   opacity: 1;
+}
+
+/* A completed row keeps the Download slot when the proxy is not configured. */
+.row-icon.download-action:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 /* The Download slot doubles as the state label for stalled, paused and errored

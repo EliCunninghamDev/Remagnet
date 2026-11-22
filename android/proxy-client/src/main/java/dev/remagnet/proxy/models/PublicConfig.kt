@@ -27,7 +27,7 @@ package dev.remagnet.proxy.models
 import com.google.gson.annotations.SerializedName
 
 /**
- * Non-secret view of the saved configuration. Secret values are represented only by booleans. 
+ * Non-secret view of the saved configuration. Secret values are represented only by booleans.
  *
  * @param qbitBaseUrl Normalized qBittorrent Web UI base URL without a trailing slash.
  * @param qbitUsername Saved qBittorrent username, or an empty string.

@@ -1,6 +1,6 @@
 # @remagnet/proxy-client
 
-Typed TypeScript client for the Remagnet proxy, generated from
+Typed TypeScript client for the Remagnet Proxy, generated from
 [`proxy/openapi.yaml`](../../proxy/openapi.yaml).
 
 `src/schema.d.ts` is produced by `openapi-typescript`; `src/client.ts` is a small

@@ -328,7 +328,13 @@ class QBittorrentClient(
         }
     }
 
-    private fun readBody(response: Response): String = response.body.string()
+    /**
+     * Read the body on the IO dispatcher. OkHttp's synchronous call returns as
+     * soon as the headers arrive; the body is streamed by `string()`, so it is
+     * a network read that must not run on the caller's thread.
+     */
+    private suspend fun readBody(response: Response): String =
+        withContext(Dispatchers.IO) { response.body.string() }
 
     private fun extractSid(header: String): String? {
         val pair = header.substringBefore(';').trim()

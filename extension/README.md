@@ -50,9 +50,9 @@ background worker directly. `bun run test:ui` runs the Vitest component suite;
 
 ## ZIP downloads
 
-If **Archive downloads** is configured in settings, completed rows get a
-**Download** button. The background worker validates the torrent, asks the
-browser to download `/archive/<info-hash>` and attaches
+Completed rows always get a **Download** button, disabled until the
+**Remagnet Proxy** is configured in settings. The background worker validates
+the torrent, asks the browser to download `/archive/<info-hash>` and attaches
 `Authorization: Bearer <token>` in Firefox; other browsers use the proxy's
 `?token=` fallback. The proxy itself
 lives in `proxy/` (Rust/axum) and is documented there.
@@ -127,6 +127,13 @@ survive restarts.
 5. Open the popup. It lists only torrents whose category or tags match the
    defaults from step 3 (`remagnet` unless changed), so other downloads in the
    same client stay hidden.
+
+The **Android** panel links to the Remagnet Proxy page, which shows the rotating
+pairing QR for the phone. The **Remagnet Proxy** panel also has a **Pairing code**
+field: paste the link from the proxy page and the extension claims it, filling in
+the proxy URL, token, and qBittorrent connection. The code is single-use,
+expires after a minute, and the response is encrypted with a key derived from the
+code. Pairing requires an HTTPS proxy origin.
 
 Each row has a **Remove** button with a confirmation that either keeps or
 deletes the downloaded files. The background worker also polls the same filtered
