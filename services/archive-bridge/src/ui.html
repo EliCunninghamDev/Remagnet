@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Remagnet bridge</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #f6f5f2;
+        --panel: #ffffff;
+        --text: #1f2328;
+        --muted: #656d76;
+        --line: #d8d5ce;
+        --accent: #b0431f;
+        --ok: #1a7f37;
+        --error: #b42318;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #16181c;
+          --panel: #1e2126;
+          --text: #e7e6e3;
+          --muted: #9aa0a6;
+          --line: #34383f;
+          --accent: #e07a52;
+          --ok: #4ac26b;
+          --error: #f27a72;
+        }
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      main { width: min(680px, calc(100% - 2rem)); margin: 2rem auto 4rem; }
+      h1 { margin: 0 0 .25rem; font-size: 1.55rem; letter-spacing: -.02em; }
+      h2 { margin: 0 0 .9rem; font-size: 1.05rem; }
+      header p, .hint, small { color: var(--muted); }
+      header p { margin: 0 0 1.5rem; }
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 1.15rem;
+        margin-bottom: 1rem;
+      }
+      .stack { display: grid; gap: .9rem; }
+      label { display: grid; gap: .35rem; font-weight: 600; font-size: .92rem; }
+      input {
+        width: 100%;
+        padding: .55rem .65rem;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: var(--bg);
+        color: var(--text);
+        font: inherit;
+      }
+      input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+      .row { display: flex; gap: .6rem; }
+      .row input { flex: 1; }
+      button {
+        padding: .55rem .9rem;
+        border: 1px solid transparent;
+        border-radius: 7px;
+        background: var(--accent);
+        color: #fff;
+        font: inherit;
+        font-weight: 600;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      button:disabled { opacity: .55; cursor: default; }
+      button.ghost { background: transparent; border-color: var(--line); color: var(--text); }
+      .actions { display: flex; gap: .6rem; flex-wrap: wrap; }
+      .check { display: flex; align-items: center; gap: .45rem; font-weight: 400; }
+      .check input { width: auto; }
+      details { border-top: 1px solid var(--line); padding-top: .9rem; }
+      summary { cursor: pointer; font-weight: 600; font-size: .92rem; }
+      details .stack { margin-top: .9rem; }
+      code {
+        display: block;
+        overflow-wrap: anywhere;
+        padding: .55rem .65rem;
+        border-radius: 7px;
+        background: var(--bg);
+        border: 1px solid var(--line);
+        font: .88rem/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      .status { min-height: 1.5em; margin: .2rem 0 0; font-size: .92rem; }
+      .status.ok { color: var(--ok); }
+      .status.error { color: var(--error); }
+      .status.muted { color: var(--muted); }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>Remagnet bridge</h1>
+        <p>
+          Streams completed torrents from qBittorrent to the Remagnet extension as ZIP files.
+          Nothing is stored on this server.
+        </p>
+      </header>
+
+      <section class="panel stack">
+        <label>
+          Bridge token
+          <div class="row">
+            <input id="token" type="password" autocomplete="off" spellcheck="false"
+              placeholder="Paste BRIDGE_TOKEN" />
+            <button id="load" type="button" class="ghost">Load</button>
+          </div>
+          <small>Kept in this tab only. Treat it like a password.</small>
+        </label>
+      </section>
+
+      <form id="config" class="panel stack">
+        <h2>qBittorrent</h2>
+
+        <label>
+          Web UI URL
+          <input id="url" type="url" required spellcheck="false" placeholder="http://gluetun:8080" />
+          <small>Where this bridge reaches qBittorrent. The default is the container network name.</small>
+        </label>
+
+        <label>
+          API key
+          <input id="apiKey" type="password" autocomplete="off" spellcheck="false" placeholder="qbt_…" />
+          <small id="apiKeyHint">A saved key is never sent back to this page.</small>
+        </label>
+        <label class="check">
+          <input id="clearApiKey" type="checkbox" />
+          Remove the saved API key
+        </label>
+
+        <details>
+          <summary>Username and password fallback</summary>
+          <div class="stack">
+            <label>
+              Username
+              <input id="username" type="text" autocomplete="username" spellcheck="false" />
+            </label>
+            <label>
+              Password
+              <input id="password" type="password" autocomplete="current-password" />
+              <small>Leave blank to keep the saved password.</small>
+            </label>
+            <label class="check">
+              <input id="clearPassword" type="checkbox" />
+              Remove the saved password
+            </label>
+          </div>
+        </details>
+
+        <div class="actions">
+          <button id="save" type="submit">Save</button>
+          <button id="test" type="button" class="ghost">Test connection</button>
+        </div>
+        <p id="status" class="status muted" role="status" aria-live="polite">
+          Enter the bridge token to load the current settings.
+        </p>
+      </form>
+
+      <section class="panel stack">
+        <h2>Archive URL</h2>
+        <code id="archiveUrl">/archive/&lt;info-hash&gt;</code>
+        <p class="hint">
+          The extension calls this URL with <code>Authorization: Bearer &lt;bridge token&gt;</code>.
+          It only works for completed torrents.
+        </p>
+      </section>
+    </main>
+
+    <script>
+      const tokenKey = "remagnet-bridge-token";
+      const byId = (id) => document.getElementById(id);
+      const tokenInput = byId("token");
+      const status = byId("status");
+
+      tokenInput.value = sessionStorage.getItem(tokenKey) || "";
+      tokenInput.addEventListener("input", () => {
+        sessionStorage.setItem(tokenKey, tokenInput.value.trim());
+      });
+
+      byId("archiveUrl").textContent = `${location.origin}/archive/<info-hash>`;
+
+      function currentToken() {
+        return tokenInput.value.trim();
+      }
+
+      function setStatus(message, tone = "muted") {
+        status.textContent = message;
+        status.className = `status ${tone}`;
+      }
+
+      async function api(path, options = {}) {
+        const token = currentToken();
+        if (!token) throw new Error("Enter the bridge token first.");
+        const headers = { ...(options.headers || {}), Authorization: `Bearer ${token}` };
+        const response = await fetch(path, { ...options, headers, cache: "no-store" });
+        const text = await response.text();
+        let body = null;
+        try {
+          body = text ? JSON.parse(text) : null;
+        } catch {
+          body = text;
+        }
+        if (!response.ok) {
+          throw new Error(body?.error || text || `${response.status} ${response.statusText}`);
+        }
+        return body;
+      }
+
+      async function load() {
+        if (!currentToken()) {
+          setStatus("Enter the bridge token to load the current settings.", "muted");
+          return;
+        }
+        setStatus("Loading…");
+        try {
+          const config = await api("/api/config");
+          byId("url").value = config.qbitBaseUrl || "";
+          byId("username").value = config.qbitUsername || "";
+          byId("apiKey").value = "";
+          byId("password").value = "";
+          byId("apiKey").placeholder = config.hasApiKey
+            ? "Saved key — leave blank to keep"
+            : "qbt_…";
+          byId("apiKeyHint").textContent = config.hasApiKey
+            ? "An API key is saved. Leave the field blank to keep it."
+            : "No API key saved. Add one, or use username and password below.";
+          setStatus("Loaded. Saved secrets are never sent back to this page.", "ok");
+        } catch (error) {
+          setStatus(error.message, "error");
+        }
+      }
+
+      function payload() {
+        const body = {
+          qbitBaseUrl: byId("url").value.trim(),
+          qbitUsername: byId("username").value.trim(),
+        };
+        const apiKey = byId("apiKey").value.trim();
+        if (apiKey) body.qbitApiKey = apiKey;
+        if (byId("clearApiKey").checked) body.qbitApiKey = "";
+        const password = byId("password").value;
+        if (password) body.qbitPassword = password;
+        if (byId("clearPassword").checked) body.qbitPassword = "";
+        return body;
+      }
+
+      byId("load").addEventListener("click", () => void load());
+
+      byId("config").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const saveButton = byId("save");
+        saveButton.disabled = true;
+        setStatus("Saving…");
+        try {
+          const saved = await api("/api/config", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload()),
+          });
+          byId("apiKey").value = "";
+          byId("password").value = "";
+          byId("clearApiKey").checked = false;
+          byId("clearPassword").checked = false;
+          byId("apiKeyHint").textContent = saved.hasApiKey
+            ? "An API key is saved. Leave the field blank to keep it."
+            : "No API key saved. Add one, or use username and password below.";
+          setStatus("Saved.", "ok");
+        } catch (error) {
+          setStatus(error.message, "error");
+        } finally {
+          saveButton.disabled = false;
+        }
+      });
+
+      byId("test").addEventListener("click", async () => {
+        const button = byId("test");
+        button.disabled = true;
+        setStatus("Testing…");
+        try {
+          const health = await api("/api/health");
+          setStatus(
+            `Connected to qBittorrent ${health.appVersion} (Web API ${health.webApiVersion}).`,
+            "ok",
+          );
+        } catch (error) {
+          setStatus(error.message, "error");
+        } finally {
+          button.disabled = false;
+        }
+      });
+
+      if (currentToken()) void load();
+    </script>
+  </body>
+</html>

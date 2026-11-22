@@ -1,0 +1,174 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 300" width="1200" height="300" role="img" aria-labelledby="title desc">
+  <title id="title">Remagnet</title>
+  <desc id="desc">Remagnet banner: magnet links go straight to qBittorrent, with a square-cell download bar that fills, sweeps and finishes.</desc>
+
+  <defs>
+    <radialGradient id="glow" cx="18%" cy="38%" r="55%">
+      <stop offset="0%" stop-color="#38e1a8" stop-opacity="0.13"/>
+      <stop offset="60%" stop-color="#38e1a8" stop-opacity="0.03"/>
+      <stop offset="100%" stop-color="#38e1a8" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="iconGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#38e1a8" stop-opacity="0.22"/>
+      <stop offset="100%" stop-color="#38e1a8" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="sweep" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0"/>
+      <stop offset="50%" stop-color="#ffffff" stop-opacity="0.28"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+
+    <pattern id="bgGrid" width="12" height="12" patternUnits="userSpaceOnUse">
+      <rect width="6" height="6" fill="#1b222b" fill-opacity="0.35"/>
+    </pattern>
+
+    <pattern id="cells1" width="11" height="11" patternUnits="userSpaceOnUse">
+      <rect width="8" height="8" rx="1" fill="#38e1a8" fill-opacity="0.70"/>
+    </pattern>
+    <pattern id="cells2" width="11" height="11" patternUnits="userSpaceOnUse">
+      <rect width="8" height="8" rx="1" fill="#38e1a8" fill-opacity="0.81"/>
+    </pattern>
+    <pattern id="cells3" width="11" height="11" patternUnits="userSpaceOnUse">
+      <rect width="8" height="8" rx="1" fill="#38e1a8" fill-opacity="0.90"/>
+    </pattern>
+    <pattern id="cells4" width="11" height="11" patternUnits="userSpaceOnUse">
+      <rect width="8" height="8" rx="1" fill="#38e1a8"/>
+    </pattern>
+
+    <clipPath id="barClip">
+      <rect x="644" y="108" width="452" height="48"/>
+    </clipPath>
+
+    <clipPath id="row0"><rect x="644" y="112" width="0" height="8">
+      <animate attributeName="width" values="0;452;452" keyTimes="0;0.5;1" dur="9s" repeatCount="indefinite"/>
+    </rect></clipPath>
+    <clipPath id="row1"><rect x="644" y="123" width="0" height="8">
+      <animate attributeName="width" values="0;452;452" keyTimes="0;0.5;1" dur="9s" begin="-0.16s" repeatCount="indefinite"/>
+    </rect></clipPath>
+    <clipPath id="row2"><rect x="644" y="134" width="0" height="8">
+      <animate attributeName="width" values="0;452;452" keyTimes="0;0.5;1" dur="9s" begin="-0.32s" repeatCount="indefinite"/>
+    </rect></clipPath>
+    <clipPath id="row3"><rect x="644" y="145" width="0" height="8">
+      <animate attributeName="width" values="0;452;452" keyTimes="0;0.5;1" dur="9s" begin="-0.48s" repeatCount="indefinite"/>
+    </rect></clipPath>
+  </defs>
+
+  <!-- background -->
+  <rect width="1200" height="300" fill="#0a0c0f"/>
+  <rect width="1200" height="300" fill="url(#bgGrid)"/>
+  <rect width="1200" height="300" fill="url(#glow)"/>
+
+  <!-- drifting accent cells -->
+  <g fill="#38e1a8">
+    <rect x="52" y="242" width="5" height="5" rx="1">
+      <animate attributeName="opacity" values="0.10;0.45;0.10" dur="4.6s" repeatCount="indefinite"/>
+    </rect>
+    <rect x="545" y="58" width="6" height="6" rx="1">
+      <animate attributeName="opacity" values="0.35;0.08;0.35" dur="5.4s" repeatCount="indefinite"/>
+    </rect>
+    <rect x="588" y="232" width="5" height="5" rx="1">
+      <animate attributeName="opacity" values="0.12;0.40;0.12" dur="3.9s" begin="-1.2s" repeatCount="indefinite"/>
+    </rect>
+    <rect x="1150" y="34" width="5" height="5" rx="1">
+      <animate attributeName="opacity" values="0.10;0.40;0.10" dur="5s" begin="-2s" repeatCount="indefinite"/>
+    </rect>
+  </g>
+
+  <!-- brand -->
+  <g>
+    <circle cx="112" cy="98" r="52" fill="url(#iconGlow)"/>
+    <rect x="80" y="66" width="64" height="64" rx="14" fill="#10141a" stroke="#1b222b"/>
+    <g transform="translate(112 96)" fill="none" stroke="#38e1a8" stroke-width="12" stroke-linecap="round">
+      <path d="M -16 18 V -4 A 16 16 0 0 1 16 -4 V 18"/>
+    </g>
+    <g transform="translate(112 96)" fill="#d7dee7">
+      <rect x="-22" y="12" width="12" height="8" rx="1"/>
+      <rect x="10" y="12" width="12" height="8" rx="1"/>
+    </g>
+    <g transform="translate(112 96)" fill="#38e1a8">
+      <rect x="-4" y="27" width="6" height="6" rx="1">
+        <animate attributeName="opacity" values="0.9;0.2;0.9" dur="2.8s" repeatCount="indefinite"/>
+      </rect>
+      <rect x="7" y="30" width="4" height="4" rx="1">
+        <animate attributeName="opacity" values="0.4;0.95;0.4" dur="3.3s" begin="-0.8s" repeatCount="indefinite"/>
+      </rect>
+      <rect x="-14" y="30" width="4" height="4" rx="1">
+        <animate attributeName="opacity" values="0.25;0.85;0.25" dur="3.9s" begin="-1.9s" repeatCount="indefinite"/>
+      </rect>
+    </g>
+  </g>
+
+  <text x="166" y="88" font-family="ui-monospace, 'SFMono-Regular', 'JetBrains Mono', Menlo, Consolas, monospace" font-size="11" letter-spacing="3" fill="#38e1a8">BROWSER EXTENSION</text>
+  <text x="162" y="138" font-family="ui-sans-serif, -apple-system, 'Segoe UI', system-ui, sans-serif" font-size="46" font-weight="700" letter-spacing="-1.4" fill="#e8eef6">Remagnet</text>
+  <text x="164" y="172" font-family="ui-sans-serif, -apple-system, 'Segoe UI', system-ui, sans-serif" font-size="15" fill="#8b97a6">Magnet links, straight to your torrent client.</text>
+
+  <g font-family="ui-monospace, 'SFMono-Regular', 'JetBrains Mono', Menlo, Consolas, monospace" font-size="11">
+    <rect x="164" y="194" width="80" height="24" rx="5" fill="#10141a" stroke="#1f4a3c"/>
+    <text x="204" y="210" text-anchor="middle" fill="#38e1a8">magnet:</text>
+    <rect x="252" y="194" width="98" height="24" rx="5" fill="#10141a" stroke="#1b222b"/>
+    <text x="301" y="210" text-anchor="middle" fill="#8b97a6">qBittorrent</text>
+    <rect x="358" y="194" width="76" height="24" rx="5" fill="#10141a" stroke="#1b222b"/>
+    <text x="396" y="210" text-anchor="middle" fill="#8b97a6">Firefox</text>
+    <rect x="442" y="194" width="48" height="24" rx="5" fill="#10141a" stroke="#1b222b"/>
+    <text x="466" y="210" text-anchor="middle" fill="#ffb454">ZIP</text>
+  </g>
+
+  <!-- torrent card -->
+  <rect x="620" y="44" width="500" height="212" rx="12" fill="#10141a" stroke="#1b222b"/>
+  <text x="644" y="84" font-family="ui-monospace, 'SFMono-Regular', 'JetBrains Mono', Menlo, Consolas, monospace" font-size="13" fill="#d7dee7">debian-13.8.0-amd64-netinst.iso</text>
+
+  <!-- phase chip -->
+  <g font-family="ui-monospace, 'SFMono-Regular', 'JetBrains Mono', Menlo, Consolas, monospace" font-size="10" letter-spacing="1">
+    <g>
+      <animate attributeName="opacity" values="1;1;0;0;0" keyTimes="0;0.49;0.52;0.75;1" dur="9s" repeatCount="indefinite"/>
+      <rect x="1006" y="66" width="90" height="22" rx="4" fill="#101f1a" stroke="#1f4a3c"/>
+      <text x="1051" y="81" text-anchor="middle" fill="#38e1a8">FETCHING</text>
+    </g>
+    <g opacity="0">
+      <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.52;0.54;0.74;0.76;1" dur="9s" repeatCount="indefinite"/>
+      <rect x="1006" y="66" width="90" height="22" rx="4" fill="#241d10" stroke="#4d3a1d"/>
+      <text x="1051" y="81" text-anchor="middle" fill="#ffb454">ZIPPING</text>
+    </g>
+    <g opacity="0">
+      <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.74;0.76;0.98;1" dur="9s" repeatCount="indefinite"/>
+      <rect x="1006" y="66" width="90" height="22" rx="4" fill="#38e1a8"/>
+      <text x="1051" y="81" text-anchor="middle" fill="#06100c">READY</text>
+    </g>
+  </g>
+
+  <!-- square-cell progress bar -->
+  <g clip-path="url(#row0)"><rect x="644" y="112" width="452" height="8" fill="url(#cells1)"/></g>
+  <g clip-path="url(#row1)"><rect x="644" y="123" width="452" height="8" fill="url(#cells2)"/></g>
+  <g clip-path="url(#row2)"><rect x="644" y="134" width="452" height="8" fill="url(#cells3)"/></g>
+  <g clip-path="url(#row3)"><rect x="644" y="145" width="452" height="8" fill="url(#cells4)"/></g>
+
+  <!-- diagonal light sweep after the bar fills -->
+  <g clip-path="url(#barClip)" opacity="0">
+    <animate attributeName="opacity" values="0;0;0.55;0.55;0;0" keyTimes="0;0.6;0.64;0.74;0.76;1" dur="9s" repeatCount="indefinite"/>
+    <g>
+      <animateTransform attributeName="transform" type="translate" values="-180 0;-180 0;520 0;520 0" keyTimes="0;0.6;0.76;1" dur="9s" repeatCount="indefinite"/>
+      <rect x="0" y="106" width="64" height="52" fill="url(#sweep)" transform="skewX(-20)"/>
+    </g>
+  </g>
+
+  <!-- stats -->
+  <g font-family="ui-monospace, 'SFMono-Regular', 'JetBrains Mono', Menlo, Consolas, monospace" font-size="12">
+    <g fill="#38e1a8" font-weight="700">
+      <text x="644" y="184" opacity="1">0%<animate attributeName="opacity" values="1;1;0;0;0;0;0" keyTimes="0;0.1;0.12;0.25;0.37;0.5;1" dur="9s" repeatCount="indefinite"/></text>
+      <text x="644" y="184" opacity="0">25%<animate attributeName="opacity" values="0;1;1;0;0;0" keyTimes="0;0.12;0.23;0.25;0.5;1" dur="9s" repeatCount="indefinite"/></text>
+      <text x="644" y="184" opacity="0">50%<animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.25;0.26;0.35;0.37;1" dur="9s" repeatCount="indefinite"/></text>
+      <text x="644" y="184" opacity="0">75%<animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.37;0.38;0.48;0.5;1" dur="9s" repeatCount="indefinite"/></text>
+      <text x="644" y="184" opacity="0">100%<animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.5;0.52;1" dur="9s" repeatCount="indefinite"/></text>
+    </g>
+    <text x="700" y="184" fill="#6b7684">795 MB · 42 seeds · 28.4 MB/s</text>
+  </g>
+
+  <!-- card footer -->
+  <text x="644" y="216" font-family="ui-sans-serif, -apple-system, 'Segoe UI', system-ui, sans-serif" font-size="11" fill="#4a5563">Added to qBittorrent</text>
+  <g font-family="ui-sans-serif, -apple-system, 'Segoe UI', system-ui, sans-serif" font-size="11">
+    <rect x="978" y="200" width="52" height="26" rx="6" fill="#161c24" stroke="#1b222b"/>
+    <text x="1004" y="217" text-anchor="middle" fill="#d7dee7">ZIP</text>
+    <rect x="1040" y="200" width="56" height="26" rx="6" fill="none" stroke="#1b222b"/>
+    <text x="1068" y="217" text-anchor="middle" fill="#8b97a6">Remove</text>
+  </g>
+</svg>

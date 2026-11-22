@@ -1,0 +1,18 @@
+services:
+  remagnet-bridge:
+    build: .
+    image: remagnet-bridge:local
+    container_name: remagnet-bridge
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - DATA_DIR=/data
+      - BIND_ADDR=0.0.0.0:8080
+    volumes:
+      - ./data:/data
+    networks:
+      - media
+
+networks:
+  media:
+    external: true
