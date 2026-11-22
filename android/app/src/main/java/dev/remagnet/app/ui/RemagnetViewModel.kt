@@ -273,8 +273,14 @@ class RemagnetViewModel(
                     }
                 }
 
-                is QbitResult.Failure -> updateReview(magnet.uri) {
-                    it.copy(submitting = false, error = result.error.message)
+                is QbitResult.Failure -> {
+                    updateReview(magnet.uri) {
+                        it.copy(submitting = false, error = result.error.message)
+                    }
+                    // qBittorrent rejects a duplicate even when the lookup said
+                    // the hash was clear, for example if another client added
+                    // it first. Re-check so the sheet explains why.
+                    if (result.error is QbitError.Rejected) checkDuplicate(magnet)
                 }
             }
         }
