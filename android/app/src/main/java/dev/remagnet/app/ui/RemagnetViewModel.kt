@@ -73,8 +73,9 @@ class RemagnetViewModel @JvmOverloads constructor(
     private val _state = MutableStateFlow(RemagnetUiState())
     val state: StateFlow<RemagnetUiState> = _state.asStateFlow()
 
-    /** Lets a newer check win when settings change while one is in flight. */
+    /** Let a newer check win when settings change while one is in flight. */
     private var qbitCheckId = 0
+    private var proxyCheckId = 0
 
     init {
         val settings = repository.load()
@@ -148,12 +149,21 @@ class RemagnetViewModel @JvmOverloads constructor(
     /** Ask the proxy about itself and its qBittorrent link. */
     fun checkConnection() {
         val current = _state.value
-        if (current.checking || !current.settings.proxyConfigured) return
+        if (!current.settings.proxyConfigured) {
+            _state.update {
+                it.copy(checking = false, proxyStatus = ProxyStatus.NotConfigured)
+            }
+            return
+        }
 
+        val checkId = ++proxyCheckId
+        val settings = current.settings
         _state.update { it.copy(checking = true, proxyStatus = null) }
         viewModelScope.launch {
-            val status = proxyHealth.check(_state.value.settings)
-            _state.update { it.copy(checking = false, proxyStatus = status) }
+            val status = proxyHealth.check(settings)
+            if (checkId == proxyCheckId) {
+                _state.update { it.copy(checking = false, proxyStatus = status) }
+            }
         }
     }
 
