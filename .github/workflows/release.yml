@@ -309,6 +309,7 @@ jobs:
             gh release create "$RELEASE_TAG" \
               --verify-tag \
               --title "Remagnet $VERSION" \
+              --notes "Extension packages, Android APK, and the multi-arch Remagnet Proxy image. Verify downloads against SHA256SUMS." \
               --generate-notes \
               release/*
           fi
