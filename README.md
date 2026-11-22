@@ -15,7 +15,7 @@ token-secured proxy that zips completed torrents. Android client onboarding uses
 a QR code.
 
 <p align="center">
-  <img src="docs/remagnet-demo.gif" alt="Right-clicking a magnet link on The ISO Bay in Chrome and sending it to qBittorrent through Remagnet" width="800">
+  <img src="docs/remagnet-demo.gif" alt="Right-clicking a magnet link on The ISO Bay in Chrome, sending it to qBittorrent through Remagnet, then downloading the finished torrent as a ZIP" width="800">
 </p>
 
 <p align="center"><sub>

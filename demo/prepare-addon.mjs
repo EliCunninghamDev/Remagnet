@@ -29,11 +29,12 @@ manifest.host_permissions = [`${baseUrl}/*`];
 delete manifest.optional_host_permissions;
 await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 
-// `chrome.storage.local.set` runs before the bundled worker code. Playwright
-// waits for the worker to start, so settings are in place before the first
-// popup opens. Credentials are deliberately absent: the mock accepts any
-// login, and real secrets are encrypted with a key that only exists once the
-// extension has run.
+// Seed the public settings and the encrypted archive token before the bundled
+// worker starts. The mock accepts any login, but the token has to survive the
+// normal encrypted-secrets path for the ZIP action to appear. The key is
+// non-extractable and lives in the extension's IndexedDB, just as it would
+// after saving the options page.
+const archiveToken = "remagnet-demo-token";
 const settings = {
   client: "qbittorrent",
   baseUrl,
@@ -41,12 +42,88 @@ const settings = {
   username: "demo",
   defaultCategory: "remagnet",
   defaultTags: "remagnet",
-  archiveBaseUrl: "",
+  // Point the archive bridge at the same mock server. The token only has to
+  // satisfy validation; the mock ignores credentials.
+  archiveBaseUrl: baseUrl,
 };
 const backgroundPath = resolve(target, "background.js");
 const background = await readFile(backgroundPath, "utf8");
-const seed = `chrome.storage.local.set({ settings: ${JSON.stringify(settings)} });\n`;
-await writeFile(backgroundPath, seed + background);
+const seed = `(async () => {
+  try {
+    const db = await new Promise((resolve, reject) => {
+      const request = indexedDB.open("remagnet-credentials", 1);
+      request.onupgradeneeded = () => {
+        if (!request.result.objectStoreNames.contains("keys")) {
+          request.result.createObjectStore("keys");
+        }
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+
+    const readKey = () => new Promise((resolve, reject) => {
+      const request = db.transaction("keys", "readonly").objectStore("keys").get("settings");
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    let key = await readKey();
+    if (!key) {
+      key = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+      await new Promise((resolve, reject) => {
+        const request = db.transaction("keys", "readwrite").objectStore("keys").put(key, "settings");
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error);
+      });
+    }
+    db.close();
+
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const plaintext = new TextEncoder().encode(JSON.stringify({
+      apiKey: "",
+      password: "",
+      archiveToken: ${JSON.stringify(archiveToken)},
+    }));
+    const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, plaintext);
+    const base64 = (bytes) => btoa(String.fromCharCode(...bytes));
+    await chrome.storage.local.set({
+      settings: ${JSON.stringify(settings)},
+      secrets: { version: 1, iv: base64(iv), data: base64(new Uint8Array(ciphertext)) },
+    });
+  } catch (error) {
+    console.warn("demo seed failed", error);
+  }
+
+  // Chrome's download bubble would cover the popover and leave a generated
+  // file on the host. Fulfil archive requests in the worker instead, so the
+  // ZIP action still runs its real code path but the recording stays clean.
+  const patchDownloads = (downloads) => {
+    if (!downloads?.download) return;
+    const realDownload = downloads.download.bind(downloads);
+    downloads.download = (options) => {
+      const url = typeof options?.url === "string" ? options.url : "";
+      if (url.includes("/archive/")) {
+        const headers = Array.isArray(options.headers)
+          ? Object.fromEntries(options.headers.map(({ name, value }) => [name, value]))
+          : undefined;
+        void fetch(url, { headers }).then(
+          (response) => response.arrayBuffer(),
+          (error) => console.warn("demo archive request failed", error),
+        );
+        // Hold the row in its Zipping state long enough to read on camera.
+        return new Promise((resolve) => setTimeout(() => resolve(1), 700));
+      }
+      return realDownload(options);
+    };
+  };
+  patchDownloads(chrome.downloads);
+  if (globalThis.browser && globalThis.browser !== chrome) {
+    patchDownloads(globalThis.browser.downloads);
+  }
+
+  ${background}
+})();
+`;
+await writeFile(backgroundPath, seed);
 
 console.log(`prepared ${target}`);
 console.log(`  client: ${baseUrl}`);

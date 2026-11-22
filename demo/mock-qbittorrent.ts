@@ -4,7 +4,9 @@
  *
  * The demo records the real Remagnet extension, so it needs a client to talk
  * to. This server keeps everything in memory, ignores authentication, and
- * reports one torrent that gets added and slowly progresses. No network access
+ * reports one torrent that gets added and slowly progresses. It also answers the
+ * archive bridge's ZIP route with a tiny generated file, so the completed
+ * torrent's download button works without the real proxy. No network access
  * and no real torrent is touched.
  */
 
@@ -174,17 +176,38 @@ Bun.serve({
       return text("");
     }
 
+    // The archive bridge's ZIP endpoint. The extension checks completion before
+    // calling this, but keep the guard so a bad click cannot download a partial
+    // torrent. The body is a minimal empty ZIP; only the download itself is on
+    // camera.
+    if (pathname.startsWith("/archive/")) {
+      const hash = decodeURIComponent(pathname.slice("/archive/".length));
+      const torrent = torrents.get(hash.toLowerCase());
+      if (!torrent || torrent.progress < 1) {
+        return new Response("torrent is not complete", { status: 409 });
+      }
+
+      return new Response(new Uint8Array([0x50, 0x4b, 0x05, 0x06, ...Array(18).fill(0)]), {
+        headers: {
+          "content-type": "application/zip",
+          "content-disposition": `attachment; filename="${torrent.name}.zip"`,
+          "access-control-allow-origin": "*",
+        },
+      });
+    }
+
     return new Response("not found", { status: 404 });
   },
 });
 
-/** Nudge the added torrent forward so the progress bars move in the clip. */
+/** Nudge the added torrent forward so the progress bars visibly fill in the clip. */
 setInterval(() => {
   for (const torrent of torrents.values()) {
     if (torrent.progress >= 1 || torrent.state === "stalledDL") continue;
-    torrent.progress = Math.min(1, torrent.progress + 0.035);
+    torrent.progress = Math.min(1, torrent.progress + 0.05);
     torrent.dlspeed = 18_400_000 + Math.round(Math.random() * 3_000_000);
-    torrent.eta = Math.max(1, torrent.eta - 2);
+    const remaining = (1 - torrent.progress) * torrent.size;
+    torrent.eta = Math.max(1, Math.ceil(remaining / torrent.dlspeed));
     if (torrent.progress >= 1) {
       torrent.state = "uploading";
       torrent.progress = 1;
@@ -192,6 +215,6 @@ setInterval(() => {
       torrent.eta = 86_400;
     }
   }
-}, 700);
+}, 300);
 
 console.log(`mock qBittorrent: http://127.0.0.1:${PORT} (${TRACKER})`);

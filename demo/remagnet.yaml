@@ -31,6 +31,9 @@ targets:
   # Its small monospace labels are not reliable OCR, so the submit button is a
   # template captured from the same layout.
   send: { image: ./assets/send-button.png, threshold: 0.82 }
+  # The completed row's ZIP action is also a native control. Rows are a fixed
+  # height and the newest torrent is always first, so the action rect is stable.
+  zip: { rect: [2130, 390, 110, 32] }
 
 steps:
   - wait: 900
@@ -52,13 +55,18 @@ steps:
   # the camera is not parked on nothing while it opens, then frame it once it
   # is opaque.
   - zoom: { level: 1.0, duration_ms: 300, hold: 650 }
+
+  # The review screenshot exists to refresh the button template. Take it before
+  # the zoom so the click follows the camera move directly.
+  - screenshot: review
+
+  # The target lookup and the pointer move take long enough on their own, so
+  # only a short hold is needed for the zoom to land before the click.
   - zoom:
       target: popover
       level: 1.65
       duration_ms: 750
-      hold: 1200
-  - screenshot: review
-
+      hold: 250
   - click: send
   - wait: 1500
 
@@ -67,6 +75,10 @@ steps:
   - move: { x: 300, y: 1200 }
   - wait: 1800
   - screenshot: list
-  - wait: 1200
+  - wait: 250
 
-  - zoom: { level: 1.0, hold: 700 }
+  # The added torrent finishes while the camera settles. The ZIP action is the
+  # final interaction; the popover is still framed at 1.65.
+  - zoom: { target: popover, level: 1.65, duration_ms: 350, hold: 250 }
+  - click: zip
+  - wait: 1500
