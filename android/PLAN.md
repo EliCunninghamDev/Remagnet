@@ -10,7 +10,7 @@ without leaving throwaway scaffolding behind.
 | 1. Settings, secure storage, onboarding, health | Implemented |
 | 2. qBittorrent client                           | Implemented |
 | 3. Magnet intake and review                     | Implemented |
-| 4. Torrent list and archive downloads           | Planned     |
+| 4. Torrent list and archive downloads           | Implemented |
 | 5. Polish and release                           | Planned     |
 
 ## Product surface
@@ -299,6 +299,32 @@ Deliverables:
 Acceptance: a completed torrent can be downloaded as a ZIP from the phone,
 the notification tracks it while the app is in the background, and a partial
 torrent cannot.
+
+Implemented as:
+
+- `ArchiveDownloadService` streams through OkHttp with a bearer header and
+  `OkHttpClient` timeouts disabled for the read phase, because the proxy builds
+  the ZIP while it sends it.
+- Progress uses the torrent size as the denominator and an exponentially
+  weighted speed meter. Notifications update at most four times a second.
+- A single in-memory coordinator reserves one hash. The state survives a
+  service restart, so a notification Retry works even after the activity is
+  gone.
+- Archives go to the app-specific external Downloads folder with a sanitized,
+  unique `.zip` name and a `.part` file during transfer. A cancelled or failed
+  transfer deletes the partial file.
+- Completion and in-app **Open** launch `OpenArchiveActivity`, which uses a
+  `FileProvider` URI and falls back to a share sheet.
+- The row and notification share testable pieces: `TileBar` geometry and
+  counter, `ArchiveFiles` naming and disposition parsing, `SpeedMeter`, and
+  `ArchiveDownloads` state transitions.
+
+Emulator smoke tests covered the filtered four-item list, five-second polling,
+the notification permission prompt, a background download, in-app and
+notification cancel, proxy-down failure and notification retry, the
+already-downloading message, keep-files removal, rotation during a download,
+completion with unique `(2)`/`(3)`/`(4)` names, and the share-sheet fallback
+for **Open** on an image without a ZIP viewer.
 
 ### Phase 5 - polish and release
 

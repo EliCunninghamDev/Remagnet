@@ -2,6 +2,7 @@ package dev.remagnet.app.ui
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -9,14 +10,18 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
+import dev.remagnet.app.client.TorrentSummary
+import dev.remagnet.app.download.openArchive
 
 private enum class Screen { Home, Settings }
 
@@ -26,6 +31,7 @@ fun RemagnetApp(viewModel: RemagnetViewModel = viewModel()) {
     val context = LocalContext.current
     var screen by rememberSaveable { mutableStateOf(Screen.Home) }
     var scanResult by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingDownload by remember { mutableStateOf<TorrentSummary?>(null) }
 
     // A magnet can arrive from another app while Settings is open. The sheet
     // belongs over Home, so bring that screen back before it appears.
@@ -66,6 +72,36 @@ fun RemagnetApp(viewModel: RemagnetViewModel = viewModel()) {
         }
     }
 
+    // The download service works without the notification permission, but the
+    // live progress is only visible in the drawer when it is granted.
+    val notificationLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) {
+        pendingDownload?.let(viewModel::downloadTorrent)
+        pendingDownload = null
+    }
+
+    fun startDownload(torrent: TorrentSummary) {
+        val needsPermission = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS,
+            ) != PackageManager.PERMISSION_GRANTED
+        if (needsPermission) {
+            pendingDownload = torrent
+            notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            viewModel.downloadTorrent(torrent)
+        }
+    }
+
+    if (screen == Screen.Home) {
+        LifecycleResumeEffect(Unit) {
+            viewModel.startPolling()
+            onPauseOrDispose { viewModel.stopPolling() }
+        }
+    }
+
     when (screen) {
         Screen.Home -> HomeScreen(
             state = state,
@@ -77,6 +113,15 @@ fun RemagnetApp(viewModel: RemagnetViewModel = viewModel()) {
             onTestConnection = viewModel::checkConnection,
             onTestQbitConnection = viewModel::checkQbitConnection,
             onAddMagnet = viewModel::openAddSheet,
+            onRefreshTorrents = viewModel::refreshTorrents,
+            onDownload = ::startDownload,
+            onCancelDownload = viewModel::cancelDownload,
+            onDismissDownload = viewModel::dismissDownload,
+            onRemoveToggle = { torrent -> viewModel.toggleRemove(torrent.hash) },
+            onRemove = viewModel::removeTorrent,
+            onCancelRemove = viewModel::cancelRemove,
+            onOpenArchive = { path -> openArchive(context, path) },
+            onDismissActionError = viewModel::dismissActionError,
         )
 
         Screen.Settings -> SettingsScreen(

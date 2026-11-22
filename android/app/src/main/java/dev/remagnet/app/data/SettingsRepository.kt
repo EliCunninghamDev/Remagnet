@@ -1,5 +1,6 @@
 package dev.remagnet.app.data
 
+import android.content.Context
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 
@@ -132,4 +133,18 @@ class SettingsRepository(
         const val KEY_PUBLIC = "settings.public.v1"
         const val KEY_SECRETS = "settings.secrets.v1"
     }
+}
+
+/**
+ * The repository used by the app and the download service.
+ *
+ * Both paths need the same preferences file and Keystore key; sharing the
+ * factory avoids the service reading a different store after a settings save.
+ */
+fun settingsRepositoryFor(context: Context): SettingsRepository {
+    val preferences = context.getSharedPreferences("remagnet.settings", Context.MODE_PRIVATE)
+    return SettingsRepository(
+        store = SharedPreferencesStore(preferences),
+        cipher = KeystoreSecretCipher(),
+    )
 }

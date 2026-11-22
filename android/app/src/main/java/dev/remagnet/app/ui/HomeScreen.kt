@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -19,6 +20,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.remagnet.app.client.ProxyStatus
+import dev.remagnet.app.client.TorrentSummary
+import dev.remagnet.app.client.torrentFilterDescription
+import dev.remagnet.app.client.torrentFilterFor
 import dev.remagnet.app.data.AuthMode
 import dev.remagnet.app.data.RemagnetSettings
 import dev.remagnet.app.ui.components.Panel
@@ -43,6 +47,15 @@ fun HomeScreen(
     onTestConnection: () -> Unit,
     onTestQbitConnection: () -> Unit,
     onAddMagnet: () -> Unit,
+    onRefreshTorrents: () -> Unit,
+    onDownload: (TorrentSummary) -> Unit,
+    onCancelDownload: () -> Unit,
+    onDismissDownload: () -> Unit,
+    onRemoveToggle: (TorrentSummary) -> Unit,
+    onRemove: (TorrentSummary, Boolean) -> Unit,
+    onCancelRemove: () -> Unit,
+    onOpenArchive: (String) -> Unit,
+    onDismissActionError: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(
@@ -50,7 +63,7 @@ fun HomeScreen(
             .fillMaxSize()
             .safeDrawingPadding(),
         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 18.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item {
             Row(
@@ -65,19 +78,36 @@ fun HomeScreen(
 
         item {
             Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "Torrents",
+                        color = RemagnetPalette.Text,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    if (state.torrents.size >= 2) {
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = state.torrents.size.toString(),
+                            color = RemagnetPalette.Muted,
+                            fontFamily = GeistMono,
+                            fontSize = 11.sp,
+                        )
+                    }
+                }
+                Spacer(Modifier.height(5.dp))
+                val filter = torrentFilterFor(state.settings)
                 Text(
-                    text = "Connections",
-                    color = RemagnetPalette.Text,
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    text = "Remagnet sends magnets to qBittorrent. The optional " +
-                        "proxy turns completed torrents into ZIP downloads.",
+                    text = if (filter.active) {
+                        "Showing ${torrentFilterDescription(filter)}. Refreshes while " +
+                            "this screen is open."
+                    } else {
+                        "All torrents in qBittorrent. Refreshes while this screen is open."
+                    },
                     color = RemagnetPalette.Muted,
-                    style = MaterialTheme.typography.bodyMedium,
-                    lineHeight = 19.sp,
+                    fontFamily = GeistMono,
+                    fontSize = 10.sp,
+                    lineHeight = 15.sp,
                 )
             }
         }
@@ -100,6 +130,19 @@ fun HomeScreen(
                 )
             }
         } else {
+            state.actionError?.let { message ->
+                item {
+                    Panel {
+                        StatusNote(text = message, tone = StatusTone.Error)
+                        SecondaryButton(
+                            text = "Dismiss",
+                            onClick = onDismissActionError,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+            }
+
             if (!state.settings.qbitConfigured) {
                 item {
                     Panel {
@@ -133,6 +176,41 @@ fun HomeScreen(
                     }
                 }
             } else {
+                item {
+                    TorrentListSection(
+                        settings = state.settings,
+                        torrents = state.torrents,
+                        loading = state.torrentsLoading,
+                        error = state.torrentsError,
+                        confirmingHash = state.confirmingHash,
+                        removingHash = state.removingHash,
+                        download = state.download,
+                        onRetry = onRefreshTorrents,
+                        onOpenSettings = onOpenSettings,
+                        onDownload = onDownload,
+                        onCancelDownload = onCancelDownload,
+                        onDismissDownload = onDismissDownload,
+                        onRemoveToggle = onRemoveToggle,
+                        onRemove = onRemove,
+                        onCancelRemove = onCancelRemove,
+                        onOpenArchive = onOpenArchive,
+                    )
+                }
+            }
+
+            item {
+                SectionLabel("Connections")
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = "Remagnet sends magnets to qBittorrent. The optional " +
+                        "proxy turns completed torrents into ZIP downloads.",
+                    color = RemagnetPalette.Muted,
+                    style = MaterialTheme.typography.bodyMedium,
+                    lineHeight = 19.sp,
+                )
+            }
+
+            if (state.settings.qbitConfigured) {
                 item {
                     TorrentClientPanel(
                         settings = state.settings,

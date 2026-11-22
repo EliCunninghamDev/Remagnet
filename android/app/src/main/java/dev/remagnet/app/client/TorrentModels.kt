@@ -125,6 +125,16 @@ fun torrentFilterFor(settings: RemagnetSettings): TorrentFilter {
 fun filterTorrents(torrents: List<TorrentSummary>, filter: TorrentFilter): List<TorrentSummary> =
     if (!filter.active) torrents else torrents.filter { matchesFilter(it, filter) }
 
+/** Human-readable summary of the active filter, e.g. `category "remagnet"`. */
+fun torrentFilterDescription(filter: TorrentFilter): String {
+    if (!filter.active) return "all torrents"
+    val parts = buildList {
+        if (filter.category.isNotEmpty()) add("category \"${filter.category}\"")
+        for (tag in filter.tags) add("tag \"$tag\"")
+    }
+    return parts.joinToString(" and ")
+}
+
 fun matchesFilter(torrent: TorrentSummary, filter: TorrentFilter): Boolean {
     if (!filter.active) return true
     if (filter.category.isNotEmpty() && sameName(torrent.category, filter.category)) return true

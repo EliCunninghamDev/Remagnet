@@ -1,7 +1,7 @@
 package dev.remagnet.app.ui
 
 import android.app.Application
-import android.content.Context
+import android.app.NotificationManager
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
@@ -11,13 +11,19 @@ import dev.remagnet.app.client.QbitResult
 import dev.remagnet.app.client.ProxyHealthClient
 import dev.remagnet.app.client.ProxyStatus
 import dev.remagnet.app.client.TorrentClient
+import dev.remagnet.app.client.TorrentSummary
+import dev.remagnet.app.client.filterTorrents
+import dev.remagnet.app.client.torrentFilterFor
 import dev.remagnet.app.data.AuthMode
-import dev.remagnet.app.data.KeystoreSecretCipher
 import dev.remagnet.app.data.RemagnetSettings
 import dev.remagnet.app.data.SettingsError
 import dev.remagnet.app.data.SettingsRepository
-import dev.remagnet.app.data.SharedPreferencesStore
+import dev.remagnet.app.data.settingsRepositoryFor
 import dev.remagnet.app.data.validateSettings
+import dev.remagnet.app.download.ArchiveDownloadService
+import dev.remagnet.app.download.ArchiveDownloadState
+import dev.remagnet.app.download.ArchiveDownloads
+import dev.remagnet.app.download.ArchiveRequest
 import dev.remagnet.app.magnet.MagnetIntake
 import dev.remagnet.app.magnet.MagnetLink
 import dev.remagnet.app.magnet.NO_HASH_MESSAGE
@@ -26,10 +32,14 @@ import dev.remagnet.app.magnet.magnetFromText
 import dev.remagnet.app.magnet.magnetLabel
 import dev.remagnet.app.magnet.parseMagnet
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -40,6 +50,13 @@ data class RemagnetUiState(
     val proxyStatus: ProxyStatus? = null,
     val checkingQbit: Boolean = false,
     val qbitStatus: QbitStatus? = null,
+    val torrents: List<TorrentSummary> = emptyList(),
+    val torrentsLoading: Boolean = false,
+    val torrentsError: String? = null,
+    val confirmingHash: String? = null,
+    val removingHash: String? = null,
+    val actionError: String? = null,
+    val download: ArchiveDownloadState = ArchiveDownloadState.Idle,
     val addSheet: AddSheetState = AddSheetState.Closed,
     val notice: String? = null,
 )
@@ -85,7 +102,7 @@ class RemagnetViewModel(
      */
     constructor(application: Application, savedState: SavedStateHandle) : this(
         application = application,
-        repository = defaultRepository(application),
+        repository = settingsRepositoryFor(application),
         proxyHealth = ProxyHealthClient(),
         clientFactory = { settings -> QBittorrentClient.from(settings) },
         savedState = savedState,
@@ -99,12 +116,27 @@ class RemagnetViewModel(
     private var proxyCheckId = 0
     private var addLookupId = 0
     private var addSubmitId = 0
+    private var listRequestId = 0
+    private var pollJob: Job? = null
+    private var lastDownloadPath: String? = null
 
     init {
         val settings = repository.load()
         _state.value = RemagnetUiState(settings = settings, loaded = true)
         if (settings.qbitConfigured) checkQbitConnection()
         if (settings.proxyConfigured) checkConnection()
+
+        viewModelScope.launch {
+            ArchiveDownloads.state.collect { download ->
+                _state.update { it.copy(download = download) }
+                if (download is ArchiveDownloadState.Complete &&
+                    download.path != lastDownloadPath
+                ) {
+                    lastDownloadPath = download.path
+                    _state.update { it.copy(notice = "Saved ${download.fileName}.") }
+                }
+            }
+        }
 
         val pendingMagnet = savedState.get<String>(KEY_PENDING_MAGNET)
         if (pendingMagnet != null) {
@@ -142,18 +174,220 @@ class RemagnetViewModel(
         }
 
         if (result is SaveResult.Saved) {
+            listRequestId += 1
             _state.update {
                 it.copy(
                     settings = result.settings,
                     proxyStatus = null,
                     qbitStatus = null,
                     notice = "Settings saved.",
+                    torrents = if (result.settings.qbitConfigured) it.torrents else emptyList(),
+                    torrentsError = null,
                 )
             }
-            if (result.settings.qbitConfigured) checkQbitConnection()
+            if (result.settings.qbitConfigured) {
+                checkQbitConnection()
+                refreshTorrents()
+                startPolling()
+            } else {
+                stopPolling()
+            }
             if (result.settings.proxyConfigured) checkConnection()
         }
         return result
+    }
+
+    // ---- Torrent list -----------------------------------------------------
+
+    /**
+     * Refresh while the home screen is visible. The poller is cancelled on
+     * pause, so a backgrounded Remagnet does not keep talking to qBittorrent.
+     */
+    fun startPolling() {
+        if (!_state.value.settings.qbitConfigured) return
+        if (pollJob?.isActive == true) return
+
+        pollJob = viewModelScope.launch {
+            while (isActive) {
+                loadTorrents(showLoading = _state.value.torrents.isEmpty())
+                delay(POLL_INTERVAL_MS)
+            }
+        }
+    }
+
+    fun stopPolling() {
+        pollJob?.cancel()
+        pollJob = null
+    }
+
+    fun refreshTorrents() {
+        if (!_state.value.settings.qbitConfigured) return
+        viewModelScope.launch { loadTorrents(showLoading = true) }
+    }
+
+    private suspend fun loadTorrents(showLoading: Boolean) {
+        val settings = _state.value.settings
+        if (!settings.qbitConfigured) {
+            listRequestId += 1
+            _state.update {
+                it.copy(torrents = emptyList(), torrentsLoading = false, torrentsError = null)
+            }
+            return
+        }
+
+        val requestId = ++listRequestId
+        if (showLoading) _state.update { it.copy(torrentsLoading = true) }
+
+        val result = clientFactory(settings).listTorrents()
+        // A poll cancelled by leaving the screen can surface as a generic
+        // client error; it is not a connection problem the user should see.
+        if (requestId != listRequestId || !currentCoroutineContext().isActive) return
+
+        when (result) {
+            is QbitResult.Success -> {
+                val filter = torrentFilterFor(settings)
+                _state.update {
+                    it.copy(
+                        torrents = filterTorrents(result.value, filter),
+                        torrentsLoading = false,
+                        torrentsError = null,
+                    )
+                }
+            }
+
+            is QbitResult.Failure -> _state.update {
+                it.copy(torrentsLoading = false, torrentsError = result.error.message)
+            }
+        }
+    }
+
+    fun toggleRemove(hash: String) {
+        _state.update {
+            if (it.confirmingHash == hash) {
+                it.copy(confirmingHash = null)
+            } else {
+                it.copy(confirmingHash = hash, actionError = null)
+            }
+        }
+    }
+
+    fun cancelRemove() {
+        _state.update { it.copy(confirmingHash = null) }
+    }
+
+    fun removeTorrent(torrent: TorrentSummary, deleteFiles: Boolean) {
+        val current = _state.value
+        if (current.removingHash != null) return
+        if (ArchiveDownloads.isActive(torrent.hash)) {
+            _state.update {
+                it.copy(
+                    actionError = "Cancel the archive download before removing this torrent.",
+                    confirmingHash = null,
+                )
+            }
+            return
+        }
+        if (!current.settings.qbitConfigured) {
+            _state.update {
+                it.copy(
+                    actionError = "qBittorrent is not configured.",
+                    confirmingHash = null,
+                )
+            }
+            return
+        }
+
+        _state.update {
+            it.copy(removingHash = torrent.hash, confirmingHash = null, actionError = null)
+        }
+        viewModelScope.launch {
+            when (val result = clientFactory(current.settings).removeTorrent(
+                hashes = listOf(torrent.hash),
+                deleteFiles = deleteFiles,
+            )) {
+                is QbitResult.Success -> {
+                    _state.update {
+                        it.copy(
+                            removingHash = null,
+                            notice = "Removed \"${torrent.name}\" from qBittorrent.",
+                        )
+                    }
+                    loadTorrents(showLoading = false)
+                }
+
+                is QbitResult.Failure -> _state.update {
+                    it.copy(removingHash = null, actionError = result.error.message)
+                }
+            }
+        }
+    }
+
+    fun dismissActionError() {
+        _state.update { it.copy(actionError = null) }
+    }
+
+    // ---- Archive downloads ------------------------------------------------
+
+    fun downloadTorrent(torrent: TorrentSummary) {
+        val current = _state.value
+        if (!current.settings.archiveReady) {
+            _state.update {
+                it.copy(actionError = "Add the proxy URL and token in Settings to download archives.")
+            }
+            return
+        }
+        if (!torrent.isComplete) {
+            _state.update { it.copy(actionError = "That torrent is not complete yet.") }
+            return
+        }
+        if (torrent.hash.isBlank()) {
+            _state.update { it.copy(actionError = "That torrent has no info hash.") }
+            return
+        }
+        if (ArchiveDownloads.isActive()) {
+            _state.update {
+                it.copy(
+                    actionError = "An archive download is already running. " +
+                        "Wait for it to finish or cancel it first.",
+                )
+            }
+            return
+        }
+        if (!ArchiveDownloads.claim(torrent.hash, torrent.name, torrent.size)) {
+            _state.update { it.copy(actionError = "An archive download is already running.") }
+            return
+        }
+
+        try {
+            ArchiveDownloadService.start(
+                getApplication(),
+                ArchiveRequest(
+                    hash = torrent.hash,
+                    name = torrent.name,
+                    size = torrent.size,
+                ),
+            )
+        } catch (error: Exception) {
+            ArchiveDownloads.fail(
+                torrent.hash,
+                torrent.name,
+                "The download could not start on this device.",
+            )
+            _state.update {
+                it.copy(actionError = error.message ?: "The download could not start.")
+            }
+        }
+    }
+
+    fun cancelDownload() {
+        if (!ArchiveDownloads.isActive()) return
+        ArchiveDownloadService.cancel(getApplication())
+    }
+
+    fun dismissDownload() {
+        ArchiveDownloads.dismiss()
+        getApplication<Application>().getSystemService(NotificationManager::class.java)
+            ?.cancel(ArchiveDownloadService.NOTIFICATION_ID)
     }
 
     /** Open the sheet without a magnet so one can be pasted or shared. */
@@ -271,6 +505,7 @@ class RemagnetViewModel(
                             notice = "Added \"$name\" to qBittorrent.",
                         )
                     }
+                    refreshTorrents()
                 }
 
                 is QbitResult.Failure -> {
@@ -474,15 +709,6 @@ class RemagnetViewModel(
         const val KEY_PASTE_DRAFT = "pending-magnet-draft"
         const val KEY_PASTE_ERROR = "pending-magnet-error"
 
-        fun defaultRepository(application: Application): SettingsRepository {
-            val preferences = application.getSharedPreferences(
-                "remagnet.settings",
-                Context.MODE_PRIVATE,
-            )
-            return SettingsRepository(
-                store = SharedPreferencesStore(preferences),
-                cipher = KeystoreSecretCipher(),
-            )
-        }
+        const val POLL_INTERVAL_MS = 5_000L
     }
 }

@@ -1,6 +1,7 @@
 package dev.remagnet.app.util
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FormatTest {
@@ -28,5 +29,43 @@ class FormatTest {
         assertEquals("0%", formatPercent(-1.0))
         assertEquals("100%", formatPercent(2.0))
         assertEquals("0%", formatPercent(Double.NaN))
+    }
+
+    @Test
+    fun formatsRemainingTime() {
+        assertEquals("—", formatEta(0))
+        assertEquals("—", formatEta(ETA_UNKNOWN_SECONDS))
+        assertEquals("45s", formatEta(45))
+        assertEquals("3m", formatEta(3 * 60))
+        assertEquals("2h 5m", formatEta(2 * 3600 + 5 * 60))
+        assertEquals("1d 2h", formatEta(26 * 3600))
+    }
+
+    @Test
+    fun leavesShortTorrentNamesWhole() {
+        val name = "Ubuntu 24.04.iso"
+        assertEquals(NameSplit(name, ""), splitTorrentName(name))
+    }
+
+    @Test
+    fun splitsLongNamesAtABoundaryNearTheEnd() {
+        val name = "nebula-4.2-amd64-netinst-2026-11-22.iso"
+        val split = splitTorrentName(name)
+
+        assertTrue(split.head.isNotEmpty())
+        assertTrue(split.tail.isNotEmpty())
+        assertEquals(name, split.head + split.tail)
+        assertTrue(split.tail.endsWith(".iso"))
+        assertTrue(split.tail.contains("2026"))
+    }
+
+    @Test
+    fun splitsNamesWithoutASeparator() {
+        val name = "a".repeat(60)
+        val split = splitTorrentName(name)
+
+        assertEquals(44, split.head.length)
+        assertEquals(16, split.tail.length)
+        assertEquals(name, split.head + split.tail)
     }
 }

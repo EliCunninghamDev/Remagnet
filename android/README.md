@@ -10,7 +10,7 @@ CI and release signing; this README covers what is implemented today.
 
 ## Current status
 
-Phases 1-3 are complete:
+Phases 1-4 are complete:
 
 - A connection screen for qBittorrent and the optional proxy.
 - Settings that validate URLs, authentication and the proxy pair before saving.
@@ -31,11 +31,13 @@ Phases 1-3 are complete:
   a rejected or failed add.
 - Intent and draft state kept in saved state, so a review survives rotation and
   process death.
+- A torrent list with the shared square-cell bar, percentage counter, state
+  colors and live stats, refreshed only while the home screen is visible.
+- Removal with keep-files and delete-files choices.
+- ZIP downloads through the proxy in a foreground service, with a live
+  notification and cancel and retry actions.
 - Bundled Geist Mono and Departure Mono, so Android matches the browser
   clients.
-
-The torrent list, archive downloads and the foreground download notification are
-Phase 4.
 
 ```
 android/
@@ -45,9 +47,11 @@ android/
     data/                  Settings, encrypted storage, onboarding payloads
     client/                qBittorrent client, proxy health, neutral models
     magnet/                Magnet parser, intent extraction, VIEW/SEND intake
+    download/              Archive streaming service, naming and notifications
     proxy/ProxyApi.kt      Configures the generated Retrofit client
     ui/                    Screens, add sheet, theme and shared controls
-    util/Format.kt         Byte, speed and percentage formatting
+    ui/components/         Square bar, controls and shared panels
+    util/Format.kt         Byte, speed, percentage and ETA formatting
   proxy-client/            Generated Kotlin/Retrofit proxy client (library)
   gradle/libs.versions.toml Version catalog
   PLAN.md                  Phased buildout, CI and signing notes
@@ -143,6 +147,49 @@ A pending magnet, the paused choice and an unsent paste draft live in
 review and re-runs the duplicate check. A request that is already sending
 refuses to be swiped away or dismissed until it returns. **Add magnet** on the
 home screen opens the same sheet in paste mode.
+
+## Torrent list and archive downloads
+
+The home screen lists the torrents that match the configured category and tag.
+Each row splits a long name so the extension stays visible, draws the same
+square-cell progress bar as the extension, and shows the percentage counter,
+state color and live transfer stats. Rows cover downloading, stalled, queued,
+checking, moving, seeding, stopped, error and missing-file states; unknown
+future states render neutrally instead of failing.
+
+The list refreshes every five seconds while Home is resumed. Navigating to
+Settings, switching apps or locking the phone cancels the current request and
+stops the loop, so Remagnet does not poll qBittorrent in the background.
+`Retry` appears when the last refresh failed, and the previous rows stay on
+screen instead of being replaced by an error page.
+
+Pressing **Remove** expands a confirmation in the row with **Keep files** and
+**Delete files**. Removal is refused while that torrent's own archive is
+downloading.
+
+Completed rows that match the proxy settings get a **Download** action. The
+archive is streamed from `GET /archive/<hash>` by a foreground service, which
+keeps the bearer token in a header and reports bytes and speed. The in-app row
+and the notification both track the same state:
+
+- Progress is determinate against the torrent size and smoothed over recent
+  samples. The proxy streams ZIPs without `Content-Length`, so an unknown size
+  falls back to an indeterminate bar.
+- **Cancel** stops the stream and deletes the partial file. A cancelled download
+  keeps **Retry** and **Dismiss** actions in the row and the notification.
+- A failure keeps the proxy or network message, with **Retry** and **Dismiss**.
+- Completion saves the file, posts a notification with an **Open** action, and
+  shows **Open** and **Dismiss** in the row. `OpenArchiveActivity` tries a ZIP
+  viewer and falls back to a share sheet when none is installed.
+- One archive downloads at a time. A second request shows an action error that
+  names the running download instead of queueing silently.
+
+Archives are written to the app-specific external Downloads folder,
+`Android/data/dev.remagnet.app/files/Download/Remagnet/`, under a sanitized,
+unique name. That location needs no storage permission and is removed when the
+app is uninstalled. On Android 13 and newer the app asks for notification
+permission the first time a download starts; a download still runs if the user
+declines, but progress is only visible inside the app.
 
 ## QR onboarding
 
@@ -273,8 +320,11 @@ in-process HTTP server. That server exercises API-key and cookie auth,
 re-login after an expired session, list and lookup, category/tag creation, add,
 remove, rejected magnets and malformed responses. Magnet tests cover hex and
 base32 hashes, web seeds, wrapped shared text, `VIEW` and `SEND` intake,
-duplicate-state mapping, add-request defaults and byte formatting. They run on
-the JVM and do not need an emulator.
+duplicate-state mapping, add-request defaults and byte formatting. Phase 4 adds
+tests for the shared tile-bar geometry and counter, archive file naming and
+unique suffixes, `Content-Disposition` parsing, proxy error messages, smoothed
+download speed, download state transitions, ETA formatting and long-name
+splitting. They run on the JVM and do not need an emulator.
 
 ## CI
 
