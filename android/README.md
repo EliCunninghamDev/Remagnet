@@ -41,7 +41,6 @@ android/
     magnet/MagnetLink.kt   Magnet URI parser (mirrors the extension)
     proxy/ProxyApi.kt      Configures the generated Retrofit client
     ui/                    Screens, theme and shared controls
-    util/                  Formatting shared with the extension
   proxy-client/            Generated Kotlin/Retrofit proxy client (library)
   gradle/libs.versions.toml Version catalog
   PLAN.md                  Phased buildout, CI and signing notes
