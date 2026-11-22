@@ -196,9 +196,9 @@ cd android && ./gradlew :app:lintDebug
 cd android && ./gradlew :app:installDebug
 ```
 
-Magnet intake, the torrent list, archive downloads and release signing are
-planned in [`android/PLAN.md`](android/PLAN.md). The toolchain, emulator setup,
-QR payload format and install steps are documented in
+The torrent list, archive downloads and release signing are planned in
+[`android/PLAN.md`](android/PLAN.md). The toolchain, emulator setup, QR payload
+format and install steps are documented in
 [`android/README.md`](android/README.md). Cleartext HTTP is allowed only for the
 emulator host (`10.0.2.2`) and loopback; a deployed proxy must use HTTPS.
 
