@@ -33,8 +33,8 @@ automatically, not chosen per torrent.
 If **Archive downloads** is configured in settings, completed rows get a **ZIP**
 button. The background worker validates the torrent, asks the browser to
 download `/archive/<info-hash>` and attaches `Authorization: Bearer <token>` in
-Firefox; other browsers use the bridge's `?token=` fallback. The bridge itself
-lives in `services/archive-bridge/` (Rust/axum) and is documented there.
+Firefox; other browsers use the proxy's `?token=` fallback. The proxy itself
+lives in `proxy/` (Rust/axum) and is documented there.
 
 ## Popup behavior
 
@@ -145,7 +145,7 @@ URLs instead:
 
 ```bash
 bun run urls:firefox   # from the repo root
-bun run urls           # from apps/extension
+bun run urls           # from extension/
 # popup    moz-extension://<uuid>/popup.html
 # add      moz-extension://<uuid>/add.html
 # options  moz-extension://<uuid>/options.html

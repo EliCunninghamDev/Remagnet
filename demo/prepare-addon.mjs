@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..");
-const source = resolve(root, "apps/extension/.output/chrome-mv3");
+const source = resolve(root, "extension/.output/chrome-mv3");
 const target = resolve(here, ".build/addon");
 
 const port = Number(process.env.MOCK_QBIT_PORT ?? 8099);

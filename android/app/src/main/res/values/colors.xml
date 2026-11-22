@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="remagnet_background">#0A0C0F</color>
+    <color name="remagnet_surface">#10141A</color>
+    <color name="remagnet_accent">#38E1A8</color>
+</resources>

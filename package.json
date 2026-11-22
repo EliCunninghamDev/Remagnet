@@ -4,23 +4,25 @@
   "type": "module",
   "packageManager": "bun@1.4.5",
   "workspaces": [
-    "apps/*",
+    "extension",
     "packages/*"
   ],
   "scripts": {
-    "dev": "bun run --cwd apps/extension dev",
-    "dev:firefox": "bun run --cwd apps/extension dev:firefox",
-    "urls:firefox": "bun run --cwd apps/extension urls",
-    "build": "bun run --cwd apps/extension build",
-    "build:firefox": "bun run --cwd apps/extension build:firefox",
-    "zip": "bun run --cwd apps/extension zip",
+    "dev": "bun run --cwd extension dev",
+    "dev:firefox": "bun run --cwd extension dev:firefox",
+    "urls:firefox": "bun run --cwd extension urls",
+    "build": "bun run --cwd extension build",
+    "build:firefox": "bun run --cwd extension build:firefox",
+    "zip": "bun run --cwd extension zip",
     "test": "bun test",
     "typecheck": "bun run --filter '*' typecheck",
     "check": "biome check .",
     "check:write": "biome check --write .",
     "lint": "biome lint .",
     "format": "biome format --write .",
-    "postinstall": "bun run --cwd apps/extension postinstall"
+    "android:build": "./android/gradlew -p android :app:assembleDebug",
+    "android:test": "./android/gradlew -p android :app:testDebugUnitTest",
+    "postinstall": "bun run --cwd extension postinstall"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.8",

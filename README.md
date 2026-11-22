@@ -4,9 +4,11 @@
 
 # Remagnet
 
-A Bun-powered monorepo for re-adding magnet links to torrent clients from the
-browser. qBittorrent is the first backend; the extension uses a client-adapter
-layer so other clients can be added without touching the UI or message code.
+A Bun-powered monorepo for re-adding magnet links to torrent clients. The
+browser extension is the primary client, a Rust proxy handles server-side
+archive streaming, and an Android app is in progress. qBittorrent is the first
+backend; the extension uses a client-adapter layer so other clients can be added
+without touching the UI or message code.
 
 <p align="center">
   <img src="docs/remagnet-demo.gif" alt="Right-clicking a magnet link in Chrome and sending it to qBittorrent through Remagnet" width="800">
@@ -19,20 +21,26 @@ layer so other clients can be added without touching the UI or message code.
 
 ## Layout
 
+The repository is split by deliverable. The extension talks to qBittorrent
+directly and can use the proxy for archive streaming; the Android client will
+follow the same boundary. The proxy is the only server-side component.
+
 ```
-apps/
-  extension/          WXT browser extension (SolidJS)
+extension/            WXT browser extension (SolidJS)
+proxy/                Rust/axum proxy for qBittorrent (ZIP streaming, optional)
+android/              Android client (Kotlin + Compose, early scaffold)
 packages/
-  qbittorrent/        Typed qBittorrent Web API v2 client
-services/
-  archive-bridge/     Rust/axum ZIP streaming bridge (optional)
+  qbittorrent/        Typed qBittorrent Web API v2 client (TypeScript)
+demo/                 Reproducible README demo recording
+docs/                 Screenshots, video and other media
 ```
 
 - **Runtime / package manager:** [Bun](https://bun.sh) workspaces
 - **Lint / format:** [Biome](https://biomejs.dev)
 - **Extension:** [WXT](https://wxt.dev) + SolidJS + TypeScript
 - **qBittorrent:** hand-rolled `fetch` client, no runtime dependencies
-- **Archive bridge:** Rust + axum (optional ZIP downloads for completed torrents)
+- **Proxy:** Rust + axum (optional ZIP downloads for completed torrents)
+- **Android:** Kotlin + Jetpack Compose, Gradle version catalog
 
 ## Getting started
 
@@ -52,7 +60,7 @@ The popup can also remove a torrent from the client, either keeping or deleting
 its files, and the background worker polls once a minute to raise a browser
 notification when a Remagnet torrent finishes. Adding a magnet also happens in
 the popover; a `magnet:` click hands the link to the popover instead of covering
-the current page. See `apps/extension/README.md` for the full dev loop, including
+the current page. See `extension/README.md` for the full dev loop, including
 how to print the `moz-extension://` URLs for the popup and options pages and how
 to run it headless.
 
@@ -81,30 +89,53 @@ Grant access to the qBittorrent origin when the browser prompts.
 | `bun run typecheck`     | Type-check all workspaces              |
 | `bun run check`         | Lint + format check with Biome         |
 | `bun run check:write`   | Apply Biome fixes and formatting       |
+| `bun run android:build` | Build the debug Android APK            |
+| `bun run android:test`  | Run Android JVM unit tests             |
 
-## Archive bridge (optional)
+## Android client (early)
+
+`android/` is a Kotlin + Jetpack Compose scaffold for the Android client. It
+currently renders a placeholder screen and includes the first shared domain
+logic, a magnet parser with unit tests. The client will reuse the same review
+and add semantics as the extension, with the proxy available for authenticated
+remote access.
+
+```bash
+bun run android:build                 # ./gradlew :app:assembleDebug
+bun run android:test                  # ./gradlew :app:testDebugUnitTest
+cd android && ./gradlew :app:installDebug
+```
+
+The development environment (JDK 21, Android SDK, KVM-accelerated emulator and
+the `remagnet-api36` AVD) is documented in `android/README.md`. Cleartext HTTP
+is allowed only for the emulator host (`10.0.2.2`) and loopback; a deployed
+proxy must be reached over HTTPS.
+
+## Archive proxy (optional)
 
 Completed torrents can be streamed to the browser as a ZIP. The extension asks
 the background worker to start the download, and the background worker requests
-`/archive/<info-hash>` from a small Rust/axum bridge. The bridge reads files from
+`/archive/<info-hash>` from the Rust/axum proxy. The proxy reads files from
 qBittorrent's Web API, so it needs neither the downloads volume nor temporary
 disk space.
 
 ```bash
-cd services/archive-bridge
+cd proxy
 cp .env.example .env        # set BRIDGE_TOKEN (openssl rand -hex 32) and QBIT_*
 cargo run                   # http://127.0.0.1:8080/
 ```
 
-Generate a token with `openssl rand -hex 32`, put the bridge behind an HTTPS
+Generate a token with `openssl rand -hex 32`, put the proxy behind an HTTPS
 reverse proxy (for example `https://remagnet.example.com`), then enter that URL
 and the same token under **Settings → Archive downloads**. Keep the token out of
 the repository; it belongs in the server-side `.env` and in extension storage.
 
-The bridge only streams torrents that are complete, accepts
+The proxy only streams torrents that are complete, accepts
 `Authorization: Bearer <token>` (used by Firefox downloads) and `?token=` as a
 fallback, and exposes a small config page at `/` for the qBittorrent URL and
-credentials. See `services/archive-bridge/README.md` for deployment details.
+credentials. See `proxy/README.md` for deployment details. The crate, binary,
+Docker image and `BRIDGE_TOKEN` variable keep their historical names so an
+existing deployment continues to run unchanged.
 
 ## qBittorrent notes
 

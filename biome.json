@@ -12,7 +12,10 @@
       "!**/*.zip",
       "!**/demo/.build",
       "!**/demo/out",
-      "!**/demo/page"
+      "!**/demo/page",
+      "!**/android/.gradle",
+      "!**/android/.kotlin",
+      "!**/android/**/build"
     ]
   },
   "formatter": {
