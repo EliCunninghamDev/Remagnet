@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>API Reference — Remagnet Proxy</title>
+    <meta
+      name="description"
+      content="Interactive OpenAPI 3.1 reference for the Remagnet Proxy HTTP API."
+    />
+    <link rel="icon" href="./assets/icon/remagnet.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./styles.css" />
+    <style>
+      .api-banner {
+        border-bottom: 1px solid var(--line);
+        background: var(--bg);
+        padding: 10px 0;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .api-banner-inner {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="shell topbar-inner">
+        <a class="wordmark" href="./">
+          <span class="wordmark-lockup">
+            <img class="wordmark-icon" src="./assets/icon/remagnet-small.svg" alt="" />
+            <span>Remagnet</span>
+          </span>
+          <span class="wordmark-surface">API</span>
+        </a>
+        <nav class="nav" aria-label="Primary">
+          <a href="./">Home</a>
+          <a href="./api.html" aria-current="page">API</a>
+          <a href="./privacy.html">Privacy</a>
+          <a href="https://github.com/EliCunninghamDev/Remagnet">GitHub</a>
+        </nav>
+      </div>
+    </header>
+
+    <div class="api-banner">
+      <div class="shell api-banner-inner">
+        <span>Rendered from <code>proxy/openapi.yaml</code> (OpenAPI 3.1 · API v1).</span>
+        <a href="./openapi.yaml">Download raw openapi.yaml</a>
+      </div>
+    </div>
+
+    <script id="api-reference" data-url="./openapi.yaml"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
+    <noscript>
+      <main class="shell">
+        <div class="panel">
+          <h2>JavaScript is required for the interactive API explorer</h2>
+          <p class="muted">
+            You can read or import the OpenAPI 3.1 specification directly:
+            <a href="./openapi.yaml">openapi.yaml</a>.
+          </p>
+        </div>
+      </main>
+    </noscript>
+  </body>
+</html>

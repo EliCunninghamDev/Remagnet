@@ -23,6 +23,7 @@
     "test:ui": "bun run --cwd extension test:ui",
     "api:generate": "bun run scripts/generate-api-clients.ts",
     "banner:generate": "bun run scripts/generate-banner.ts",
+    "site:build": "bun run scripts/build-site.ts",
     "typecheck": "bun run --filter '*' typecheck",
     "check": "biome check .",
     "check:write": "biome check --write .",

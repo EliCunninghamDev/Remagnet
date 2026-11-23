@@ -38,7 +38,8 @@ entered them.
 - The app stores no qBittorrent URL, username, API key, password, category or
   tags. Those live only on the Remagnet Proxy.
 - Pairing codes and scanned QR contents are used in memory and are not saved.
-  A successful pairing fills the settings form for you to review before saving.
+  A successful pairing saves only the proxy URL and newly minted device token
+  and tests the connection.
 
 ### Remagnet Proxy
 

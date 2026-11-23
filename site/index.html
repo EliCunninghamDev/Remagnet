@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Remagnet — Self-hosted torrent forwarding and download proxy</title>
+    <meta
+      name="description"
+      content="Send magnet links from Firefox, Chrome, and Android to your self-hosted qBittorrent instance and stream finished torrents home as ZIP archives."
+    />
+    <link rel="icon" href="./assets/icon/remagnet.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="shell topbar-inner">
+        <a class="wordmark" href="./">
+          <span class="wordmark-lockup">
+            <img class="wordmark-icon" src="./assets/icon/remagnet-small.svg" alt="" />
+            <span>Remagnet</span>
+          </span>
+        </a>
+        <nav class="nav" aria-label="Primary">
+          <a href="#how-it-works">How it works</a>
+          <a href="#install">Install</a>
+          <a href="#quick-start">Quick start</a>
+          <a href="./api.html">API</a>
+          <a href="./privacy.html">Privacy</a>
+          <a href="https://github.com/EliCunninghamDev/Remagnet">GitHub</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="shell">
+      <section class="hero">
+        <p class="eyebrow">Firefox · Chrome · Android · Self-hosted Docker proxy</p>
+        <h1>Send magnets to your server. Stream finished torrents home.</h1>
+        <p class="lede">
+          Remagnet turns magnet links in Firefox, Chrome, and Android into one-click remote
+          downloads on your qBittorrent server—then streams completed torrents straight to your
+          device as ZIP files without exposing qBittorrent to the internet.
+        </p>
+        <div class="actions">
+          <a class="button" href="#quick-start">Quick start</a>
+          <a class="button ghost" href="https://github.com/EliCunninghamDev/Remagnet/releases">
+            Download releases
+          </a>
+          <a class="button ghost" href="https://github.com/EliCunninghamDev/Remagnet">
+            View source
+          </a>
+        </div>
+
+        <figure class="demo-frame">
+          <video
+            autoplay
+            loop
+            muted
+            playsinline
+            poster="./assets/remagnet-demo.gif"
+            aria-label="Right-clicking a magnet link in Chrome, sending it to qBittorrent through Remagnet, and downloading the finished torrent as a ZIP"
+          >
+            <source src="./assets/remagnet-demo.mp4" type="video/mp4" />
+            <img
+              src="./assets/remagnet-demo.gif"
+              alt="Sending a magnet link through Remagnet and downloading the finished torrent as a ZIP"
+            />
+          </video>
+          <figcaption class="caption">
+            Right-click a magnet link in Chrome (or click a <code>magnet:</code> link directly in
+            Firefox or Android), watch progress in the popover, and stream the completed files as a
+            ZIP.
+          </figcaption>
+        </figure>
+      </section>
+
+      <section id="how-it-works" class="section">
+        <div class="section-head">
+          <h2>How it works</h2>
+          <p class="muted">
+            One tiny Rust proxy sits beside qBittorrent. Your devices never see qBittorrent's URL or
+            credentials.
+          </p>
+        </div>
+        <div class="grid-3">
+          <article class="panel">
+            <span class="step-num">01 / CAPTURE</span>
+            <h3>Native magnet intake</h3>
+            <p class="muted">
+              Firefox registers a <code>magnet:</code> handler, Chrome adds a magnet-only context
+              menu item, and Android handles <code>magnet:</code> links and shared text system-wide.
+            </p>
+          </article>
+          <article class="panel">
+            <span class="step-num">02 / PROXY</span>
+            <h3>Private qBittorrent adapter</h3>
+            <p class="muted">
+              Remagnet Proxy talks to qBittorrent inside your Docker network, tags Remagnet's own
+              torrents, and scopes listing, removal, and downloads strictly to those tags.
+            </p>
+          </article>
+          <article class="panel">
+            <span class="step-num">03 / STREAM</span>
+            <h3>Zero-disk ZIP downloads</h3>
+            <p class="muted">
+              Completed torrents stream file-by-file from qBittorrent's Web API straight into an
+              uncompressed ZIP response—no mounted downloads volume and no temp files.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section id="install" class="section">
+        <div class="section-head">
+          <h2>Install</h2>
+          <p class="muted">
+            Deploy the proxy on your server, then install the client for your browser or phone.
+            Store submissions are underway; pre-built packages are available on GitHub Releases.
+          </p>
+        </div>
+        <div class="grid-2">
+          <article class="panel">
+            <span class="pill ready">Available · Docker</span>
+            <h3>Remagnet Proxy</h3>
+            <p class="muted">
+              Multi-arch container image (<code>linux/amd64</code>, <code>linux/arm64</code>) on
+              GHCR. Required backend for all clients.
+            </p>
+            <div class="actions">
+              <a class="button ghost" href="#quick-start">Compose setup</a>
+            </div>
+          </article>
+
+          <article class="panel">
+            <span class="pill">Store review pending</span>
+            <h3>Firefox Extension</h3>
+            <p class="muted">
+              Primary browser target with native <code>magnet:</code> protocol handling and
+              Bearer-authenticated ZIP downloads.
+            </p>
+            <div class="actions">
+              <a
+                class="button ghost"
+                href="https://github.com/EliCunninghamDev/Remagnet/releases/latest"
+              >
+                Firefox package
+              </a>
+            </div>
+          </article>
+
+          <article class="panel">
+            <span class="pill">Store review pending</span>
+            <h3>Chrome Extension</h3>
+            <p class="muted">
+              MV3 extension with magnet-only context menu and single-use download tickets. Unzip and
+              load unpacked in <code>chrome://extensions</code> until approved.
+            </p>
+            <div class="actions">
+              <a
+                class="button ghost"
+                href="https://github.com/EliCunninghamDev/Remagnet/releases/latest"
+              >
+                Chrome package
+              </a>
+            </div>
+          </article>
+
+          <article class="panel">
+            <span class="pill ready">Available · APK</span>
+            <h3>Android App</h3>
+            <p class="muted">
+              Kotlin + Jetpack Compose companion with QR pairing, direct sign-in, Keystore token
+              encryption, and background ZIP downloads.
+            </p>
+            <div class="actions">
+              <a
+                class="button ghost"
+                href="https://github.com/EliCunninghamDev/Remagnet/releases/latest"
+              >
+                Download APK
+              </a>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section id="quick-start" class="section">
+        <div class="section-head">
+          <h2>Quick start</h2>
+          <p class="muted">
+            Start the proxy, create your admin account in the browser, and connect your devices with
+            direct sign-in or a 60-second QR code.
+          </p>
+        </div>
+
+        <div class="code-block">
+          <div class="code-head">
+            <span>compose.yaml</span>
+            <button class="copy-btn" type="button" data-copy="compose">Copy</button>
+          </div>
+          <pre><code id="compose">services:
+  remagnet-bridge:
+    image: ghcr.io/elicunninghamdev/remagnet-bridge:latest
+    container_name: remagnet-bridge
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATA_DIR: /data
+      BIND_ADDR: 0.0.0.0:8080
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8080:8080"
+    volumes:
+      - remagnet-data:/data
+
+volumes:
+  remagnet-data:</code></pre>
+        </div>
+
+        <div class="code-block">
+          <div class="code-head">
+            <span>.env (all fields optional — finish setup in the web UI)</span>
+            <button class="copy-btn" type="button" data-copy="env">Copy</button>
+          </div>
+          <pre><code id="env"># Optional: require this code on first boot before creating the admin account.
+SETUP_CODE=
+
+# Where the proxy reaches qBittorrent's Web UI.
+QBIT_BASE_URL=http://host.docker.internal:8080
+QBIT_API_KEY=
+
+# Category and tags owned by Remagnet.
+REMAGNET_CATEGORY=remagnet
+REMAGNET_TAGS=remagnet</code></pre>
+        </div>
+
+        <div class="code-block">
+          <div class="code-head">
+            <span>Caddyfile (recommended HTTPS reverse proxy)</span>
+            <button class="copy-btn" type="button" data-copy="caddy">Copy</button>
+          </div>
+          <pre><code id="caddy">remagnet.example.com {
+  reverse_proxy remagnet-bridge:8080
+}</code></pre>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="panel">
+          <h2>Security &amp; privacy by design</h2>
+          <ul class="list-plain">
+            <li>
+              <strong>Admin vs. device isolation:</strong> Web UI admin sessions use Argon2id
+              passwords, optional TOTP 2FA with recovery codes, and
+              <code>HttpOnly; SameSite=Strict</code> cookies. Clients receive revocable per-device
+              tokens (<code>rmg_…</code>) that cannot touch admin settings.
+            </li>
+            <li>
+              <strong>Two ways to connect:</strong> Sign in directly from the extension or Android
+              app, or scan a single-use 60-second QR / pairing link from the proxy page without
+              re-entering 2FA.
+            </li>
+            <li>
+              <strong>Zero telemetry:</strong> No hosted servers, analytics, or third-party
+              requests. Read the full <a href="./privacy.html">Privacy Policy</a> or explore the
+              <a href="./api.html">OpenAPI 3.1 contract</a>.
+            </li>
+          </ul>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="shell footer-inner">
+        <span>Remagnet · Apache License 2.0</span>
+        <div class="footer-links">
+          <a href="https://github.com/EliCunninghamDev/Remagnet">GitHub</a>
+          <a href="./privacy.html">Privacy</a>
+          <a href="./api.html">API reference</a>
+          <a href="https://github.com/EliCunninghamDev/Remagnet/blob/main/CONTRIBUTING.md">
+            Contributing
+          </a>
+          <a href="https://ko-fi.com/elijahcunninghamdev">Support on Ko-fi</a>
+        </div>
+      </div>
+    </footer>
+
+    <script>
+      for (const button of document.querySelectorAll("[data-copy]")) {
+        button.addEventListener("click", async () => {
+          const target = document.getElementById(button.getAttribute("data-copy"));
+          if (!target) return;
+          try {
+            await navigator.clipboard.writeText(target.textContent || "");
+            const previous = button.textContent;
+            button.textContent = "Copied";
+            window.setTimeout(() => {
+              button.textContent = previous;
+            }, 1500);
+          } catch {
+            button.textContent = "Copy failed";
+          }
+        });
+      }
+    </script>
+  </body>
+</html>

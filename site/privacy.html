@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Privacy Policy — Remagnet</title>
+    <meta
+      name="description"
+      content="Remagnet privacy policy covering the Firefox and Chrome extension, Android app, and self-hosted Remagnet Proxy."
+    />
+    <link rel="icon" href="./assets/icon/remagnet.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="shell topbar-inner">
+        <a class="wordmark" href="./">
+          <span class="wordmark-lockup">
+            <img class="wordmark-icon" src="./assets/icon/remagnet-small.svg" alt="" />
+            <span>Remagnet</span>
+          </span>
+          <span class="wordmark-surface">Privacy</span>
+        </a>
+        <nav class="nav" aria-label="Primary">
+          <a href="./">Home</a>
+          <a href="./api.html">API</a>
+          <a href="./privacy.html" aria-current="page">Privacy</a>
+          <a href="https://github.com/EliCunninghamDev/Remagnet">GitHub</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="shell">
+      <article class="prose">
+        <header class="section-head">
+          <p class="eyebrow">Last updated: 23 November 2026</p>
+          <h1>Privacy policy</h1>
+          <p class="lede">
+            Remagnet is a local-first browser extension, Android app, and self-hosted proxy. The
+            project operates no accounts, no analytics, no telemetry, no advertising, and no servers
+            of its own. Nothing you enter into Remagnet is sent to the project or to any third
+            party.
+          </p>
+        </header>
+
+        <section>
+          <h2>What Remagnet stores</h2>
+          <p class="muted">
+            Remagnet only stores the settings you enter, on the device or server where you entered
+            them.
+          </p>
+
+          <h3>Browser extension</h3>
+          <ul>
+            <li>
+              The Remagnet Proxy URL is kept in the extension's local storage. The per-device proxy
+              token is encrypted with AES-GCM before it is written to storage, using a
+              non-extractable WebCrypto key kept in the extension's IndexedDB. The administrator
+              password and any 2FA code are used only during sign-in and are not stored.
+            </li>
+            <li>
+              The extension stores no qBittorrent URL, username, API key, password, category, or
+              tags. Those live only on the Remagnet Proxy.
+            </li>
+            <li>Settings stay in that browser profile and are never synced to a Remagnet server.</li>
+            <li>
+              On Chrome, a content script inspects only the URL of the currently hovered link so the
+              context-menu item appears only on <code>magnet:</code> links. It does not read other
+              page content or send anything off your device.
+            </li>
+          </ul>
+
+          <h3>Android app</h3>
+          <ul>
+            <li>
+              The per-device Remagnet Proxy token is encrypted with a key held by the Android
+              Keystore; the proxy URL stays readable so Settings can render. The administrator
+              password and any 2FA code are used only during sign-in and are not stored.
+            </li>
+            <li>
+              The app stores no qBittorrent URL, username, API key, password, category, or tags.
+            </li>
+            <li>
+              Pairing codes and scanned QR contents are used in memory only. A successful pairing
+              saves only the proxy URL and newly minted device token.
+            </li>
+          </ul>
+
+          <h3>Remagnet Proxy</h3>
+          <ul>
+            <li>
+              <code>config.json</code> (mode <code>0600</code>) on <strong>your</strong> server
+              holds the qBittorrent Web UI URL, credentials, and Remagnet category/tags.
+            </li>
+            <li>
+              <code>auth.json</code> (mode <code>0600</code>) holds the administrator username,
+              Argon2id password hash, optional TOTP secret, SHA-256 hashes of unused recovery codes,
+              and SHA-256 hashes plus metadata for connected devices. Raw passwords, 2FA codes,
+              recovery codes, and device tokens are never written to disk.
+            </li>
+            <li>
+              Admin sessions, login rate limits, pairing codes (60s, single-use), and archive
+              download tickets (60s, single-use, hash-bound) exist only in memory.
+            </li>
+            <li>
+              Completed torrent files are streamed directly from qBittorrent into a ZIP response and
+              are never stored on disk by the proxy.
+            </li>
+          </ul>
+        </section>
+
+        <section>
+          <h2>Network connections</h2>
+          <p>
+            The extension and Android app connect only to the Remagnet Proxy URL you configure. The
+            proxy connects only to your qBittorrent instance. There are no update checks, crash
+            reports, remote configuration fetches, or telemetry requests to the project.
+          </p>
+        </section>
+
+        <section>
+          <h2>Permissions</h2>
+          <ul>
+            <li>
+              <strong>Extension storage:</strong> stores your proxy URL and encrypted device token.
+            </li>
+            <li>
+              <strong>Downloads:</strong> saves streamed ZIP archives of completed torrents.
+            </li>
+            <li>
+              <strong>Host access:</strong> optional host access is requested only for the proxy
+              origin you configure. On Chrome, content-script access checks only hovered links for
+              <code>magnet:</code> URLs.
+            </li>
+            <li>
+              <strong>Camera (Android):</strong> used only while scanning a pairing QR code.
+            </li>
+            <li>
+              <strong>Notifications (Extension &amp; Android):</strong> reports torrent completion
+              and archive download progress.
+            </li>
+          </ul>
+        </section>
+
+        <section>
+          <h2>Deleting your data</h2>
+          <ul>
+            <li>
+              <strong>Extension:</strong> click <strong>Disconnect</strong> in Settings (which also
+              revokes the device token on your proxy) or remove the extension.
+            </li>
+            <li>
+              <strong>Android:</strong> tap <strong>Disconnect</strong> in Settings, clear app
+              storage, or uninstall the app.
+            </li>
+            <li>
+              <strong>Proxy:</strong> delete <code>config.json</code> and <code>auth.json</code> (or
+              the Docker data volume).
+            </li>
+          </ul>
+        </section>
+
+        <section>
+          <h2>Contact</h2>
+          <p>
+            Questions about this policy can be sent to
+            <a href="mailto:contact@elijahcunningham.dev">contact@elijahcunningham.dev</a> or raised
+            at
+            <a href="https://github.com/EliCunninghamDev/Remagnet/issues">
+              github.com/EliCunninghamDev/Remagnet/issues
+            </a>.
+          </p>
+        </section>
+      </article>
+    </main>
+
+    <footer class="footer">
+      <div class="shell footer-inner">
+        <span>Remagnet · Apache License 2.0</span>
+        <div class="footer-links">
+          <a href="./">Home</a>
+          <a href="./api.html">API reference</a>
+          <a href="https://github.com/EliCunninghamDev/Remagnet">GitHub</a>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>
