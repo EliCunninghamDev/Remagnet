@@ -1,8 +1,8 @@
 services:
-  remagnet-bridge:
+  remagnet-proxy:
     build: .
-    image: ghcr.io/elicunninghamdev/remagnet-bridge:latest
-    container_name: remagnet-bridge
+    image: ghcr.io/elicunninghamdev/remagnet-proxy:latest
+    container_name: remagnet-proxy
     restart: unless-stopped
     env_file: .env
     environment:

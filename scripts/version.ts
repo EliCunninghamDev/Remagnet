@@ -46,7 +46,7 @@ async function readCargoVersion(): Promise<Versioned> {
   const source = await Bun.file(cargoPath).text();
   const match = source.match(/\[package\][\s\S]*?\nversion = "([^"]+)"/);
   if (!match) throw new Error(`Could not find the package version in ${cargoPath}`);
-  return { label: "remagnet-bridge (Cargo.toml)", version: match[1] };
+  return { label: "remagnet-proxy (Cargo.toml)", version: match[1] };
 }
 
 function readAnchor(source: string, pattern: RegExp, label: string): string {
@@ -74,10 +74,10 @@ async function readVersions(): Promise<Versioned[]> {
 
   const cargoLock = await Bun.file(cargoLockPath).text();
   versions.push({
-    label: "remagnet-bridge (Cargo.lock)",
+    label: "remagnet-proxy (Cargo.lock)",
     version: readAnchor(
       cargoLock,
-      /\[\[package\]\]\nname = "remagnet-bridge"\nversion = "([^"]+)"/,
+      /\[\[package\]\]\nname = "remagnet-proxy"\nversion = "([^"]+)"/,
       "the proxy version in Cargo.lock",
     ),
   });
@@ -155,7 +155,7 @@ async function setVersion(version: string): Promise<void> {
   await Bun.write(
     cargoLockPath,
     cargoLock.replace(
-      /(\[\[package\]\]\nname = "remagnet-bridge"\nversion = ")[^"]+(")/,
+      /(\[\[package\]\]\nname = "remagnet-proxy"\nversion = ")[^"]+(")/,
       `$1${version}$2`,
     ),
   );

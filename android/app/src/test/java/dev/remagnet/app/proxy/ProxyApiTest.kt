@@ -46,6 +46,6 @@ class ProxyApiTest {
 
     @Test(expected = IllegalArgumentException::class)
     fun rejectsNonHttpUrl() {
-        ProxyApi("ftp://bridge.example", "test-token")
+        ProxyApi("ftp://proxy.example", "test-token")
     }
 }

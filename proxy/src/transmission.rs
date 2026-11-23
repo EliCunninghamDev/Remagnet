@@ -72,7 +72,7 @@ pub struct TransmissionClient {
 impl TransmissionClient {
     pub fn new(config: &Config) -> anyhow::Result<Self> {
         let http = reqwest::Client::builder()
-            .user_agent(concat!("remagnet-bridge/", env!("CARGO_PKG_VERSION")))
+            .user_agent(concat!("remagnet-proxy/", env!("CARGO_PKG_VERSION")))
             .connect_timeout(std::time::Duration::from_secs(15))
             .read_timeout(std::time::Duration::from_secs(60))
             .build()

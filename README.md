@@ -34,7 +34,7 @@ Pre-built packages are published on
 [GitHub Releases](https://github.com/EliCunninghamDev/Remagnet/releases) while
 store listings are in progress:
 
-- **Remagnet Proxy:** `ghcr.io/elicunninghamdev/remagnet-bridge:latest`
+- **Remagnet Proxy:** `ghcr.io/elicunninghamdev/remagnet-proxy:latest`
   (Docker, `linux/amd64` and `linux/arm64`)
 - **Firefox:** Download `remagnet-<version>-firefox.zip` (or install from
   addons.mozilla.org once approved)
@@ -59,9 +59,9 @@ Create a directory on your Docker host with `compose.yaml`:
 
 ```yaml
 services:
-  remagnet-bridge:
-    image: ghcr.io/elicunninghamdev/remagnet-bridge:latest
-    container_name: remagnet-bridge
+  remagnet-proxy:
+    image: ghcr.io/elicunninghamdev/remagnet-proxy:latest
+    container_name: remagnet-proxy
     restart: unless-stopped
     env_file: .env
     environment:
@@ -109,7 +109,7 @@ Caddy configuration:
 
 ```caddyfile
 remagnet.example.com {
-  reverse_proxy remagnet-bridge:8080
+  reverse_proxy remagnet-proxy:8080
 }
 ```
 

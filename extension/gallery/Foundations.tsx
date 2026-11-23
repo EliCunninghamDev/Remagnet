@@ -84,7 +84,7 @@ export default function Foundations() {
             <Wordmark as="p" surface="Components" />
             <Wordmark as="p" size="lg" surface="Settings" />
             <div class="theme-popup">
-              <Wordmark as="p" surface="Bridge" />
+              <Wordmark as="p" surface="Proxy" />
             </div>
           </div>
         </Specimen>

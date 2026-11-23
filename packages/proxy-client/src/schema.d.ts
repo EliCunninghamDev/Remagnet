@@ -649,7 +649,7 @@ export interface components {
             ok: boolean;
             /**
              * @description Historical service name kept for deployment compatibility.
-             * @example remagnet-bridge
+             * @example remagnet-proxy
              */
             service: string;
             /** @description Crate version from `CARGO_PKG_VERSION`. */
@@ -1353,7 +1353,7 @@ export interface operations {
                     /**
                      * @example {
                      *       "ok": true,
-                     *       "service": "remagnet-bridge",
+                     *       "service": "remagnet-proxy",
                      *       "version": "0.1.0",
                      *       "apiVersion": 1
                      *     }

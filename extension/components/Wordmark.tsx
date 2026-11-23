@@ -6,7 +6,7 @@ export type WordmarkSize = "sm" | "md" | "lg";
 export interface WordmarkProps {
   /** Visual size. The pixel font is crisp at 11px multiples. */
   size?: WordmarkSize;
-  /** Short surface label shown after the wordmark, e.g. Bridge or Android. */
+  /** Short surface label shown after the wordmark, e.g. Proxy or Android. */
   surface?: string;
   /** Optional hover text, such as the active client and server. */
   title?: string;
@@ -20,7 +20,7 @@ export interface WordmarkProps {
  *
  * Every surface renders the same mark with the same icon, font, casing and
  * spacing. A surface label is optional; it is the only part that changes
- * between the popover, settings, gallery, bridge and Android app.
+ * between the popover, settings, gallery, proxy and Android app.
  */
 export default function Wordmark(props: WordmarkProps) {
   return (

@@ -25,7 +25,7 @@ COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 RUN target="$(cat /rust-target)" \
     && cargo build --release --locked --target "$target" \
-    && cp "target/$target/release/remagnet-bridge" /usr/local/bin/remagnet-bridge
+    && cp "target/$target/release/remagnet-proxy" /usr/local/bin/remagnet-proxy
 
 FROM debian:bookworm-slim
 
@@ -33,15 +33,15 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=build /usr/local/bin/remagnet-bridge /usr/local/bin/remagnet-bridge
+COPY --from=build /usr/local/bin/remagnet-proxy /usr/local/bin/remagnet-proxy
 
-RUN useradd --system --uid 10001 --home-dir /data --shell /usr/sbin/nologin bridge \
+RUN useradd --system --uid 10001 --home-dir /data --shell /usr/sbin/nologin proxy \
     && mkdir -p /data \
-    && chown bridge:bridge /data
+    && chown proxy:proxy /data
 
-USER bridge
+USER proxy
 ENV DATA_DIR=/data
 ENV BIND_ADDR=0.0.0.0:8080
 EXPOSE 8080
 
-ENTRYPOINT ["remagnet-bridge"]
+ENTRYPOINT ["remagnet-proxy"]

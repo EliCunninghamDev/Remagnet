@@ -130,7 +130,7 @@ impl QbitClient {
     pub fn new(config: &Config) -> anyhow::Result<Self> {
         let http = reqwest::Client::builder()
             .cookie_store(true)
-            .user_agent(concat!("remagnet-bridge/", env!("CARGO_PKG_VERSION")))
+            .user_agent(concat!("remagnet-proxy/", env!("CARGO_PKG_VERSION")))
             // Archives can be many gigabytes and are streamed, so there is no
             // total request deadline. A read timeout still aborts stalls.
             .connect_timeout(std::time::Duration::from_secs(15))

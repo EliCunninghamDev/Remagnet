@@ -19,12 +19,12 @@ describe("Wordmark", () => {
   });
 
   test("renders as the page heading with a surface label", () => {
-    render(() => <Wordmark as="h1" size="lg" surface="Bridge" />);
+    render(() => <Wordmark as="h1" size="lg" surface="Proxy" />);
 
-    const heading = screen.getByRole("heading", { name: "Remagnet Bridge" });
+    const heading = screen.getByRole("heading", { name: "Remagnet Proxy" });
     expect(heading.tagName).toBe("H1");
     expect(heading.className).toContain("wordmark-lg");
-    expect(screen.getByText("Bridge").className).toContain("wordmark-surface");
+    expect(screen.getByText("Proxy").className).toContain("wordmark-surface");
   });
 
   test("keeps an optional title for client and server context", () => {

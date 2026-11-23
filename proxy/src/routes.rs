@@ -98,7 +98,7 @@ async fn wordmark_font() -> impl IntoResponse {
     )
 }
 
-/// The application mark, served for the bridge page's favicon.
+/// The application mark, served for the proxy page's favicon.
 async fn icon() -> impl IntoResponse {
     (
         [
@@ -112,7 +112,7 @@ async fn icon() -> impl IntoResponse {
 async fn healthz() -> Json<serde_json::Value> {
     Json(json!({
         "ok": true,
-        "service": "remagnet-bridge",
+        "service": "remagnet-proxy",
         "version": env!("CARGO_PKG_VERSION"),
         "apiVersion": API_VERSION,
     }))
@@ -197,7 +197,7 @@ struct CreatePairingRequest {
 }
 
 /// Mint a short-lived pairing code. The proxy renders the QR image too, so the
-/// bridge page does not need a JavaScript QR library and the code stays out of
+/// proxy page does not need a JavaScript QR library and the code stays out of
 /// the extension's hands.
 async fn create_pairing(
     State(state): State<Arc<AppState>>,
@@ -241,7 +241,7 @@ async fn create_pairing(
 
 /// The origin the browser used when it did not send one explicitly.
 ///
-/// Only a fallback for API clients: the bridge page sends `location.origin`,
+/// Only a fallback for API clients: the proxy page sends `location.origin`,
 /// which is what the phone must be able to reach.
 fn origin_from_headers(headers: &HeaderMap) -> Option<String> {
     let host = headers.get(header::HOST)?.to_str().ok()?.trim();
@@ -600,7 +600,7 @@ mod tests {
 
     fn test_config_path() -> PathBuf {
         std::env::temp_dir().join(format!(
-            "remagnet-bridge-test-{}-{}.json",
+            "remagnet-proxy-test-{}-{}.json",
             std::process::id(),
             NEXT_CONFIG.fetch_add(1, Ordering::Relaxed)
         ))
@@ -1181,7 +1181,7 @@ mod tests {
         let body = response.into_body().collect().await.unwrap().to_bytes();
         let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(body["ok"], true);
-        assert_eq!(body["service"], "remagnet-bridge");
+        assert_eq!(body["service"], "remagnet-proxy");
         assert_eq!(body["version"], env!("CARGO_PKG_VERSION"));
         assert_eq!(body["apiVersion"], API_VERSION);
 

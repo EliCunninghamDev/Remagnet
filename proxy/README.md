@@ -8,9 +8,10 @@ API, so it does not need the downloads volume mounted and does not store
 archives. Clients only ever hold a per-device proxy token; qBittorrent
 credentials and the administrator password stay on this service.
 
-The directory was formerly `services/archive-bridge`. The crate, binary, Docker
-image and container keep the historical `remagnet-bridge` name so existing
-deployments and Caddy upstreams continue to work unchanged.
+The directory was formerly `services/archive-bridge` and the service was
+formerly published as `remagnet-bridge`. The crate, binary, Docker image and
+container are now named `remagnet-proxy`; update existing deployments and Caddy
+upstreams before upgrading.
 
 ## Authentication
 
@@ -172,7 +173,7 @@ qBittorrent connection. Leave `SETUP_CODE` empty on a local-only machine.
 ## Docker
 
 Images are published to GHCR as
-`ghcr.io/elicunninghamdev/remagnet-bridge:latest`; make the package public if
+`ghcr.io/elicunninghamdev/remagnet-proxy:latest`; make the package public if
 anonymous hosts should be able to pull it without `docker login ghcr.io`. The
 compose file in this directory points at that image and also has a `build: .`
 fallback, so either path works:
@@ -190,7 +191,7 @@ qBittorrent/gluetun. For a standalone host without that network, remove the
 container can reach. The root README has a complete
 [Docker Compose quick start](../README.md#quick-start).
 
-The bind mount is owned by the container's `bridge` user (UID 10001). Create it
+The bind mount is owned by the container's `proxy` user (UID 10001). Create it
 before the first start, or replace it with a named volume:
 
 ```bash
@@ -204,7 +205,7 @@ Put the service behind a local-only reverse-proxy route, for example:
 @remagnet host remagnet.example.com
 handle @remagnet {
     import local_only
-    reverse_proxy remagnet-bridge:8080
+    reverse_proxy remagnet-proxy:8080
 }
 ```
 

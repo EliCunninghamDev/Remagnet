@@ -58,19 +58,19 @@ async fn main() -> Result<()> {
     let data_dir = env::var("DATA_DIR").unwrap_or_else(|_| "/data".to_string());
     let config_path = Path::new(&data_dir).join("config.json");
     let (config, created) = config::load_or_create(&config_path, config::ConfigEnv::from_env())
-        .context("could not load the bridge configuration")?;
+        .context("could not load the proxy configuration")?;
     let backend =
         TorrentBackend::from_config(&config).context("could not initialize the torrent client")?;
 
     let auth_path = Path::new(&data_dir).join("auth.json");
-    let auth = auth::load(&auth_path).context("could not load the bridge authentication")?;
+    let auth = auth::load(&auth_path).context("could not load the proxy authentication")?;
 
     if created {
         tracing::info!(
             path = %config_path.display(),
             client = %config.base_url,
             client_kind = config.client_kind.label(),
-            "created a bridge configuration from environment variables"
+            "created a proxy configuration from environment variables"
         );
     }
     if backend.is_none() {
@@ -101,7 +101,7 @@ async fn main() -> Result<()> {
         addr = %bind,
         config = %state.config_path.display(),
         auth = %state.auth_path.display(),
-        "remagnet-bridge listening"
+        "remagnet-proxy listening"
     );
 
     axum::serve(listener, routes::router(state))

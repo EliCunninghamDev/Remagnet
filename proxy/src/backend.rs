@@ -280,7 +280,7 @@ fn fold(value: &str) -> String {
 
 /// Maps a torrent client's absolute paths onto a mounted downloads volume.
 ///
-/// The bridge never needs write access to the volume: archives are streamed
+/// The proxy never needs write access to the volume: archives are streamed
 /// read-only. Every resolved path is canonicalized and checked against the
 /// configured root so symlinks or traversal cannot escape it.
 #[derive(Debug, Clone)]

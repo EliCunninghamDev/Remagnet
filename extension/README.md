@@ -82,7 +82,7 @@ not cover or replace the page you were reading.
 - The interface is set in bundled Geist Mono on every surface. The shared
   `Wordmark` component places the application icon beside the Remagnet mark in
   bundled Departure Mono, with an optional surface label (Settings, Add torrent,
-  Components, Bridge). Both fonts are SIL OFL 1.1, and the files and licenses
+  Components, Proxy). Both fonts are SIL OFL 1.1, and the files and licenses
   live in `public/fonts/`.
 - The application mark lives in `public/icon/remagnet.svg` with a simplified
   `remagnet-small.svg` for 16px and 32px and for the wordmark; the PNGs beside

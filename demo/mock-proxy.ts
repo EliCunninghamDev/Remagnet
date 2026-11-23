@@ -156,7 +156,7 @@ Bun.serve({
     if (pathname === "/healthz") {
       return json({
         ok: true,
-        service: "remagnet-bridge",
+        service: "remagnet-proxy",
         version: "0.1.0",
         apiVersion: 1,
       });

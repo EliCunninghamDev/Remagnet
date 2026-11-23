@@ -32,11 +32,9 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # GHCR requires a lowercase repository name. The image keeps the
-      # historical `remagnet-bridge` name so deployments and Caddy upstreams
-      # continue to work; "Remagnet Proxy" is the user-facing label.
+      # GHCR requires a lowercase repository name.
       - name: Compute image name
-        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/remagnet-bridge" >> "$GITHUB_ENV"
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/remagnet-proxy" >> "$GITHUB_ENV"
 
       - id: meta
         uses: docker/metadata-action@v5

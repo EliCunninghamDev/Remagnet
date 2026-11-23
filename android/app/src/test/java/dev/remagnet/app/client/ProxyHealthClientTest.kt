@@ -24,7 +24,7 @@ class ProxyHealthClientTest {
     fun setUp() {
         server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         server.createContext("/healthz") { exchange ->
-            respond(exchange, 200, """{"ok":true,"service":"remagnet-bridge","version":"0.1.0"}""")
+            respond(exchange, 200, """{"ok":true,"service":"remagnet-proxy","version":"0.1.0"}""")
         }
         server.createContext("/api/health") { exchange ->
             authorization = exchange.requestHeaders.getFirst("Authorization")
@@ -57,13 +57,13 @@ class ProxyHealthClientTest {
     @Test
     fun mapsUnauthorizedToken() = runBlocking {
         healthCode = 401
-        healthBody = """{"error":"Missing or invalid bridge token."}"""
+        healthBody = """{"error":"Missing or invalid proxy token."}"""
 
         val status = ProxyHealthClient().check(settings())
 
         assertTrue(status.toString(), status is ProxyStatus.Unauthorized)
         assertEquals(
-            "Missing or invalid bridge token.",
+            "Missing or invalid proxy token.",
             (status as ProxyStatus.Unauthorized).message,
         )
     }

@@ -199,9 +199,9 @@
             <button class="copy-btn" type="button" data-copy="compose">Copy</button>
           </div>
           <pre><code id="compose">services:
-  remagnet-bridge:
-    image: ghcr.io/elicunninghamdev/remagnet-bridge:latest
-    container_name: remagnet-bridge
+  remagnet-proxy:
+    image: ghcr.io/elicunninghamdev/remagnet-proxy:latest
+    container_name: remagnet-proxy
     restart: unless-stopped
     env_file: .env
     environment:
@@ -241,7 +241,7 @@ REMAGNET_TAGS=remagnet</code></pre>
             <button class="copy-btn" type="button" data-copy="caddy">Copy</button>
           </div>
           <pre><code id="caddy">remagnet.example.com {
-  reverse_proxy remagnet-bridge:8080
+  reverse_proxy remagnet-proxy:8080
 }</code></pre>
         </div>
       </section>

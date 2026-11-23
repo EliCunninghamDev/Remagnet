@@ -155,7 +155,7 @@ pub fn content_disposition(filename: &str) -> String {
 /// Write the torrent's files into a ZIP stream.
 ///
 /// Each file is streamed from the configured torrent client (or its mounted
-/// downloads volume) and copied into an entry as it arrives, so the bridge never
+/// downloads volume) and copied into an entry as it arrives, so the proxy never
 /// buffers a whole file. This module has no client-specific coupling.
 pub async fn write_zip(
     writer: DuplexStream,

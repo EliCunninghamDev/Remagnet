@@ -12,7 +12,7 @@ services:
       - ./tmp/qbittorrent/config:/config
       - ./tmp/qbittorrent/downloads:/downloads
 
-  remagnet-bridge:
+  remagnet-proxy:
     build:
       context: ../../proxy
     environment:

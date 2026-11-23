@@ -12,7 +12,7 @@ describe("createProxyClient", () => {
   test("normalizes the base URL and attaches the bearer token", async () => {
     let request: Request | undefined;
     const client = createProxyClient({
-      baseUrl: "https://bridge.example/",
+      baseUrl: "https://proxy.example/",
       token: "rmg_device_token",
       fetch: async (input) => {
         request = input;
@@ -27,20 +27,20 @@ describe("createProxyClient", () => {
 
     expect(error).toBeUndefined();
     expect(data?.appVersion).toBe("5.3.0");
-    expect(request?.url).toBe("https://bridge.example/api/health");
+    expect(request?.url).toBe("https://proxy.example/api/health");
     expect(request?.headers.get("Authorization")).toBe("Bearer rmg_device_token");
   });
 
   test("rejects an empty URL or token", () => {
     expect(() => createProxyClient({ baseUrl: " ", token: "rmg_token" })).toThrow(/URL/);
-    expect(() => createProxyClient({ baseUrl: "https://bridge.example", token: "  " })).toThrow(
+    expect(() => createProxyClient({ baseUrl: "https://proxy.example", token: "  " })).toThrow(
       /token/,
     );
   });
 
   test("passes structured proxy errors through", async () => {
     const client = createProxyClient({
-      baseUrl: "https://bridge.example",
+      baseUrl: "https://proxy.example",
       token: "rmg_device_token",
       fetch: async () =>
         new Response(JSON.stringify({ error: "Authentication required." }), {
@@ -64,7 +64,7 @@ describe("createPublicProxyClient", () => {
   test("calls public bootstrap endpoints without credentials", async () => {
     let request: Request | undefined;
     let body: unknown;
-    const client = createPublicProxyClient("https://bridge.example/", async (input) => {
+    const client = createPublicProxyClient("https://proxy.example/", async (input) => {
       request = input;
       body = await input.clone().json();
       return new Response(
@@ -83,7 +83,7 @@ describe("createPublicProxyClient", () => {
     expect(error).toBeUndefined();
     expect(data?.token).toBe("rmg_new_token");
     expect(data?.device.name).toBe("Pixel 9");
-    expect(request?.url).toBe("https://bridge.example/api/auth/device");
+    expect(request?.url).toBe("https://proxy.example/api/auth/device");
     expect(request?.headers.get("Authorization")).toBeNull();
     expect(body).toEqual({
       username: "admin",
@@ -100,7 +100,7 @@ describe("createPublicProxyClient", () => {
 describe("proxyErrorCode", () => {
   test("reads totp_required from a parsed error body", async () => {
     const client = createPublicProxyClient(
-      "https://bridge.example",
+      "https://proxy.example",
       async () =>
         new Response(
           JSON.stringify({
@@ -129,26 +129,24 @@ describe("proxyErrorCode", () => {
 
 describe("archive URLs", () => {
   test("encodes the hash and strips trailing slashes", () => {
-    expect(archiveUrl("https://bridge.example/", "a b")).toBe(
-      "https://bridge.example/archive/a%20b",
-    );
+    expect(archiveUrl("https://proxy.example/", "a b")).toBe("https://proxy.example/archive/a%20b");
   });
 
   test("omits credentials when no ticket is supplied", () => {
-    expect(archiveDownloadUrl("https://bridge.example/", "abc")).toBe(
-      "https://bridge.example/archive/abc",
+    expect(archiveDownloadUrl("https://proxy.example/", "abc")).toBe(
+      "https://proxy.example/archive/abc",
     );
   });
 
   test("appends an encoded single-use ticket", () => {
-    expect(archiveDownloadUrl("https://bridge.example", "a b", "ticket+/=")).toBe(
-      "https://bridge.example/archive/a%20b?ticket=ticket%2B%2F%3D",
+    expect(archiveDownloadUrl("https://proxy.example", "a b", "ticket+/=")).toBe(
+      "https://proxy.example/archive/a%20b?ticket=ticket%2B%2F%3D",
     );
   });
 
   test("treats a blank ticket as no ticket", () => {
-    expect(archiveDownloadUrl("https://bridge.example", "abc", "  ")).toBe(
-      "https://bridge.example/archive/abc",
+    expect(archiveDownloadUrl("https://proxy.example", "abc", "  ")).toBe(
+      "https://proxy.example/archive/abc",
     );
   });
 });

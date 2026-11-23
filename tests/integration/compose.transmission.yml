@@ -13,7 +13,7 @@ services:
       - ./tmp/transmission/config:/config
       - ./tmp/transmission/downloads:/downloads
 
-  remagnet-bridge:
+  remagnet-proxy:
     build:
       context: ../../proxy
     environment:

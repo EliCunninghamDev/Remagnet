@@ -181,7 +181,7 @@ all versions, runs extension/proxy/Android checks, and publishes:
   `ANDROID_KEYSTORE_*` secrets are configured; otherwise a debug APK)
 - `SHA256SUMS` for every release asset
 - Multi-arch (`linux/amd64`, `linux/arm64`) Docker image at
-  `ghcr.io/elicunninghamdev/remagnet-bridge` tagged `<version>`,
+  `ghcr.io/elicunninghamdev/remagnet-proxy` tagged `<version>`,
   `<major>.<minor>`, `<major>`, and `latest`
 
 Store uploads to addons.mozilla.org and the Chrome Web Store are manual. To
