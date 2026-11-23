@@ -1,10 +1,12 @@
 # Remagnet Proxy
 
-The Remagnet proxy is a Rust/axum service that turns completed qBittorrent
-torrents into ZIP streams for the browser extension and the Android client. It
+The Remagnet proxy is the required adapter between the browser extension or
+Android client and qBittorrent. It adds, lists, filters and removes torrents
+through qBittorrent's Web API and turns completed torrents into ZIP streams. It
 talks to qBittorrent over the Docker network and streams each file from the Web
 API, so it does not need the downloads volume mounted and does not store
-archives.
+archives. Clients only ever hold the proxy URL and token; qBittorrent
+credentials stay on this service.
 
 The directory was formerly `services/archive-bridge`. The crate, binary, Docker
 image, container and `BRIDGE_TOKEN` environment variable keep the historical
@@ -13,30 +15,44 @@ work unchanged.
 
 ## Endpoints
 
-| Endpoint                           | Auth   | Purpose                                         |
-| ---------------------------------- | ------ | ----------------------------------------------- |
-| `GET /`                            | none   | Minimal config page (the page itself is static) |
-| `GET /assets/departure-mono.woff2` | none   | Wordmark font used by the config page           |
-| `GET /healthz`                     | none   | Liveness probe                                  |
-| `GET /api/health`                  | bearer | Test the saved qBittorrent connection           |
-| `GET /api/config`                  | bearer | Read non-secret settings                        |
-| `PUT /api/config`                  | bearer | Update the qBittorrent URL and credentials      |
-| `POST /api/pair`                   | bearer | Mint a short-lived mobile pairing code          |
-| `DELETE /api/pair/:id`             | bearer | Revoke a pairing code                           |
-| `POST /api/pair/claim`             | none   | Claim a code; returns encrypted settings        |
-| `GET /archive/:hash`               | bearer | Stream a completed torrent as a ZIP             |
+| Endpoint                           | Auth   | Purpose                                                     |
+| ---------------------------------- | ------ | ----------------------------------------------------------- |
+| `GET /`                            | none   | Minimal config page (the page itself is static)             |
+| `GET /assets/departure-mono.woff2` | none   | Wordmark font used by the config page                       |
+| `GET /healthz`                     | none   | Liveness probe                                              |
+| `GET /api/health`                  | bearer | Proxy capabilities, defaults and qBittorrent versions       |
+| `GET /api/config`                  | bearer | Read non-secret settings                                    |
+| `PUT /api/config`                  | bearer | Update the qBittorrent URL, credentials and magnet defaults |
+| `GET /api/torrents`                | bearer | List torrents owned by Remagnet                             |
+| `POST /api/torrents`               | bearer | Add magnets with the configured category/tags               |
+| `GET /api/torrents/:hash`          | bearer | Read one torrent, unfiltered                                |
+| `DELETE /api/torrents/:hash`       | bearer | Remove a torrent owned by Remagnet                          |
+| `POST /api/pair`                   | bearer | Mint a short-lived mobile pairing code                      |
+| `DELETE /api/pair/:id`             | bearer | Revoke a pairing code                                       |
+| `POST /api/pair/claim`             | none   | Claim a code; returns encrypted settings                    |
+| `GET /archive/:hash`               | bearer | Stream a completed torrent as a ZIP                         |
 
 `Authorization: Bearer <BRIDGE_TOKEN>` is preferred. `?token=` is accepted as a
 fallback for browsers whose download API cannot attach headers.
 
-Pairing is how the proxy hands a device the qBittorrent credentials and proxy
-token without embedding them in a QR image. `POST /api/pair` requires the bridge
-token and returns an id, a 32-byte code, the `remagnet://pair` link, and an
-inline SVG QR code. The code lives in memory for 60 seconds and is single-use.
-The Android app sends the session id and `SHA-256(code)`; the extension can paste
-the same link into its **Remagnet Proxy → Pairing code** field. The proxy returns
-the settings encrypted with AES-256-GCM under a key derived from the code and id,
-so a logged request or response cannot be decrypted without the code.
+The proxy is the only component that talks to qBittorrent. It owns the Web UI
+credentials and the category/tags applied to Remagnet magnets, exposes neutral
+torrent endpoints, and keeps qBittorrent credentials off the extension and
+Android client. `GET /api/torrents` filters by the configured category/tags;
+`POST /api/torrents` always applies them and ignores any client-supplied values;
+`DELETE /api/torrents/:hash` refuses torrents outside that filter.
+
+Pairing (v2) is how the proxy hands a device the proxy URL and token without
+embedding them in a QR image. `POST /api/pair` requires the bridge token and
+returns an id, a 32-byte code, the `remagnet://pair` link, and an inline SVG QR
+code. The code lives in memory for 60 seconds and is single-use. The Android app
+sends the session id and `SHA-256(code)`; the extension can paste the same link
+into its **Remagnet Proxy → Pairing code** field. The proxy returns
+`{ version: 2, proxyToken }` encrypted with AES-256-GCM under a key derived from
+the code and id, so a logged request or response cannot be decrypted without the
+code. qBittorrent credentials and magnet defaults are never part of the pairing
+payload: the device uses the proxy token against `/api/torrents` for everything
+else.
 
 The config page's **Pair a device** panel mints and rotates the code, renders the
 QR, and revokes it when hidden. Minting also accepts the origin to encode:
@@ -75,19 +91,24 @@ bundled at `src/departure-mono.woff2` under the SIL OFL 1.1
 
 Environment variables:
 
-| Variable                          | Default               | Notes                                                         |
-| --------------------------------- | --------------------- | ------------------------------------------------------------- |
-| `BRIDGE_TOKEN`                    | required              | At least 16 characters. Generate with `openssl rand -hex 32`. |
-| `QBIT_BASE_URL`                   | `http://gluetun:8080` | Bootstrap value for the first boot.                           |
-| `QBIT_API_KEY`                    | empty                 | qBittorrent 5.2+ API key.                                     |
-| `QBIT_USERNAME` / `QBIT_PASSWORD` | empty                 | Fallback cookie login.                                        |
-| `DATA_DIR`                        | `/data`               | `config.json` lives here.                                     |
-| `BIND_ADDR`                       | `0.0.0.0:8080`        | HTTP listen address.                                          |
+| Variable                          | Default               | Notes                                                           |
+| --------------------------------- | --------------------- | --------------------------------------------------------------- |
+| `BRIDGE_TOKEN`                    | required              | At least 16 characters. Generate with `openssl rand -hex 32`.   |
+| `QBIT_BASE_URL`                   | `http://gluetun:8080` | Bootstrap value for the first boot.                             |
+| `QBIT_API_KEY`                    | empty                 | qBittorrent 5.2+ API key.                                       |
+| `QBIT_USERNAME` / `QBIT_PASSWORD` | empty                 | Fallback cookie login.                                          |
+| `REMAGNET_CATEGORY`               | `remagnet`            | Category applied to added magnets and used for listing.         |
+| `REMAGNET_TAGS`                   | `remagnet`            | Comma-separated tags applied to magnets and used for filtering. |
+| `DATA_DIR`                        | `/data`               | `config.json` lives here.                                       |
+| `BIND_ADDR`                       | `0.0.0.0:8080`        | HTTP listen address.                                            |
 
 The first boot writes `config.json` (mode `0600`) from the environment.
-Subsequent changes come from the config page and survive restarts. The proxy token (still
-`BRIDGE_TOKEN`) stays
-in the environment and is never written to `config.json`.
+Subsequent changes come from the config page and survive restarts. `BRIDGE_TOKEN`
+stays in the environment and is never written to `config.json`. qBittorrent
+credentials are optional at boot: the proxy starts with an unconfigured client
+and answers `/api/health`, `/api/torrents*` and `/archive/*` with `503` until
+credentials are saved. Pressing **Save** on the config page activates the
+qBittorrent client without a restart.
 
 ## Local development
 
@@ -139,8 +160,9 @@ handle @remagnet {
 }
 ```
 
-In the extension options, set the archive URL to `https://remagnet.example.com`
-and paste the same proxy token.
+Pair the extension from the config page's **Pair a device** panel, or enter
+`https://remagnet.example.com` and the same token under **Settings → Remagnet
+Proxy**.
 
 ## How archiving works
 

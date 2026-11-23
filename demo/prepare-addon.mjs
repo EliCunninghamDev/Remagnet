@@ -3,7 +3,7 @@
  * Turn the normal Chrome build into a demo addon.
  *
  * The only differences from a shipped build are a host permission for the
- * local mock client and a seeded settings object, so the recording never shows
+ * local mock proxy and a seeded settings object, so the recording never shows
  * a real server URL or asks the viewer to configure anything.
  */
 
@@ -16,7 +16,7 @@ const root = resolve(here, "..");
 const source = resolve(root, "extension/.output/chrome-mv3");
 const target = resolve(here, ".build/addon");
 
-const port = Number(process.env.MOCK_QBIT_PORT ?? 8099);
+const port = Number(process.env.MOCK_PROXY_PORT ?? 8099);
 const baseUrl = `http://127.0.0.1:${port}`;
 
 await rm(target, { recursive: true, force: true });
@@ -29,22 +29,12 @@ manifest.host_permissions = [`${baseUrl}/*`];
 delete manifest.optional_host_permissions;
 await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 
-// Seed the public settings and the encrypted archive token before the bundled
-// worker starts. The mock accepts any login, but the token has to survive the
-// normal encrypted-secrets path for the ZIP action to appear. The key is
-// non-extractable and lives in the extension's IndexedDB, just as it would
-// after saving the options page.
-const archiveToken = "remagnet-demo-token";
+// Seed the proxy settings before the bundled worker starts. The proxy URL is
+// public; the token goes through the normal encrypted-secrets path, using the
+// same non-extractable IndexedDB key the options page would create.
+const proxyToken = "remagnet-demo-token";
 const settings = {
-  client: "qbittorrent",
-  baseUrl,
-  authMode: "password",
-  username: "demo",
-  defaultCategory: "remagnet",
-  defaultTags: "remagnet",
-  // Point the archive bridge at the same mock server. The token only has to
-  // satisfy validation; the mock ignores credentials.
-  archiveBaseUrl: baseUrl,
+  proxyBaseUrl: baseUrl,
 };
 const backgroundPath = resolve(target, "background.js");
 const background = await readFile(backgroundPath, "utf8");
@@ -79,9 +69,7 @@ const seed = `(async () => {
 
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const plaintext = new TextEncoder().encode(JSON.stringify({
-      apiKey: "",
-      password: "",
-      archiveToken: ${JSON.stringify(archiveToken)},
+      proxyToken: ${JSON.stringify(proxyToken)},
     }));
     const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, plaintext);
     const base64 = (bytes) => btoa(String.fromCharCode(...bytes));
@@ -94,8 +82,8 @@ const seed = `(async () => {
   }
 
   // Chrome's download bubble would cover the popover and leave a generated
-  // file on the host. Fulfil archive requests in the worker instead, so the
-  // ZIP action still runs its real code path but the recording stays clean.
+  // file on the host. Fulfil proxy archive requests in the worker instead, so
+  // the ZIP action still runs its real code path but the recording stays clean.
   const patchDownloads = (downloads) => {
     if (!downloads?.download) return;
     const realDownload = downloads.download.bind(downloads);
@@ -126,4 +114,4 @@ const seed = `(async () => {
 await writeFile(backgroundPath, seed);
 
 console.log(`prepared ${target}`);
-console.log(`  client: ${baseUrl}`);
+console.log(`  proxy: ${baseUrl}`);

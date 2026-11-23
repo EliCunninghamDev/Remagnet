@@ -15,6 +15,7 @@ pub enum AppError {
     Unauthorized,
     NotFound(String),
     Conflict(String),
+    ServiceUnavailable(String),
     Upstream(String),
     Internal(String),
 }
@@ -35,6 +36,7 @@ impl std::fmt::Display for AppError {
             Self::BadRequest(message)
             | Self::NotFound(message)
             | Self::Conflict(message)
+            | Self::ServiceUnavailable(message)
             | Self::Upstream(message)
             | Self::Internal(message) => formatter.write_str(message),
             Self::Unauthorized => formatter.write_str("missing or invalid bridge token"),
@@ -54,6 +56,7 @@ impl IntoResponse for AppError {
             ),
             Self::NotFound(message) => (StatusCode::NOT_FOUND, message),
             Self::Conflict(message) => (StatusCode::CONFLICT, message),
+            Self::ServiceUnavailable(message) => (StatusCode::SERVICE_UNAVAILABLE, message),
             Self::Upstream(message) => (StatusCode::BAD_GATEWAY, message),
             Self::Internal(message) => (StatusCode::INTERNAL_SERVER_ERROR, message),
         };

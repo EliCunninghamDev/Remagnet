@@ -197,8 +197,9 @@
           <span class="wordmark-surface">Proxy</span>
         </p>
         <p class="lede">
-          Streams completed torrents from qBittorrent to the Remagnet extension and Android app as
-          ZIP files. Torrent files are never stored on this server.
+          Connects to qBittorrent on behalf of the Remagnet extension and Android app, applies the
+          category and tags below to new magnets, and streams completed torrents as ZIP files.
+          Torrent files are never stored on this server.
         </p>
       </header>
 
@@ -256,6 +257,23 @@
           </div>
         </details>
 
+        <h2>Magnet defaults</h2>
+        <label class="field">
+          <span>Category</span>
+          <input id="category" type="text" spellcheck="false" placeholder="remagnet" />
+          <small>
+            Applied to every magnet added through the proxy. Leave blank to skip categorizing.
+          </small>
+        </label>
+        <label class="field">
+          <span>Tags</span>
+          <input id="tags" type="text" spellcheck="false" placeholder="remagnet" />
+          <small>
+            Comma-separated. The proxy uses these tags, and the category above, to decide which
+            torrents belong to Remagnet. Leave both blank to expose every torrent.
+          </small>
+        </label>
+
         <div class="actions">
           <button id="save" type="submit">Save</button>
           <button id="test" type="button" class="ghost">Test connection</button>
@@ -270,18 +288,17 @@
         <code id="proxyUrl">http://127.0.0.1:8080</code>
         <p class="hint">
           Use this origin as the Remagnet Proxy URL in the extension or Android settings, with the
-          same token. Downloads only work for completed torrents.
+          same token. The proxy applies the magnet defaults above and only lists torrents it owns.
+          Downloads only work for completed torrents.
         </p>
       </section>
 
       <section class="panel stack">
         <h2>Pair a device</h2>
         <p class="hint">
-          Show a one-time code for the Remagnet Android app. The phone receives the qBittorrent
-          connection and Remagnet Proxy token saved on this server, so it does not need to type
-          either. You can also copy the link into Remagnet's <strong>Pairing code</strong> field to
-          configure the extension. The code rotates every minute, works once, and is revoked when
-          you hide it.
+          Show a one-time code for the Remagnet Android app or the extension. Pairing sends only
+          this proxy URL and token; your qBittorrent credentials stay on this server. The code
+          rotates every minute, works once, and is revoked when you hide it.
         </p>
         <div class="actions">
           <button id="pairStart" type="button" class="ghost">Show QR code</button>
@@ -290,7 +307,7 @@
         <p id="pairStatus" class="status muted" role="status" aria-live="polite"></p>
         <div id="pairPanel" class="qr-pair" hidden>
           <div id="pairSvg" class="qr-code" role="img"
-            aria-label="QR code for pairing the Remagnet Android app"></div>
+            aria-label="QR code for pairing a Remagnet device"></div>
           <code id="pairLink" hidden></code>
           <small id="pairCountdown"></small>
         </div>
@@ -348,6 +365,8 @@
           const config = await api("/api/config");
           byId("url").value = config.qbitBaseUrl || "";
           byId("username").value = config.qbitUsername || "";
+          byId("category").value = config.defaultCategory || "";
+          byId("tags").value = (config.defaultTags || []).join(", ");
           byId("apiKey").value = "";
           byId("password").value = "";
           byId("apiKey").placeholder = config.hasApiKey
@@ -462,7 +481,7 @@
         if (pairingBusy) return;
         if (!pairingAllowed()) {
           setPairStatus(
-            "Android pairing needs an HTTPS Remagnet Proxy URL. Put this page behind HTTPS " +
+            "Pairing needs an HTTPS Remagnet Proxy URL. Put this page behind HTTPS " +
               "and try again.",
             "error",
           );
@@ -517,10 +536,24 @@
         if (pairing) void revokePairing(pairing.id, pairing.token);
       });
 
+      function splitTags(value) {
+        const seen = new Set();
+        return value
+          .split(",")
+          .map((tag) => tag.trim())
+          .filter((tag) => {
+            if (!tag || seen.has(tag)) return false;
+            seen.add(tag);
+            return true;
+          });
+      }
+
       function payload() {
         const body = {
           qbitBaseUrl: byId("url").value.trim(),
           qbitUsername: byId("username").value.trim(),
+          defaultCategory: byId("category").value.trim(),
+          defaultTags: splitTags(byId("tags").value),
         };
         const apiKey = byId("apiKey").value.trim();
         if (apiKey) body.qbitApiKey = apiKey;
@@ -546,6 +579,8 @@
           });
           byId("apiKey").value = "";
           byId("password").value = "";
+          byId("category").value = saved.defaultCategory || "";
+          byId("tags").value = (saved.defaultTags || []).join(", ");
           byId("clearApiKey").checked = false;
           byId("clearPassword").checked = false;
           byId("apiKeyHint").textContent = saved.hasApiKey

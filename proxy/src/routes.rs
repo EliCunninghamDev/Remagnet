@@ -20,7 +20,10 @@ use crate::{
     auth::is_authorized,
     config::{save, ConfigUpdate, PublicConfig},
     error::AppError,
-    qbit::QbitClient,
+    qbit::{
+        matches_torrent_filter, AddTorrentRequest, AddTorrentResult, QbitClient,
+        TorrentCapabilities, TorrentList, TorrentSummary,
+    },
     zipstream::{
         content_disposition, torrent_completed, validate_hash, write_zip, zip_filename, ZipStream,
     },
@@ -28,6 +31,9 @@ use crate::{
 };
 
 type QueryMap = HashMap<String, String>;
+
+const NOT_CONFIGURED: &str =
+    "qBittorrent is not configured yet. Open the Remagnet Proxy page to set it up.";
 
 pub fn router(state: Arc<AppState>) -> Router {
     Router::new()
@@ -40,6 +46,11 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/pair", post(create_pairing))
         .route("/api/pair/claim", post(claim_pairing))
         .route("/api/pair/{id}", delete(revoke_pairing))
+        .route("/api/torrents", get(list_torrents).post(add_torrent))
+        .route(
+            "/api/torrents/{hash}",
+            get(get_torrent).delete(delete_torrent),
+        )
         .route("/archive/{hash}", get(archive))
         .layer(TraceLayer::new_for_http())
         .with_state(state)
@@ -96,12 +107,18 @@ async fn api_health(
     Query(query): Query<QueryMap>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     require_auth(&state, &headers, &query)?;
-    let qbit = state.qbit.read().await.clone();
+    let qbit = require_qbit(&state).await?;
+    let (default_category, default_tags) = magnet_defaults(&state).await;
     let (app_version, web_api_version) = qbit.test_connection().await?;
+
     Ok(Json(json!({
         "ok": true,
+        "clientLabel": "qBittorrent",
         "appVersion": app_version,
         "webApiVersion": web_api_version,
+        "capabilities": TorrentCapabilities { pause_on_add: true },
+        "defaultCategory": default_category,
+        "defaultTags": default_tags,
     })))
 }
 
@@ -128,15 +145,24 @@ async fn put_config(
         .apply_update(update)
         .map_err(AppError::BadRequest)?;
 
-    // Build the client before touching the file so an invalid URL never
-    // replaces a working configuration.
-    let qbit = QbitClient::new(&candidate).map_err(AppError::internal)?;
+    // Build the client before touching the file so an invalid URL or HTTP
+    // client setup never replaces a working configuration. A proxy without
+    // credentials stays bootable with no client until setup is completed.
+    let qbit = if candidate.has_credentials() {
+        Some(QbitClient::new(&candidate).map_err(AppError::internal)?)
+    } else {
+        None
+    };
     save(&state.config_path, &candidate)
         .await
         .map_err(AppError::internal)?;
 
-    *state.config.write().await = candidate.clone();
-    *state.qbit.write().await = qbit;
+    {
+        let mut config = state.config.write().await;
+        let mut client = state.qbit.write().await;
+        *config = candidate.clone();
+        *client = qbit;
+    }
 
     Ok(Json(PublicConfig::from(&candidate)))
 }
@@ -234,19 +260,11 @@ struct ClaimPairing {
 #[serde(rename_all = "camelCase")]
 struct PairingPayload<'a> {
     version: u8,
-    qbit_base_url: &'a str,
-    auth_mode: &'a str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    api_key: Option<&'a str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    username: Option<&'a str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    password: Option<&'a str>,
     proxy_token: &'a str,
 }
 
-/// Claim a pairing code and return the connection settings encrypted with a
-/// key derived from the code itself.
+/// Claim a pairing code and return the proxy token encrypted with a key
+/// derived from the code itself.
 async fn claim_pairing(
     State(state): State<Arc<AppState>>,
     Json(claim): Json<ClaimPairing>,
@@ -267,15 +285,8 @@ async fn claim_pairing(
         })?
     };
 
-    let config = state.config.read().await;
-    let use_api_key = !config.qbit_api_key.is_empty();
     let payload = PairingPayload {
-        version: 1,
-        qbit_base_url: &config.qbit_base_url,
-        auth_mode: if use_api_key { "apiKey" } else { "password" },
-        api_key: use_api_key.then_some(config.qbit_api_key.as_str()),
-        username: (!use_api_key).then_some(config.qbit_username.as_str()),
-        password: (!use_api_key).then_some(config.qbit_password.as_str()),
+        version: 2,
         proxy_token: &state.token,
     };
 
@@ -303,6 +314,111 @@ async fn revoke_pairing(
     Ok(StatusCode::NO_CONTENT)
 }
 
+async fn list_torrents(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Query(query): Query<QueryMap>,
+) -> Result<Json<TorrentList>, AppError> {
+    require_auth(&state, &headers, &query)?;
+    let (default_category, default_tags) = magnet_defaults(&state).await;
+    let qbit = require_qbit(&state).await?;
+
+    let torrents = qbit
+        .list_torrents()
+        .await?
+        .into_iter()
+        .filter(|torrent| {
+            matches_torrent_filter(torrent, &default_category, &default_tags)
+        })
+        .collect();
+
+    Ok(Json(TorrentList { torrents }))
+}
+
+async fn get_torrent(
+    State(state): State<Arc<AppState>>,
+    Path(hash): Path<String>,
+    headers: HeaderMap,
+    Query(query): Query<QueryMap>,
+) -> Result<Json<TorrentSummary>, AppError> {
+    require_auth(&state, &headers, &query)?;
+    validate_hash(&hash)?;
+    let qbit = require_qbit(&state).await?;
+
+    match qbit.get_torrent(&hash).await? {
+        Some(torrent) => Ok(Json(torrent)),
+        None => Err(AppError::NotFound(
+            "Torrent not found in qBittorrent.".to_string(),
+        )),
+    }
+}
+
+async fn add_torrent(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Query(query): Query<QueryMap>,
+    Json(request): Json<AddTorrentRequest>,
+) -> Result<Json<AddTorrentResult>, AppError> {
+    require_auth(&state, &headers, &query)?;
+    let (default_category, default_tags) = magnet_defaults(&state).await;
+    let qbit = require_qbit(&state).await?;
+
+    // Clients cannot choose a category or tag: the proxy always applies its
+    // configured defaults so every client agrees on what Remagnet owns.
+    let result = qbit
+        .add_torrent(
+            &request.urls,
+            &default_category,
+            &default_tags,
+            request.paused,
+        )
+        .await?;
+
+    Ok(Json(result))
+}
+
+async fn delete_torrent(
+    State(state): State<Arc<AppState>>,
+    Path(hash): Path<String>,
+    headers: HeaderMap,
+    Query(query): Query<QueryMap>,
+) -> Result<StatusCode, AppError> {
+    require_auth(&state, &headers, &query)?;
+    validate_hash(&hash)?;
+    let delete_files = parse_delete_files(&query)?;
+    let (default_category, default_tags) = magnet_defaults(&state).await;
+    let qbit = require_qbit(&state).await?;
+
+    // Only torrents matching the proxy's filter are deletable, so a client
+    // cannot remove an unrelated torrent from a shared qBittorrent instance.
+    let allowed = qbit
+        .get_torrent(&hash)
+        .await?
+        .is_some_and(|torrent| {
+            matches_torrent_filter(&torrent, &default_category, &default_tags)
+        });
+    if !allowed {
+        return Err(AppError::NotFound("Torrent not found.".to_string()));
+    }
+
+    qbit.remove_torrent(&hash, delete_files).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+fn parse_delete_files(query: &QueryMap) -> Result<bool, AppError> {
+    match query
+        .get("deleteFiles")
+        .map(|value| value.trim().to_ascii_lowercase())
+        .as_deref()
+    {
+        None | Some("") | Some("false") => Ok(false),
+        Some("true") => Ok(true),
+        Some(_) => Err(AppError::BadRequest(
+            "deleteFiles must be true or false.".to_string(),
+        )),
+    }
+}
+
 async fn archive(
     State(state): State<Arc<AppState>>,
     Path(hash): Path<String>,
@@ -312,7 +428,7 @@ async fn archive(
     require_auth(&state, &headers, &query)?;
     validate_hash(&hash)?;
 
-    let qbit = state.qbit.read().await.clone();
+    let qbit = require_qbit(&state).await?;
     let torrent = qbit.torrent(&hash).await?;
     if !torrent_completed(&torrent) {
         return Err(AppError::Conflict(format!(
@@ -380,9 +496,30 @@ fn require_auth(state: &AppState, headers: &HeaderMap, query: &QueryMap) -> Resu
     }
 }
 
+async fn require_qbit(state: &AppState) -> Result<QbitClient, AppError> {
+    state
+        .qbit
+        .read()
+        .await
+        .clone()
+        .ok_or_else(|| AppError::ServiceUnavailable(NOT_CONFIGURED.to_string()))
+}
+
+async fn magnet_defaults(state: &AppState) -> (String, Vec<String>) {
+    let config = state.config.read().await;
+    (
+        config.default_category.clone(),
+        config.default_tags.clone(),
+    )
+}
+
 #[cfg(test)]
 mod tests {
-    use std::io::{Cursor, Read};
+    use std::{
+        io::{Cursor, Read},
+        path::PathBuf,
+        sync::atomic::{AtomicU64, Ordering},
+    };
 
     use axum::{
         body::Body,
@@ -400,10 +537,41 @@ mod tests {
 
     const TOKEN: &str = "test-token-1234567890";
     const HASH: &str = "dc555f7a26f1acae38a18edc04e53588ade33051";
+    const OTHER_HASH: &str = "1111111111111111111111111111111111111111";
+
+    static NEXT_CONFIG: AtomicU64 = AtomicU64::new(0);
+
+    fn test_config_path() -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "remagnet-bridge-test-{}-{}.json",
+            std::process::id(),
+            NEXT_CONFIG.fetch_add(1, Ordering::Relaxed)
+        ))
+    }
 
     #[derive(Clone)]
     struct FakeQbit {
         completed: bool,
+    }
+
+    fn torrent_json(hash: &str, name: &str, completed: bool) -> serde_json::Value {
+        let other = hash != HASH;
+        json!({
+            "hash": hash,
+            "name": name,
+            "progress": if completed { 1.0 } else if other { 0.25 } else { 0.5 },
+            "amount_left": if completed { 0 } else { 512 },
+            "size": 1024,
+            "state": if completed { "seeding" } else if other { "downloading" } else { "stalledDL" },
+            "dlspeed": 10,
+            "upspeed": 5,
+            "eta": 60,
+            "ratio": 1.5,
+            "category": if other { "films" } else { "Remagnet" },
+            "tags": if other { "other, cross-seed" } else { "Remagnet, seedbox" },
+            "num_seeds": 3,
+            "num_leechs": 2,
+        })
     }
 
     async fn fake_app(State(state): State<FakeQbit>, request: Request<Body>) -> Response {
@@ -416,19 +584,37 @@ mod tests {
             return (StatusCode::UNAUTHORIZED, "missing auth").into_response();
         }
 
+        let method = request.method().clone();
         let path = request.uri().path().to_string();
-        match path.as_str() {
-            "/api/v2/app/version" => "5.3.0".into_response(),
-            "/api/v2/app/webapiVersion" => "2.16.2".into_response(),
-            "/api/v2/torrents/info" => Json(json!([{
-                "hash": HASH,
-                "name": "Test Torrent",
-                "progress": if state.completed { 1.0 } else { 0.5 },
-                "amount_left": if state.completed { 0 } else { 512 },
-                "state": "seeding",
-            }]))
-            .into_response(),
-            "/api/v2/torrents/files" => Json(json!([
+        match (method.as_str(), path.as_str()) {
+            ("GET", "/api/v2/app/version") => "5.3.0".into_response(),
+            ("GET", "/api/v2/app/webapiVersion") => "2.16.2".into_response(),
+            ("GET", "/api/v2/torrents/info") => {
+                let Query(query) = Query::<QueryMap>::try_from_uri(request.uri()).unwrap();
+                let torrents = match query.get("hashes") {
+                    Some(hashes) if hashes.eq_ignore_ascii_case(HASH) => vec![torrent_json(
+                        HASH,
+                        "Test Torrent",
+                        state.completed,
+                    )],
+                    Some(hashes) if hashes.eq_ignore_ascii_case(OTHER_HASH) => {
+                        vec![torrent_json(OTHER_HASH, "Other Torrent", false)]
+                    }
+                    Some(_) => Vec::new(),
+                    None => vec![
+                        torrent_json(HASH, "Test Torrent", state.completed),
+                        torrent_json(OTHER_HASH, "Other Torrent", false),
+                    ],
+                };
+                Json(json!(torrents)).into_response()
+            }
+            ("GET", "/api/v2/torrents/categories") => Json(json!({})).into_response(),
+            ("GET", "/api/v2/torrents/tags") => Json(json!([])).into_response(),
+            ("POST", "/api/v2/torrents/createCategory") => "".into_response(),
+            ("POST", "/api/v2/torrents/createTags") => "".into_response(),
+            ("POST", "/api/v2/torrents/add") => "Ok.".into_response(),
+            ("POST", "/api/v2/torrents/delete") => "Ok.".into_response(),
+            ("GET", "/api/v2/torrents/files") => Json(json!([
                 {
                     "index": 0,
                     "name": "Test Torrent/readme.txt",
@@ -443,7 +629,7 @@ mod tests {
                 }
             ]))
             .into_response(),
-            "/api/v2/torrents/downloadFile" => {
+            ("GET", "/api/v2/torrents/downloadFile") => {
                 let Query(query) = Query::<QueryMap>::try_from_uri(request.uri()).unwrap();
                 if query.get("hash").map(String::as_str) != Some(HASH) {
                     return (StatusCode::BAD_REQUEST, "bad hash").into_response();
@@ -470,23 +656,43 @@ mod tests {
         format!("http://{address}")
     }
 
-    async fn app(completed: bool) -> Router {
-        let base_url = start_fake(completed).await;
-        let config = Config {
-            qbit_base_url: base_url,
+    fn config_for(base_url: &str) -> Config {
+        Config {
+            qbit_base_url: base_url.to_string(),
             qbit_api_key: "qbt_test".to_string(),
             qbit_username: String::new(),
             qbit_password: String::new(),
+            default_category: "remagnet".to_string(),
+            default_tags: vec!["remagnet".to_string()],
+        }
+    }
+
+    fn app_from_config(config: Config, with_client: bool, config_path: PathBuf) -> Router {
+        let qbit = if with_client {
+            Some(QbitClient::new(&config).unwrap())
+        } else {
+            None
         };
-        let qbit = QbitClient::new(&config).unwrap();
         let state = Arc::new(AppState {
-            config_path: std::path::PathBuf::from("/tmp/remagnet-bridge-test-config.json"),
+            config_path,
             config: RwLock::new(config),
             qbit: RwLock::new(qbit),
             token: TOKEN.to_string(),
             pairings: std::sync::Mutex::new(crate::pairing::PairingStore::default()),
         });
         router(state)
+    }
+
+    async fn app_with_filter(completed: bool, category: &str, tags: &[&str]) -> Router {
+        let base_url = start_fake(completed).await;
+        let mut config = config_for(&base_url);
+        config.default_category = category.to_string();
+        config.default_tags = tags.iter().map(|tag| tag.to_string()).collect();
+        app_from_config(config, true, test_config_path())
+    }
+
+    async fn app(completed: bool) -> Router {
+        app_with_filter(completed, "remagnet", &["remagnet"]).await
     }
 
     fn request(uri: &str) -> Request<Body> {
@@ -570,6 +776,31 @@ mod tests {
         let body = response.into_body().collect().await.unwrap().to_bytes();
         let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(body["appVersion"], "5.3.0");
+        assert_eq!(body["clientLabel"], "qBittorrent");
+        assert_eq!(body["capabilities"]["pauseOnAdd"], true);
+        assert_eq!(body["defaultCategory"], "remagnet");
+        assert_eq!(body["defaultTags"], json!(["remagnet"]));
+    }
+
+    #[tokio::test]
+    async fn unconfigured_proxy_reports_service_unavailable() {
+        let base_url = start_fake(true).await;
+        let mut config = config_for(&base_url);
+        config.qbit_api_key.clear();
+        let app = app_from_config(config, false, test_config_path());
+
+        let response = app
+            .clone()
+            .oneshot(request("/api/health"))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["error"], NOT_CONFIGURED);
+
+        let response = app.oneshot(request("/api/torrents")).await.unwrap();
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
     }
 
     #[tokio::test]
@@ -625,7 +856,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn config_api_never_returns_secrets() {
+    async fn config_api_never_returns_secrets_and_includes_magnet_defaults() {
         let response = app(true)
             .await
             .oneshot(request("/api/config"))
@@ -634,7 +865,119 @@ mod tests {
         let body = response.into_body().collect().await.unwrap().to_bytes();
         let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(body["hasApiKey"], true);
+        assert_eq!(body["defaultCategory"], "remagnet");
+        assert_eq!(body["defaultTags"], json!(["remagnet"]));
         assert!(body.get("qbitApiKey").is_none());
+    }
+
+    #[tokio::test]
+    async fn saving_credentials_activates_the_client() {
+        let base_url = start_fake(true).await;
+        let config_path = test_config_path();
+        let mut config = config_for(&base_url);
+        config.qbit_api_key.clear();
+        let app = app_from_config(config, false, config_path.clone());
+
+        let response = app
+            .clone()
+            .oneshot(request("/api/health"))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri("/api/config")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header(header::AUTHORIZATION, format!("Bearer {TOKEN}"))
+                    .body(Body::from(
+                        json!({
+                            "qbitBaseUrl": base_url,
+                            "qbitApiKey": "qbt_test",
+                            "defaultCategory": "remagnet",
+                            "defaultTags": ["remagnet"],
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["hasApiKey"], true);
+
+        let response = app.oneshot(request("/api/health")).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let _ = std::fs::remove_file(config_path);
+    }
+
+    #[tokio::test]
+    async fn lists_only_relevant_torrents() {
+        let response = app(true)
+            .await
+            .oneshot(request("/api/torrents"))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let torrents = body["torrents"].as_array().unwrap();
+        assert_eq!(torrents.len(), 1);
+        assert_eq!(torrents[0]["hash"], HASH);
+        assert_eq!(torrents[0]["state"], "seeding");
+        assert_eq!(torrents[0]["tags"], json!(["Remagnet", "seedbox"]));
+        assert_eq!(torrents[0]["downloadSpeed"], 10);
+        assert_eq!(torrents[0]["size"], 1024);
+    }
+
+    #[tokio::test]
+    async fn empty_magnet_defaults_list_every_torrent() {
+        let response = app_with_filter(true, "", &[])
+            .await
+            .oneshot(request("/api/torrents"))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["torrents"].as_array().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn gets_torrents_by_hash_without_the_relevance_filter() {
+        let app = app(true).await;
+
+        let response = app
+            .clone()
+            .oneshot(request(&format!("/api/torrents/{OTHER_HASH}")))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["hash"], OTHER_HASH);
+        assert_eq!(body["category"], "films");
+
+        let response = app
+            .clone()
+            .oneshot(request("/api/torrents/not-a-hash"))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        let response = app
+            .oneshot(request("/api/torrents/2222222222222222222222222222222222222222"))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 
     fn post_json(uri: &str, body: serde_json::Value) -> Request<Body> {
@@ -645,6 +988,76 @@ mod tests {
             .header(header::AUTHORIZATION, format!("Bearer {TOKEN}"))
             .body(Body::from(body.to_string()))
             .unwrap()
+    }
+
+    #[tokio::test]
+    async fn adding_a_torrent_uses_the_proxy_defaults() {
+        let app = app_with_filter(true, "remagnet", &["remagnet", "nas"]).await;
+        let magnet = format!("magnet:?xt=urn:btih:{HASH}&dn=Example");
+
+        let response = app
+            .oneshot(post_json(
+                "/api/torrents",
+                json!({ "urls": [magnet], "paused": true }),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["added"], 1);
+        assert_eq!(body["hashes"], json!([HASH]));
+        assert_eq!(body["category"], "remagnet");
+        assert_eq!(body["tags"], json!(["remagnet", "nas"]));
+    }
+
+    #[tokio::test]
+    async fn adding_without_urls_is_rejected() {
+        let response = app(true)
+            .await
+            .oneshot(post_json("/api/torrents", json!({ "urls": [] })))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    fn delete_request(uri: &str) -> Request<Body> {
+        Request::builder()
+            .method("DELETE")
+            .uri(uri)
+            .header(header::AUTHORIZATION, format!("Bearer {TOKEN}"))
+            .body(Body::empty())
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn deletes_only_relevant_torrents() {
+        let app = app(true).await;
+
+        let response = app
+            .clone()
+            .oneshot(delete_request(&format!("/api/torrents/{OTHER_HASH}")))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+        let response = app
+            .clone()
+            .oneshot(delete_request(&format!(
+                "/api/torrents/{HASH}?deleteFiles=true"
+            )))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+
+        let response = app
+            .oneshot(delete_request(&format!(
+                "/api/torrents/{HASH}?deleteFiles=maybe"
+            )))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]
@@ -706,17 +1119,23 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["error"], "Pairing needs an HTTPS Remagnet Proxy URL.");
     }
 
-    #[tokio::test]
-    async fn pairing_claim_returns_encrypted_credentials_once() {
+    struct ClaimedPairing {
+        id: String,
+        proof: String,
+        payload: serde_json::Value,
+    }
+
+    async fn claim_pairing(app: &Router) -> ClaimedPairing {
         use aes_gcm::{
             aead::{Aead, KeyInit},
             Aes256Gcm, Nonce,
         };
         use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-
-        let app = app(true).await;
 
         let response = app
             .clone()
@@ -736,10 +1155,13 @@ mod tests {
             .try_into()
             .unwrap();
 
-        let claim = json!({ "id": id, "proof": crate::pairing::proof(&secret) });
+        let proof = crate::pairing::proof(&secret);
         let response = app
             .clone()
-            .oneshot(post_json("/api/pair/claim", claim.clone()))
+            .oneshot(post_json(
+                "/api/pair/claim",
+                json!({ "id": id, "proof": proof }),
+            ))
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
@@ -759,19 +1181,61 @@ mod tests {
             .unwrap();
         let payload: serde_json::Value = serde_json::from_slice(&plaintext).unwrap();
 
-        assert_eq!(payload["version"], 1);
-        assert!(payload["qbitBaseUrl"]
-            .as_str()
-            .unwrap()
-            .starts_with("http://127.0.0.1:"));
-        assert_eq!(payload["proxyToken"], TOKEN);
-        assert_eq!(payload["apiKey"], "qbt_test");
-        assert_eq!(payload["authMode"], "apiKey");
+        ClaimedPairing { id, proof, payload }
+    }
+
+    #[tokio::test]
+    async fn pairing_claim_returns_only_the_proxy_token_once() {
+        let app = app(true).await;
+        let claimed = claim_pairing(&app).await;
+
+        assert_eq!(claimed.payload["version"], 2);
+        assert_eq!(claimed.payload["proxyToken"], TOKEN);
+        assert!(claimed.payload.get("qbitBaseUrl").is_none());
+        assert!(claimed.payload.get("authMode").is_none());
+        assert!(claimed.payload.get("apiKey").is_none());
+        assert!(claimed.payload.get("username").is_none());
+        assert!(claimed.payload.get("password").is_none());
 
         let replay = app
-            .oneshot(post_json("/api/pair/claim", claim))
+            .oneshot(post_json(
+                "/api/pair/claim",
+                json!({ "id": claimed.id, "proof": claimed.proof }),
+            ))
             .await
             .unwrap();
         assert_eq!(replay.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn unknown_hashes_are_not_found() {
+        // A syntactically valid hash that qBittorrent does not know.
+        let response = app(true)
+            .await
+            .oneshot(request(
+                "/api/torrents/3333333333333333333333333333333333333333",
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[test]
+    fn delete_files_parsing_is_strict() {
+        assert!(!parse_delete_files(&QueryMap::new()).unwrap());
+        assert!(!parse_delete_files(&HashMap::from([
+            ("deleteFiles".to_string(), "false".to_string())
+        ]))
+        .unwrap());
+        assert!(parse_delete_files(&HashMap::from([(
+            "deleteFiles".to_string(),
+            "TRUE".to_string()
+        )]))
+        .unwrap());
+        assert!(parse_delete_files(&HashMap::from([(
+            "deleteFiles".to_string(),
+            "1".to_string()
+        )]))
+        .is_err());
     }
 }

@@ -1,7 +1,6 @@
 package dev.remagnet.app.client
 
 import com.sun.net.httpserver.HttpServer
-import dev.remagnet.app.data.AuthMode
 import dev.remagnet.app.data.PairingCrypto
 import dev.remagnet.app.data.PairingLink
 import java.net.InetSocketAddress
@@ -19,10 +18,7 @@ class PairingClientTest {
     private val code = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" // 32 zero bytes
     private val payload = """
         {
-          "version": 1,
-          "qbitBaseUrl": "https://qbt.example.com",
-          "authMode": "apiKey",
-          "apiKey": "qbt_key",
+          "version": 2,
           "proxyToken": "0123456789abcdef"
         }
     """.trimIndent()
@@ -63,18 +59,16 @@ class PairingClientTest {
     }
 
     @Test
-    fun claimsAndDecryptsTheConnection() = runBlocking {
+    fun claimsAndDecryptsTheProxySettings() = runBlocking {
         val nonce = ByteArray(12) { it.toByte() }
         val (iv, data) = PairingCrypto.encrypt("session-1", code, nonce, payload)
         respond("""{"iv":"$iv","data":"$data"}""")
 
         val result = PairingClient(http).claim(link()) as PairingClaim.Success
-        val connection = result.connection
+        val settings = result.settings
 
-        assertEquals("https://qbt.example.com", connection.qbitBaseUrl)
-        assertEquals(AuthMode.ApiKey, connection.authMode)
-        assertEquals("qbt_key", connection.apiKey)
-        assertEquals("0123456789abcdef", connection.proxyToken)
+        assertEquals("http://127.0.0.1:${server.address.port}", settings.proxyBaseUrl)
+        assertEquals("0123456789abcdef", settings.proxyToken)
         assertTrue(receivedBody.contains("\"id\":\"session-1\""))
         assertTrue(receivedBody.contains("\"proof\":\"${PairingCrypto.proof(code)}\""))
         assertTrue(!receivedBody.contains(code))
@@ -103,5 +97,23 @@ class PairingClientTest {
 
         assertTrue(result is PairingClaim.Failed)
         assertTrue((result as PairingClaim.Failed).message.contains("could not be decrypted"))
+    }
+
+    @Test
+    fun rejectsAnOlderPayloadVersion() = runBlocking {
+        val (iv, data) = PairingCrypto.encrypt(
+            "session-1",
+            code,
+            ByteArray(12),
+            """{"version":1,"qbitBaseUrl":"https://qbt.example.com"}""",
+        )
+        respond("""{"iv":"$iv","data":"$data"}""")
+
+        val result = PairingClient(http).claim(link())
+
+        assertTrue(result is PairingClaim.Failed)
+        assertTrue(
+            (result as PairingClaim.Failed).message.contains("unsupported version"),
+        )
     }
 }

@@ -31,6 +31,8 @@ import com.google.gson.annotations.SerializedName
  * @param qbitApiKey qBittorrent 5.2+ API key. Omit to keep the saved key; send an empty string to clear it.
  * @param qbitUsername Username for cookie-based login. Omit to keep the saved username; send an empty string to clear it.
  * @param qbitPassword Password for cookie-based login. Omit to keep the saved password; send an empty string to clear it.
+ * @param defaultCategory Category applied to new magnets and used to decide which torrents Remagnet owns. Omit to keep the saved value; send an empty string to disable category matching.
+ * @param defaultTags Tags applied to new magnets and used to decide which torrents Remagnet owns. Omit to keep the saved value; send an empty array to disable tag matching. Entries are trimmed and deduplicated.
  */
 
 
@@ -50,7 +52,15 @@ data class ConfigUpdate (
 
     /* Password for cookie-based login. Omit to keep the saved password; send an empty string to clear it.  */
     @SerializedName("qbitPassword")
-    val qbitPassword: kotlin.String? = null
+    val qbitPassword: kotlin.String? = null,
+
+    /* Category applied to new magnets and used to decide which torrents Remagnet owns. Omit to keep the saved value; send an empty string to disable category matching.  */
+    @SerializedName("defaultCategory")
+    val defaultCategory: kotlin.String? = null,
+
+    /* Tags applied to new magnets and used to decide which torrents Remagnet owns. Omit to keep the saved value; send an empty array to disable tag matching. Entries are trimmed and deduplicated.  */
+    @SerializedName("defaultTags")
+    val defaultTags: kotlin.collections.List<kotlin.String>? = null
 
 ) {
 

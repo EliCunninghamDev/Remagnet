@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@solidjs/testing-library";
 import { describe, expect, test, vi } from "vitest";
-import { clientLabel, type TorrentCase, torrentCase } from "../gallery/fixtures";
+import { type TorrentCase, torrentCase } from "../gallery/fixtures";
 import TorrentCard from "./TorrentCard";
 
 function renderCard(item: TorrentCase, overrides: Partial<Parameters<typeof TorrentCard>[0]> = {}) {
@@ -16,8 +16,6 @@ function renderCard(item: TorrentCase, overrides: Partial<Parameters<typeof Torr
       <TorrentCard
         torrent={item.torrent}
         zipping={Boolean(item.zipping)}
-        archiveReady={Boolean(item.archiveReady)}
-        clientLabel={clientLabel}
         removing={Boolean(item.removing)}
         confirming={Boolean(item.confirming)}
         {...handlers}
@@ -60,18 +58,11 @@ describe("TorrentCard", () => {
     expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("100");
     expect(screen.getByRole("progressbar").getAttribute("data-phase")).toBe("done");
 
-    fireEvent.click(screen.getByText("Download"));
-    expect(handlers.onZip).toHaveBeenCalledOnce();
-  });
-
-  test("disables Download when the Remagnet Proxy is not configured", () => {
-    renderCard(torrentCase("complete-no-proxy"));
-
     const download = screen.getByText("Download") as HTMLButtonElement;
-    expect(download.disabled).toBe(true);
-    expect(download.title).toBe(
-      "Configure Remagnet Proxy in settings to download completed torrents",
-    );
+    expect(download.disabled).toBe(false);
+
+    fireEvent.click(download);
+    expect(handlers.onZip).toHaveBeenCalledOnce();
   });
 
   test("marks stalled torrents amber without an unknown ETA field", () => {
@@ -132,7 +123,7 @@ describe("TorrentCard", () => {
   test("replaces the stats row with the confirmation", () => {
     renderCard(torrentCase("confirm"));
 
-    expect(screen.getByText("Remove from qBittorrent?")).toBeTruthy();
+    expect(screen.getByText("Remove this torrent?")).toBeTruthy();
     expect(document.querySelector(".torrent-footer")).toBeNull();
     expect(document.querySelector(".remove-confirm")).not.toBeNull();
     expect(screen.queryByText("peers")).toBeNull();

@@ -1,13 +1,10 @@
 import { createMemo, createSignal, onMount, Show } from "solid-js";
-import { browser } from "wxt/browser";
-import { getTorrentClientDefinition } from "../lib/clients/catalog";
 import { isMagnetLink, type MagnetLink, magnetLabel, parseMagnet } from "../lib/magnet";
 import {
   type AddTorrentsResult,
   sendBackgroundMessage,
   type TorrentLookupResult,
 } from "../lib/messages";
-import { DEFAULT_SETTINGS, getSettings, type Settings } from "../lib/settings";
 import type { TorrentSummary } from "../lib/torrents";
 import AddedSummary from "./AddedSummary";
 import type { FlowStatus } from "./flow-status";
@@ -17,8 +14,6 @@ import Wordmark from "./Wordmark";
 
 interface AddedState extends AddTorrentsResult {
   name: string;
-  category: string;
-  tags: string[];
 }
 
 export interface AddTorrentProps {
@@ -44,13 +39,11 @@ export interface AddTorrentProps {
  */
 export default function AddTorrent(props: AddTorrentProps) {
   const initialMagnet = props.initialMagnet?.trim() ?? "";
-  const [settings, setSettings] = createSignal<Settings>({ ...DEFAULT_SETTINGS });
   const [magnetUri, setMagnetUri] = createSignal(initialMagnet);
   const [draft, setDraft] = createSignal(initialMagnet);
   const [editing, setEditing] = createSignal(parseMagnet(initialMagnet) === null);
   const [paused, setPaused] = createSignal(false);
   const [existing, setExisting] = createSignal<TorrentSummary | null>(null);
-  const [loading, setLoading] = createSignal(true);
   const [busy, setBusy] = createSignal(false);
   const [status, setStatus] = createSignal<FlowStatus>();
   const [added, setAdded] = createSignal<AddedState>();
@@ -62,11 +55,9 @@ export default function AddTorrent(props: AddTorrentProps) {
     return uri ? parseMagnet(uri) : null;
   });
 
-  const definition = createMemo(() => getTorrentClientDefinition(settings().client));
-  const capabilities = createMemo(() => definition().capabilities);
-
   onMount(() => {
-    void initialize();
+    const link = magnet();
+    if (link?.infoHash) void lookup(link.infoHash);
   });
 
   /** Validate and show a magnet URI, or report why it cannot be used. */
@@ -92,19 +83,6 @@ export default function AddTorrent(props: AddTorrentProps) {
     return true;
   }
 
-  async function initialize() {
-    setLoading(true);
-    try {
-      setSettings(await getSettings());
-    } catch {
-      // Keep the defaults; the add request will report a real failure.
-    }
-
-    const link = magnet();
-    if (link?.infoHash) void lookup(link.infoHash);
-    setLoading(false);
-  }
-
   async function lookup(hash: string | null) {
     const token = ++lookupToken;
     if (!hash) {
@@ -119,8 +97,8 @@ export default function AddTorrent(props: AddTorrentProps) {
       });
       if (token === lookupToken) setExisting(result.torrent);
     } catch {
-      // A lookup failure usually means the connection is not configured yet.
-      // Let the add request surface the real error.
+      // A lookup failure usually means the proxy is not configured yet. Let
+      // the add request surface the real error.
       if (token === lookupToken) setExisting(null);
     }
   }
@@ -143,16 +121,11 @@ export default function AddTorrent(props: AddTorrentProps) {
 
     setBusy(true);
     setStatus(undefined);
-    const current = settings();
-    const chosenCategory = capabilities().categories ? current.defaultCategory.trim() : "";
-    const chosenTags = capabilities().tags ? splitTags(current.defaultTags) : [];
 
     try {
       const result = await sendBackgroundMessage<AddTorrentsResult>({
         type: "torrents:add",
         urls: [link.uri],
-        ...(chosenCategory ? { category: chosenCategory } : {}),
-        ...(chosenTags.length > 0 ? { tags: chosenTags } : {}),
         ...(paused() ? { paused: true } : {}),
       });
       if (props.onAdded) {
@@ -160,8 +133,8 @@ export default function AddTorrent(props: AddTorrentProps) {
         return;
       }
       const name = magnetLabel(link);
-      setAdded({ ...result, name, category: chosenCategory, tags: chosenTags });
-      setStatus({ tone: "ok", message: `Sent “${name}” to ${definition().label}.` });
+      setAdded({ ...result, name });
+      setStatus({ tone: "ok", message: `Sent “${name}” to Remagnet Proxy.` });
     } catch (error) {
       setStatus({ tone: "error", message: errorMessage(error) });
     } finally {
@@ -178,59 +151,48 @@ export default function AddTorrent(props: AddTorrentProps) {
     setStatus(undefined);
   }
 
-  function openClient() {
-    void browser.tabs.create({ url: settings().baseUrl || definition().defaultBaseUrl });
-  }
-
   const body = (
-    <Show when={!loading()} fallback={<p class="muted">Loading…</p>}>
-      <Show
-        when={added()}
-        fallback={
-          <Show
-            when={!editing() && magnet()}
-            fallback={
-              <MagnetForm
-                draft={draft()}
-                status={status()}
-                canCancel={Boolean(magnetUri())}
-                onDraftChange={setDraft}
-                onSubmit={applyDraft}
-                onCancel={() => setEditing(false)}
-              />
-            }
-          >
-            {(link) => (
-              <MagnetReview
-                link={link()}
-                clientLabel={definition().label}
-                capabilities={capabilities()}
-                existing={existing()}
-                paused={paused()}
-                busy={busy()}
-                status={status()}
-                onEdit={editMagnet}
-                onSubmit={submit}
-                onPausedChange={setPaused}
-                onOpenClient={openClient}
-              />
-            )}
-          </Show>
-        }
-      >
-        {(result) => (
-          <AddedSummary
-            name={result().name}
-            category={result().category}
-            tags={result().tags}
-            clientLabel={definition().label}
-            embedded={Boolean(props.embedded)}
-            onOpenClient={openClient}
-            onAddAnother={reset}
-            onClose={props.onClose}
-          />
-        )}
-      </Show>
+    <Show
+      when={added()}
+      fallback={
+        <Show
+          when={!editing() && magnet()}
+          fallback={
+            <MagnetForm
+              draft={draft()}
+              status={status()}
+              canCancel={Boolean(magnetUri())}
+              onDraftChange={setDraft}
+              onSubmit={applyDraft}
+              onCancel={() => setEditing(false)}
+            />
+          }
+        >
+          {(link) => (
+            <MagnetReview
+              link={link()}
+              existing={existing()}
+              paused={paused()}
+              busy={busy()}
+              status={status()}
+              onEdit={editMagnet}
+              onSubmit={submit}
+              onPausedChange={setPaused}
+            />
+          )}
+        </Show>
+      }
+    >
+      {(result) => (
+        <AddedSummary
+          name={result().name}
+          category={result().category}
+          tags={result().tags}
+          embedded={Boolean(props.embedded)}
+          onAddAnother={reset}
+          onClose={props.onClose}
+        />
+      )}
     </Show>
   );
 
@@ -243,8 +205,8 @@ export default function AddTorrent(props: AddTorrentProps) {
       <header class="add-header">
         <div class="header-text">
           <Wordmark as="p" size="lg" surface="Add torrent" />
-          <h1>Send to {definition().label}</h1>
-          <p class="muted mono">{settings().baseUrl || definition().defaultBaseUrl}</p>
+          <h1>Send to Remagnet Proxy</h1>
+          <p class="muted">The proxy adds the magnet to your torrent client.</p>
         </div>
         <button class="ghost" type="button" onClick={() => props.onClose()}>
           Close
@@ -253,17 +215,6 @@ export default function AddTorrent(props: AddTorrentProps) {
       {body}
     </main>
   );
-}
-
-function splitTags(value: string): string[] {
-  return [
-    ...new Set(
-      value
-        .split(",")
-        .map((tag) => tag.trim())
-        .filter(Boolean),
-    ),
-  ];
 }
 
 function errorMessage(error: unknown): string {

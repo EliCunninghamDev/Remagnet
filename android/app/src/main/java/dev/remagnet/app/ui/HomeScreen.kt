@@ -126,20 +126,20 @@ fun HomeScreen(
                 }
             }
 
-            if (!state.settings.qbitConfigured) {
+            if (!state.settings.proxyConfigured) {
                 item {
                     Panel {
                         SectionLabel("Get started")
                         Text(
-                            text = "Connect your torrent client",
+                            text = "Connect to Remagnet Proxy",
                             color = RemagnetPalette.Text,
                             fontSize = 16.sp,
                             fontWeight = FontWeight.SemiBold,
                         )
                         Text(
-                            text = "Enter the qBittorrent Web UI URL and an API key, or " +
-                                "import a Remagnet connect code. qBittorrent 5.2 or newer " +
-                                "supports API keys; username and password also work.",
+                            text = "Scan the pairing code shown by your Remagnet Proxy, " +
+                                "or open Settings and enter its URL and token. Your " +
+                                "qBittorrent credentials stay on the proxy.",
                             color = RemagnetPalette.Muted,
                             fontSize = 12.sp,
                             lineHeight = 17.sp,
@@ -161,7 +161,6 @@ fun HomeScreen(
             } else {
                 item {
                     TorrentListSection(
-                        settings = state.settings,
                         torrents = state.torrents,
                         loading = state.torrentsLoading,
                         error = state.torrentsError,

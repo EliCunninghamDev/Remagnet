@@ -23,13 +23,20 @@
 
 package dev.remagnet.proxy.models
 
+import dev.remagnet.proxy.models.TorrentCapabilities
 
 import com.google.gson.annotations.SerializedName
 
 /**
+ * Successful qBittorrent connection check plus the effective magnet defaults.
+ *
  * @param ok Always true when qBittorrent answers.
+ * @param clientLabel Human-readable name of the adapted torrent client.
  * @param appVersion qBittorrent application version reported by qBittorrent.
  * @param webApiVersion qBittorrent Web API version reported by qBittorrent.
+ * @param capabilities
+ * @param defaultCategory Category applied to new magnets and used for filtering.
+ * @param defaultTags Tags applied to new magnets and used for filtering.
  */
 
 
@@ -39,13 +46,28 @@ data class ConnectionHealth (
     @SerializedName("ok")
     val ok: kotlin.Boolean,
 
+    /* Human-readable name of the adapted torrent client. */
+    @SerializedName("clientLabel")
+    val clientLabel: kotlin.String,
+
     /* qBittorrent application version reported by qBittorrent. */
     @SerializedName("appVersion")
     val appVersion: kotlin.String,
 
     /* qBittorrent Web API version reported by qBittorrent. */
     @SerializedName("webApiVersion")
-    val webApiVersion: kotlin.String
+    val webApiVersion: kotlin.String,
+
+    @SerializedName("capabilities")
+    val capabilities: TorrentCapabilities,
+
+    /* Category applied to new magnets and used for filtering. */
+    @SerializedName("defaultCategory")
+    val defaultCategory: kotlin.String,
+
+    /* Tags applied to new magnets and used for filtering. */
+    @SerializedName("defaultTags")
+    val defaultTags: kotlin.collections.List<kotlin.String>
 
 ) {
 

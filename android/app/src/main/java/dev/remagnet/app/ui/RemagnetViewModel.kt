@@ -5,18 +5,15 @@ import android.app.NotificationManager
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
-import dev.remagnet.app.client.QBittorrentClient
-import dev.remagnet.app.client.QbitError
-import dev.remagnet.app.client.QbitResult
 import dev.remagnet.app.client.PairingClaim
 import dev.remagnet.app.client.PairingClient
 import dev.remagnet.app.client.ProxyHealthClient
 import dev.remagnet.app.client.ProxyStatus
+import dev.remagnet.app.client.ProxyTorrentClient
+import dev.remagnet.app.client.QbitError
+import dev.remagnet.app.client.QbitResult
 import dev.remagnet.app.client.TorrentClient
 import dev.remagnet.app.client.TorrentSummary
-import dev.remagnet.app.client.filterTorrents
-import dev.remagnet.app.client.torrentFilterFor
-import dev.remagnet.app.data.AuthMode
 import dev.remagnet.app.data.PairingLink
 import dev.remagnet.app.data.RemagnetSettings
 import dev.remagnet.app.data.SettingsError
@@ -49,10 +46,8 @@ import kotlinx.coroutines.withContext
 data class RemagnetUiState(
     val settings: RemagnetSettings = RemagnetSettings(),
     val loaded: Boolean = false,
-    val checking: Boolean = false,
+    val checkingProxy: Boolean = false,
     val proxyStatus: ProxyStatus? = null,
-    val checkingQbit: Boolean = false,
-    val qbitStatus: QbitStatus? = null,
     val torrents: List<TorrentSummary> = emptyList(),
     val torrentsLoading: Boolean = false,
     val torrentsError: String? = null,
@@ -64,25 +59,6 @@ data class RemagnetUiState(
     val notice: String? = null,
     val pairing: PairingState = PairingState.Idle,
 )
-
-/** What a direct qBittorrent check found, independent of the optional proxy. */
-sealed interface QbitStatus {
-    data object NotConfigured : QbitStatus
-
-    data object Checking : QbitStatus
-
-    data class Online(
-        val appVersion: String,
-        val webApiVersion: String,
-        val authMode: AuthMode,
-    ) : QbitStatus
-
-    data class Unauthorized(val message: String) : QbitStatus
-
-    data class Unreachable(val message: String) : QbitStatus
-
-    data class Error(val message: String) : QbitStatus
-}
 
 sealed interface SaveResult {
     data class Saved(val settings: RemagnetSettings) : SaveResult
@@ -100,7 +76,7 @@ sealed interface PairingState {
 
     data class Failed(val message: String) : PairingState
 
-    /** Claimed settings, not saved yet; the settings screen reviews them. */
+    /** Claimed and saved proxy settings; the screen reports the result. */
     data class Paired(val settings: RemagnetSettings) : PairingState
 }
 
@@ -121,7 +97,7 @@ class RemagnetViewModel(
         application = application,
         repository = settingsRepositoryFor(application),
         proxyHealth = ProxyHealthClient(),
-        clientFactory = { settings -> QBittorrentClient.from(settings) },
+        clientFactory = { settings -> ProxyTorrentClient.from(settings) },
         savedState = savedState,
     )
 
@@ -129,7 +105,6 @@ class RemagnetViewModel(
     val state: StateFlow<RemagnetUiState> = _state.asStateFlow()
 
     /** Let a newer request win when settings or the magnet change mid-flight. */
-    private var qbitCheckId = 0
     private var proxyCheckId = 0
     private var addLookupId = 0
     private var addSubmitId = 0
@@ -140,8 +115,7 @@ class RemagnetViewModel(
     init {
         val settings = repository.load()
         _state.value = RemagnetUiState(settings = settings, loaded = true)
-        if (settings.qbitConfigured) checkQbitConnection()
-        if (settings.proxyConfigured) checkConnection()
+        if (settings.proxyConfigured) testConnection()
 
         viewModelScope.launch {
             ArchiveDownloads.state.collect { download ->
@@ -196,20 +170,18 @@ class RemagnetViewModel(
                 it.copy(
                     settings = result.settings,
                     proxyStatus = null,
-                    qbitStatus = null,
                     notice = "Settings saved.",
-                    torrents = if (result.settings.qbitConfigured) it.torrents else emptyList(),
+                    torrents = if (result.settings.proxyConfigured) it.torrents else emptyList(),
                     torrentsError = null,
                 )
             }
-            if (result.settings.qbitConfigured) {
-                checkQbitConnection()
+            if (result.settings.proxyConfigured) {
+                testConnection()
                 refreshTorrents()
                 startPolling()
             } else {
                 stopPolling()
             }
-            if (result.settings.proxyConfigured) checkConnection()
         }
         return result
     }
@@ -217,8 +189,10 @@ class RemagnetViewModel(
     // ---- Mobile pairing ---------------------------------------------------
 
     /**
-     * Claim a scanned code. The result is presented as form values, not saved:
-     * the user still reviews and confirms them on the settings screen.
+     * Claim a scanned code and save it immediately, so pairing is one step:
+     * the phone is connected and its torrent list refreshes as soon as the
+     * proxy answers. A rejected or unusable code leaves any existing proxy
+     * settings untouched.
      */
     fun pairDevice(link: PairingLink) {
         if (_state.value.pairing == PairingState.Claiming) return
@@ -231,18 +205,28 @@ class RemagnetViewModel(
                 }
 
                 is PairingClaim.Success -> {
-                    val connection = result.connection
-                    val current = _state.value.settings
-                    val paired = current.copy(
-                        qbitBaseUrl = connection.qbitBaseUrl,
-                        authMode = connection.authMode,
-                        qbitApiKey = connection.apiKey ?: current.qbitApiKey,
-                        qbitUsername = connection.username ?: current.qbitUsername,
-                        qbitPassword = connection.password ?: current.qbitPassword,
-                        proxyBaseUrl = link.proxyBaseUrl,
-                        proxyToken = connection.proxyToken,
+                    val paired = RemagnetSettings(
+                        proxyBaseUrl = result.settings.proxyBaseUrl,
+                        proxyToken = result.settings.proxyToken,
                     ).normalized()
-                    _state.update { it.copy(pairing = PairingState.Paired(paired)) }
+
+                    when (val saved = save(paired)) {
+                        is SaveResult.Saved -> _state.update {
+                            it.copy(pairing = PairingState.Paired(saved.settings))
+                        }
+
+                        is SaveResult.Invalid -> _state.update {
+                            it.copy(
+                                pairing = PairingState.Failed(
+                                    saved.errors.joinToString(" ") { error -> error.message },
+                                ),
+                            )
+                        }
+
+                        is SaveResult.Failed -> _state.update {
+                            it.copy(pairing = PairingState.Failed(saved.message))
+                        }
+                    }
                 }
             }
         }
@@ -256,10 +240,10 @@ class RemagnetViewModel(
 
     /**
      * Refresh while the home screen is visible. The poller is cancelled on
-     * pause, so a backgrounded Remagnet does not keep talking to qBittorrent.
+     * pause, so a backgrounded Remagnet does not keep talking to the proxy.
      */
     fun startPolling() {
-        if (!_state.value.settings.qbitConfigured) return
+        if (!_state.value.settings.proxyConfigured) return
         if (pollJob?.isActive == true) return
 
         pollJob = viewModelScope.launch {
@@ -276,13 +260,13 @@ class RemagnetViewModel(
     }
 
     fun refreshTorrents() {
-        if (!_state.value.settings.qbitConfigured) return
+        if (!_state.value.settings.proxyConfigured) return
         viewModelScope.launch { loadTorrents(showLoading = true) }
     }
 
     private suspend fun loadTorrents(showLoading: Boolean) {
         val settings = _state.value.settings
-        if (!settings.qbitConfigured) {
+        if (!settings.proxyConfigured) {
             listRequestId += 1
             _state.update {
                 it.copy(torrents = emptyList(), torrentsLoading = false, torrentsError = null)
@@ -293,21 +277,20 @@ class RemagnetViewModel(
         val requestId = ++listRequestId
         if (showLoading) _state.update { it.copy(torrentsLoading = true) }
 
+        // The proxy already filters the list by its configured category and
+        // tags, so the app renders whatever the server considers Remagnet's.
         val result = clientFactory(settings).listTorrents()
         // A poll cancelled by leaving the screen can surface as a generic
         // client error; it is not a connection problem the user should see.
         if (requestId != listRequestId || !currentCoroutineContext().isActive) return
 
         when (result) {
-            is QbitResult.Success -> {
-                val filter = torrentFilterFor(settings)
-                _state.update {
-                    it.copy(
-                        torrents = filterTorrents(result.value, filter),
-                        torrentsLoading = false,
-                        torrentsError = null,
-                    )
-                }
+            is QbitResult.Success -> _state.update {
+                it.copy(
+                    torrents = result.value,
+                    torrentsLoading = false,
+                    torrentsError = null,
+                )
             }
 
             is QbitResult.Failure -> _state.update {
@@ -342,10 +325,10 @@ class RemagnetViewModel(
             }
             return
         }
-        if (!current.settings.qbitConfigured) {
+        if (!current.settings.proxyConfigured) {
             _state.update {
                 it.copy(
-                    actionError = "qBittorrent is not configured.",
+                    actionError = "The Remagnet Proxy is not configured.",
                     confirmingHash = null,
                 )
             }
@@ -529,7 +512,7 @@ class RemagnetViewModel(
         val review = current.addSheet as? AddSheetState.Review ?: return
         if (!review.canSubmit) return
 
-        if (!current.settings.qbitConfigured) {
+        if (!current.settings.proxyConfigured) {
             updateReview(review.magnet.uri) {
                 it.copy(duplicate = DuplicateState.NotConfigured)
             }
@@ -539,7 +522,7 @@ class RemagnetViewModel(
         val submitId = ++addSubmitId
         val settings = current.settings
         val magnet = review.magnet
-        val request = addRequestFor(settings, magnet, review.paused)
+        val request = addRequestFor(magnet, review.paused)
         updateReview(magnet.uri) { it.copy(submitting = true, error = null) }
 
         viewModelScope.launch {
@@ -550,12 +533,15 @@ class RemagnetViewModel(
                 is QbitResult.Success -> {
                     val name = magnetLabel(magnet)
                     clearPendingMagnet()
+                    // The proxy applies its configured category and tags, so
+                    // the summary shows what it actually used rather than any
+                    // value this device guessed.
                     _state.update {
                         it.copy(
                             addSheet = AddSheetState.Added(
                                 name = name,
-                                category = request.category,
-                                tags = request.tags,
+                                category = result.value.category,
+                                tags = result.value.tags,
                             ),
                             notice = "Added \"$name\" to qBittorrent.",
                         )
@@ -654,7 +640,7 @@ class RemagnetViewModel(
     private fun checkDuplicate(magnet: MagnetLink) {
         val hash = magnet.infoHash ?: return
 
-        if (!_state.value.settings.qbitConfigured) {
+        if (!_state.value.settings.proxyConfigured) {
             updateReview(magnet.uri) {
                 it.copy(duplicate = DuplicateState.NotConfigured)
             }
@@ -695,67 +681,29 @@ class RemagnetViewModel(
         savedState.remove<String>(KEY_PASTE_ERROR)
     }
 
-    /** Ask qBittorrent directly for its version, without involving the proxy. */
-    fun checkQbitConnection() {
-        val current = _state.value
-        if (!current.settings.qbitConfigured) {
-            _state.update {
-                it.copy(checkingQbit = false, qbitStatus = QbitStatus.NotConfigured)
-            }
-            return
-        }
-
-        val checkId = ++qbitCheckId
-        val settings = current.settings
-        _state.update { it.copy(checkingQbit = true, qbitStatus = QbitStatus.Checking) }
-        viewModelScope.launch {
-            val status = when (val result = clientFactory(settings).testConnection()) {
-                is QbitResult.Success -> QbitStatus.Online(
-                    appVersion = result.value.appVersion,
-                    webApiVersion = result.value.webApiVersion,
-                    authMode = settings.authMode,
-                )
-
-                is QbitResult.Failure -> result.error.toQbitStatus()
-            }
-            if (checkId == qbitCheckId) {
-                _state.update { it.copy(checkingQbit = false, qbitStatus = status) }
-            }
-        }
-    }
-
     /** Ask the proxy about itself and its qBittorrent link. */
-    fun checkConnection() {
+    fun testConnection() {
         val current = _state.value
         if (!current.settings.proxyConfigured) {
             _state.update {
-                it.copy(checking = false, proxyStatus = ProxyStatus.NotConfigured)
+                it.copy(checkingProxy = false, proxyStatus = ProxyStatus.NotConfigured)
             }
             return
         }
 
         val checkId = ++proxyCheckId
         val settings = current.settings
-        _state.update { it.copy(checking = true, proxyStatus = null) }
+        _state.update { it.copy(checkingProxy = true, proxyStatus = null) }
         viewModelScope.launch {
             val status = proxyHealth.check(settings)
             if (checkId == proxyCheckId) {
-                _state.update { it.copy(checking = false, proxyStatus = status) }
+                _state.update { it.copy(checkingProxy = false, proxyStatus = status) }
             }
         }
     }
 
     fun clearNotice() {
         _state.update { it.copy(notice = null) }
-    }
-
-    private fun QbitError.toQbitStatus(): QbitStatus = when (this) {
-        is QbitError.Unauthorized -> QbitStatus.Unauthorized(message)
-        is QbitError.Unreachable -> QbitStatus.Unreachable(message)
-        is QbitError.InvalidSettings -> QbitStatus.Error(message)
-        is QbitError.Http -> QbitStatus.Error(message)
-        is QbitError.Rejected -> QbitStatus.Error(message)
-        is QbitError.InvalidResponse -> QbitStatus.Error(message)
     }
 
     private companion object {

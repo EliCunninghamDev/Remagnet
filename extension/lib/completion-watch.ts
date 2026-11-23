@@ -1,10 +1,9 @@
 import { browser } from "wxt/browser";
 import { storage } from "wxt/utils/storage";
 import { openToolbarPopup } from "./action-popup";
-import { getArchiveSettings } from "./archive";
 import { completionTransitions, type WatchState } from "./completion";
 import { COMPLETE_PROGRESS } from "./messages";
-import { getSettings } from "./settings";
+import { getSettings, isProxyConfigured } from "./settings";
 import { getTorrent, listTorrents } from "./torrent-service";
 import type { TorrentSummary } from "./torrents";
 
@@ -48,6 +47,9 @@ export async function checkCompletions(): Promise<void> {
   checking = true;
 
   try {
+    // Polling without a configured proxy is expected; stay quiet until setup.
+    if (!isProxyConfigured(await getSettings())) return;
+
     const torrents = await listTorrents();
     const previous = await watchItem.getValue();
     const { next, completed } = completionTransitions(previous, torrents);
@@ -104,10 +106,7 @@ export async function forgetHashes(hashes: string[]): Promise<void> {
 }
 
 async function notifyComplete(torrent: TorrentSummary): Promise<void> {
-  const archive = getArchiveSettings(await getSettings());
-  const suffix = archive
-    ? " Open Remagnet to download it as a ZIP."
-    : " It is ready in qBittorrent.";
+  const suffix = " Open Remagnet to download it as a ZIP.";
 
   try {
     await browser.notifications.create(`${NOTIFICATION_PREFIX}${torrent.hash}`, {

@@ -184,7 +184,7 @@ pub fn normalize_origin(raw: &str) -> Result<String> {
         .context("The pairing URL needs a host.")?;
     let loopback = matches!(host, "127.0.0.1" | "localhost" | "::1" | "10.0.2.2");
     if url.scheme() != "https" && !loopback {
-        bail!("Android pairing needs an HTTPS Remagnet Proxy URL.");
+        bail!("Pairing needs an HTTPS Remagnet Proxy URL.");
     }
 
     Ok(url.origin().ascii_serialization())

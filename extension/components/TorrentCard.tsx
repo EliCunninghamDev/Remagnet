@@ -6,8 +6,6 @@ import SquareBar, { type BarPhase } from "./SquareBar";
 export interface TorrentCardProps {
   torrent: TorrentSummary;
   zipping: boolean;
-  archiveReady: boolean;
-  clientLabel: string;
   removing: boolean;
   confirming: boolean;
   onZip: () => void;
@@ -113,12 +111,8 @@ export default function TorrentCard(props: TorrentCardProps) {
                 <button
                   class="row-icon download-action"
                   type="button"
-                  disabled={props.zipping || !props.archiveReady}
-                  title={
-                    props.archiveReady
-                      ? "Download this completed torrent as a ZIP"
-                      : "Configure Remagnet Proxy in settings to download completed torrents"
-                  }
+                  disabled={props.zipping}
+                  title="Download this completed torrent as a ZIP"
                   onClick={() => props.onZip()}
                 >
                   Download
@@ -139,7 +133,7 @@ export default function TorrentCard(props: TorrentCardProps) {
         }
       >
         <div class="remove-confirm">
-          <span class="remove-question">Remove from {props.clientLabel}?</span>
+          <span class="remove-question">Remove this torrent?</span>
           <div class="actions">
             <button
               class="ghost"

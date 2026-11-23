@@ -1,9 +1,7 @@
 import { createSignal } from "solid-js";
 import PopupList from "../components/PopupList";
-import { clientLabel, popoverTorrents } from "./fixtures";
+import { popoverTorrents, proxyBaseUrl } from "./fixtures";
 import { Section, Specimen } from "./Section";
-
-const SERVER = "https://qbt.example.com";
 
 /** The complete popover list view in each data state. */
 export default function Popover() {
@@ -16,17 +14,14 @@ export default function Popover() {
       description="The real PopupList at its production width. Every state is driven by props, not by storage or the background worker."
     >
       <div class="popover-gallery">
-        <Specimen label="Loaded" note="Three tracked torrents, archive ready.">
+        <Specimen label="Loaded" note="Three tracked torrents; completed rows can download.">
           <div class="theme-popup">
             <main class="popup">
               <PopupList
                 torrents={popoverTorrents}
                 loading={false}
-                filterActive
-                filterDescription="category 'remagnet'"
-                clientLabel={clientLabel}
-                serverLabel={SERVER}
-                archiveReady
+                configured
+                serverLabel={proxyBaseUrl}
                 confirmingHash={confirming()}
                 onRetry={() => undefined}
                 onOpenSettings={() => undefined}
@@ -52,12 +47,9 @@ export default function Popover() {
               <PopupList
                 torrents={popoverTorrents}
                 loading={false}
+                configured
                 actionError="The Remagnet Proxy could not reach qBittorrent."
-                filterActive
-                filterDescription="category 'remagnet'"
-                clientLabel={clientLabel}
-                serverLabel={SERVER}
-                archiveReady
+                serverLabel={proxyBaseUrl}
                 onRetry={() => undefined}
                 onOpenSettings={() => undefined}
                 onDismissActionError={() => undefined}
@@ -71,17 +63,14 @@ export default function Popover() {
           </div>
         </Specimen>
 
-        <Specimen label="Empty (filtered)" note="No torrents match the configured category/tags.">
+        <Specimen label="Empty" note="Connected, but no Remagnet torrents yet.">
           <div class="theme-popup">
             <main class="popup">
               <PopupList
                 torrents={[]}
                 loading={false}
-                filterActive
-                filterDescription="category 'remagnet'"
-                clientLabel={clientLabel}
-                serverLabel={SERVER}
-                archiveReady={false}
+                configured
+                serverLabel={proxyBaseUrl}
                 onRetry={() => undefined}
                 onOpenSettings={() => undefined}
                 onDismissActionError={() => undefined}
@@ -95,20 +84,13 @@ export default function Popover() {
           </div>
         </Specimen>
 
-        <Specimen
-          label="Empty (unfiltered)"
-          note="Filtering is off, so every client torrent counts."
-        >
+        <Specimen label="Get started" note="Fresh install before a proxy is paired or configured.">
           <div class="theme-popup">
             <main class="popup">
               <PopupList
                 torrents={[]}
                 loading={false}
-                filterActive={false}
-                filterDescription=""
-                clientLabel={clientLabel}
-                serverLabel={SERVER}
-                archiveReady={false}
+                configured={false}
                 onRetry={() => undefined}
                 onOpenSettings={() => undefined}
                 onDismissActionError={() => undefined}
@@ -128,11 +110,8 @@ export default function Popover() {
               <PopupList
                 torrents={[]}
                 loading
-                filterActive
-                filterDescription="category 'remagnet'"
-                clientLabel={clientLabel}
-                serverLabel="Loading…"
-                archiveReady={false}
+                configured
+                serverLabel={proxyBaseUrl}
                 onRetry={() => undefined}
                 onOpenSettings={() => undefined}
                 onDismissActionError={() => undefined}
@@ -146,18 +125,15 @@ export default function Popover() {
           </div>
         </Specimen>
 
-        <Specimen label="Connection error" note="Unconfigured or unreachable client.">
+        <Specimen label="Connection error" note="The configured proxy is unreachable.">
           <div class="theme-popup">
             <main class="popup">
               <PopupList
                 torrents={[]}
                 loading={false}
-                error="Could not reach qBittorrent at https://qbt.example.com."
-                filterActive
-                filterDescription="category 'remagnet'"
-                clientLabel={clientLabel}
-                serverLabel={SERVER}
-                archiveReady={false}
+                configured
+                error="Could not reach the Remagnet Proxy at https://remagnet.example.com."
+                serverLabel={proxyBaseUrl}
                 onRetry={() => undefined}
                 onOpenSettings={() => undefined}
                 onDismissActionError={() => undefined}

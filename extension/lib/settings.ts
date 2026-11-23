@@ -1,61 +1,40 @@
 import { browser } from "wxt/browser";
 import { storage } from "wxt/utils/storage";
-import type { AuthMode, ClientKind } from "./clients/types";
-
-export type { AuthMode, ClientKind };
 
 export interface Settings {
-  /** Which torrent client adapter to use. */
-  client: ClientKind;
-  /** Client Web UI root, e.g. http://127.0.0.1:8080. */
-  baseUrl: string;
-  authMode: AuthMode;
-  /** Stateless bearer token (qBittorrent 5.2+), when the adapter offers it. */
-  apiKey: string;
-  username: string;
-  password: string;
-  /** Category applied to magnets added from the extension. */
-  defaultCategory: string;
-  /** Comma-separated tags applied to magnets added from the extension. */
-  defaultTags: string;
-  /** Root URL of the optional archive bridge, e.g. https://remagnet.example.com. */
-  archiveBaseUrl: string;
-  /** Bearer token for the archive bridge. Kept out of page bundles. */
-  archiveToken: string;
+  /** Remagnet Proxy origin, e.g. https://remagnet.example.com. */
+  proxyBaseUrl: string;
+  /** Proxy bearer token. Encrypted before it touches extension storage. */
+  proxyToken: string;
 }
 
 /** Settings that are safe to keep readable on disk. */
-type PublicSettings = Omit<Settings, "apiKey" | "password" | "archiveToken">;
+type PublicSettings = Omit<Settings, "proxyToken">;
 
 interface Secrets {
-  apiKey: string;
-  password: string;
-  archiveToken: string;
+  proxyToken: string;
 }
 
 /** Shape older builds may still have on disk, including plain-text secrets. */
-type StoredSettings = PublicSettings & Partial<Secrets>;
+type StoredSettings = Partial<Settings>;
 
 const PUBLIC_DEFAULTS: PublicSettings = {
-  client: "qbittorrent",
-  baseUrl: "http://127.0.0.1:8080",
-  authMode: "apiKey",
-  username: "admin",
-  defaultCategory: "remagnet",
-  defaultTags: "remagnet",
-  archiveBaseUrl: "",
+  proxyBaseUrl: "",
 };
 
 const SECRET_DEFAULTS: Secrets = {
-  apiKey: "",
-  password: "",
-  archiveToken: "",
+  proxyToken: "",
 };
 
 export const DEFAULT_SETTINGS: Settings = {
   ...PUBLIC_DEFAULTS,
   ...SECRET_DEFAULTS,
 };
+
+export interface ProxySettings {
+  baseUrl: string;
+  token: string;
+}
 
 /**
  * Credentials are encrypted before they touch extension storage.
@@ -90,7 +69,9 @@ const secretsItem = storage.defineItem<EncryptedSecrets | null>("local:secrets",
  * Read settings with defaults filled in.
  *
  * Storage returns the stored object as-is, so settings written before a field
- * existed (for example `client`) would otherwise be `undefined` at runtime.
+ * existed would otherwise be `undefined` at runtime. Older builds also kept
+ * client credentials and archive settings in these items; removed fields,
+ * including any plain-text secrets, are dropped instead of migrated.
  */
 export async function getSettings(): Promise<Settings> {
   const [storedValue, encrypted] = await Promise.all([
@@ -99,9 +80,7 @@ export async function getSettings(): Promise<Settings> {
   ]);
   const stored = storedValue as StoredSettings;
 
-  // Earlier builds wrote credentials straight into this object. Drop those
-  // fields instead of migrating them; the encrypted item is the only source.
-  if ("apiKey" in stored || "password" in stored || "archiveToken" in stored) {
+  if (Object.keys(stored).some((key) => key !== "proxyBaseUrl")) {
     await settingsItem.setValue(toPublicSettings(stored));
   }
 
@@ -109,15 +88,52 @@ export async function getSettings(): Promise<Settings> {
   return { ...DEFAULT_SETTINGS, ...toPublicSettings(stored), ...secrets };
 }
 
-/** Write public settings and the encrypted credentials together. */
+/** Write public settings and the encrypted token together. */
 export async function saveSettings(values: Settings): Promise<void> {
-  const encrypted = await encryptSecrets({
-    apiKey: values.apiKey,
-    password: values.password,
-    archiveToken: values.archiveToken,
-  });
+  const encrypted = await encryptSecrets({ proxyToken: values.proxyToken });
   await settingsItem.setValue(toPublicSettings(values));
   await secretsItem.setValue(encrypted);
+}
+
+/** Both the proxy URL and token must be present before any request is made. */
+export function isProxyConfigured(settings: Settings): boolean {
+  return settings.proxyBaseUrl.trim().length > 0 && settings.proxyToken.trim().length > 0;
+}
+
+/** Validate the proxy fields. Returns a message to show, or null when valid. */
+export function validateProxySettings(settings: Settings): string | null {
+  const baseUrl = settings.proxyBaseUrl.trim();
+  const token = settings.proxyToken.trim();
+
+  if (!baseUrl) return "Enter the Remagnet Proxy URL.";
+  if (!token) return "Enter the Remagnet Proxy token.";
+  if (token.length < 16) return "The Remagnet Proxy token must be at least 16 characters.";
+
+  try {
+    const url = new URL(baseUrl);
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return "The Remagnet Proxy URL must use http:// or https://.";
+    }
+    if (!url.hostname) return "The Remagnet Proxy URL needs a host.";
+    if (url.username || url.password) {
+      return "The Remagnet Proxy URL must not contain credentials.";
+    }
+  } catch {
+    return "Enter a valid Remagnet Proxy URL.";
+  }
+
+  return null;
+}
+
+/** Throw a readable error unless the proxy connection settings are usable. */
+export function requireProxySettings(settings: Settings): ProxySettings {
+  const error = validateProxySettings(settings);
+  if (error) throw new Error(error);
+
+  return {
+    baseUrl: settings.proxyBaseUrl.trim().replace(/\/+$/, ""),
+    token: settings.proxyToken.trim(),
+  };
 }
 
 /**
@@ -138,13 +154,8 @@ export function restrictSettingsStorageAccess(): void {
 
 function toPublicSettings(values: StoredSettings): PublicSettings {
   return {
-    client: values.client ?? PUBLIC_DEFAULTS.client,
-    baseUrl: values.baseUrl ?? PUBLIC_DEFAULTS.baseUrl,
-    authMode: values.authMode ?? PUBLIC_DEFAULTS.authMode,
-    username: values.username ?? PUBLIC_DEFAULTS.username,
-    defaultCategory: values.defaultCategory ?? PUBLIC_DEFAULTS.defaultCategory,
-    defaultTags: values.defaultTags ?? PUBLIC_DEFAULTS.defaultTags,
-    archiveBaseUrl: values.archiveBaseUrl ?? PUBLIC_DEFAULTS.archiveBaseUrl,
+    proxyBaseUrl:
+      typeof values.proxyBaseUrl === "string" ? values.proxyBaseUrl : PUBLIC_DEFAULTS.proxyBaseUrl,
   };
 }
 
@@ -172,9 +183,7 @@ async function decryptSecrets(encrypted: EncryptedSecrets | null): Promise<Secre
     );
     const parsed = JSON.parse(new TextDecoder().decode(plaintext)) as Partial<Secrets>;
     return {
-      apiKey: typeof parsed.apiKey === "string" ? parsed.apiKey : "",
-      password: typeof parsed.password === "string" ? parsed.password : "",
-      archiveToken: typeof parsed.archiveToken === "string" ? parsed.archiveToken : "",
+      proxyToken: typeof parsed.proxyToken === "string" ? parsed.proxyToken : "",
     };
   } catch {
     // A fresh profile or cleared key store leaves orphaned ciphertext. Treat

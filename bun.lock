@@ -17,7 +17,6 @@
       "version": "0.1.0",
       "dependencies": {
         "@remagnet/proxy-client": "workspace:*",
-        "@remagnet/qbittorrent": "workspace:*",
         "solid-js": "^1.9.20",
       },
       "devDependencies": {
@@ -37,10 +36,6 @@
       "dependencies": {
         "openapi-fetch": "^0.17.0",
       },
-    },
-    "packages/qbittorrent": {
-      "name": "@remagnet/qbittorrent",
-      "version": "0.1.0",
     },
   },
   "packages": {
@@ -209,8 +204,6 @@
     "@remagnet/extension": ["@remagnet/extension@workspace:extension"],
 
     "@remagnet/proxy-client": ["@remagnet/proxy-client@workspace:packages/proxy-client"],
-
-    "@remagnet/qbittorrent": ["@remagnet/qbittorrent@workspace:packages/qbittorrent"],
 
     "@rolldown/binding-android-arm-eabi": ["@rolldown/binding-android-arm-eabi@1.2.19", "", { "os": "android", "cpu": "arm" }, "sha512-e+Ebe0WT+9tbXmNKPIiC8YrWAHYwug3m6i4p3rZGGulfZri1jtI4HslT+OZnFf/OIHowWF71DTlHwXBP2SiA7A=="],
 

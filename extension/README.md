@@ -1,32 +1,30 @@
 # @remagnet/extension
 
 WXT + SolidJS browser extension. The background context is the only part that
-talks to a torrent client; popup, add and options pages send typed messages to
+talks to the Remagnet Proxy; popup, add and options pages send typed messages to
 it (see `lib/messages.ts` and `lib/torrent-service.ts`).
 
 ## Architecture
 
-qBittorrent is the only backend; everything outside `lib/clients/` works with
-client-neutral types:
+The extension is proxy-only. It never talks to qBittorrent and stores no
+qBittorrent credentials:
 
 ```
-lib/clients/types.ts       Adapter contract and neutral request/response types
-lib/clients/catalog.ts     Static client metadata used by the settings UI
-lib/clients/qbittorrent.ts qBittorrent adapter (wraps @remagnet/qbittorrent)
-lib/clients/index.ts       Adapter registry, imported by the background only
-lib/torrent-service.ts     Background facade: resolve settings, validate, delegate
+lib/settings.ts          Proxy URL plus the encrypted proxy token
+lib/torrent-service.ts   Background facade over @remagnet/proxy-client
+lib/pairing.ts           Claims remagnet://pair links (pairing v2)
+lib/torrents.ts          Neutral torrent shape shared with the UI
 ```
 
-The UI imports `lib/clients/catalog.ts` for labels, auth modes and capabilities,
-so client SDKs stay out of page bundles. To add a client:
+`@remagnet/proxy-client` is generated from `proxy/openapi.yaml`, so the
+extension calls typed `/api/torrents*`, `/api/health` and `/archive/*` endpoints.
+The proxy owns the qBittorrent connection and the category/tags applied to new
+magnets; there is no local client adapter, auth-mode choice or per-client
+catalog. The extension requests host access to one origin: the configured proxy.
 
-1. Extend `ClientKind` in `lib/clients/types.ts`.
-2. Add a catalog entry with its auth modes, capabilities and validation.
-3. Implement the adapter and register its factory in `lib/clients/index.ts`.
-
-The pause field in the add flow is shown from the adapter's `capabilities`, so
-clients without it degrade cleanly. Category and tags are applied from settings
-automatically, not chosen per torrent.
+Completed rows always get a **Download** button. Category/tags selection and any
+other qBittorrent settings live on the proxy, so every client agrees on what
+Remagnet owns.
 
 ## Component gallery
 
@@ -50,17 +48,17 @@ background worker directly. `bun run test:ui` runs the Vitest component suite;
 
 ## ZIP downloads
 
-Completed rows always get a **Download** button, disabled until the
-**Remagnet Proxy** is configured in settings. The background worker validates
-the torrent, asks the browser to download `/archive/<info-hash>` and attaches
-`Authorization: Bearer <token>` in Firefox; other browsers use the proxy's
-`?token=` fallback. The proxy itself
-lives in `proxy/` (Rust/axum) and is documented there.
+Completed rows always get a **Download** button. The background worker validates
+the torrent through the proxy, asks the browser to download
+`/archive/<info-hash>` and attaches `Authorization: Bearer <token>` in Firefox;
+other browsers use the proxy's `?token=` fallback. The proxy itself lives in
+`proxy/` (Rust/axum) and is documented there.
 
-Proxy requests use `@remagnet/proxy-client`, whose types and fetch wrapper are
-generated from `proxy/openapi.yaml`. Run `bun run api:generate` at the repository
-root after changing the spec; archive URLs still come from the shared client
-because the browser download API needs a URL rather than a fetched response.
+Every proxy request, including the list, add and remove calls, goes through
+`@remagnet/proxy-client`, whose types and fetch wrapper are generated from
+`proxy/openapi.yaml`. Run `bun run api:generate` at the repository root after
+changing the spec; archive URLs still come from the shared client because the
+browser download API needs a URL rather than a fetched response.
 
 ## Popup behavior
 
@@ -87,11 +85,11 @@ not cover or replace the page you were reading.
 - The application mark lives in `public/icon/remagnet.svg` with a simplified
   `remagnet-small.svg` for 16px and 32px and for the wordmark; the PNGs beside
   them are generated from those two sources with `resvg`.
-- The list is filtered to the configured default category/tags. With both
-  defaults blank, filtering is disabled because there is no way to tell which
-  torrents belong to Remagnet.
+- The list contains exactly the torrents the proxy exposes through its
+  configured category/tags filter. The extension has no category or tag
+  settings and cannot override them.
 - **Remove** asks whether to keep or delete the files; the confirmation swaps in
-  over the row's stats line, then deletes the torrent through the client adapter.
+  over the row's stats line, then deletes the torrent through the proxy.
 - While open, the popover polls the list once a second while any torrent is
   still downloading (every five seconds when everything is complete), so the
   bars and speed readouts stay live. Requests are serialized, and polling pauses
@@ -117,31 +115,28 @@ survive restarts.
 
 1. Open the options page (see below) or right-click the toolbar button →
    **Settings**.
-2. Pick the client (qBittorrent), enter the Web UI URL, e.g.
-   `https://qbt.example.com`, and auth (API key recommended; qBittorrent 5.2+).
-3. Set the default category and tags used by the add flow. Both default to
-   `remagnet`.
-4. Click **Save & test connection** and click **Allow** on the permission
-   prompt. The prompt is scoped to the configured host even though the manifest
-   declares optional access to `*://*/*`.
-5. Open the popup. It lists only torrents whose category or tags match the
-   defaults from step 3 (`remagnet` unless changed), so other downloads in the
-   same client stay hidden.
+2. Open your Remagnet Proxy page and choose **Copy link** in the **Pair a
+   device** panel, then paste it into **Remagnet Proxy → Pairing code** and
+   choose **Pair**. The extension claims the one-time code and saves the proxy
+   URL and token.
+3. Click **Allow** on the host-permission prompt. Access is scoped to the proxy
+   origin even though the manifest declares optional access to `*://*/*`.
+4. Open the popup. It lists the torrents the proxy exposes (`remagnet` by
+   default), so other downloads in the same qBittorrent instance stay hidden.
 
-The **Android** panel links to the Remagnet Proxy page, which shows the rotating
-pairing QR for the phone. The **Remagnet Proxy** panel also has a **Pairing code**
-field: paste the link from the proxy page and the extension claims it, filling in
-the proxy URL, token, and qBittorrent connection. The code is single-use,
-expires after a minute, and the response is encrypted with a key derived from the
-code. Pairing requires an HTTPS proxy origin.
+You can enter the proxy URL and token manually instead of pairing. Nowhere in
+the extension do you enter a qBittorrent URL, API key, password, category or
+tags: the proxy owns all of those. The proxy page also shows a rotating pairing
+QR for the phone; each code is single-use, expires after a minute, and requires
+an HTTPS proxy origin.
 
 Each row has a **Remove** button with a confirmation that either keeps or
-deletes the downloaded files. The background worker also polls the same filtered
-list once a minute and raises a browser notification when a torrent completes;
-clicking the notification opens the toolbar popup (falling back to a small
-window when the browser cannot open it). The manifest needs the `alarms` and
-`notifications` permissions for that. On Linux, notifications require a
-notification daemon on the desktop session.
+deletes the downloaded files. The background worker also polls the same
+proxy-filtered list once a minute and raises a browser notification when a
+torrent completes; clicking the notification opens the toolbar popup (falling
+back to a small window when the browser cannot open it). The manifest needs the
+`alarms` and `notifications` permissions for that. On Linux, notifications
+require a notification daemon on the desktop session.
 
 ### Magnet links
 
@@ -154,12 +149,13 @@ use:
 2. The handler page hands the magnet to the toolbar popover and returns the tab
    to the page it came from (or closes the throwaway tab). If the popover cannot
    be opened, the full add page remains as a fallback.
-3. If the client already has the magnet's info hash, the popover just stays on
+3. If the proxy already reports the magnet's info hash, the popover stays on
    the normal torrent list instead of asking to add it again.
 4. Otherwise it shows the parsed display name, info hash, size and trackers,
    and checks for an existing info hash before enabling **Send**.
-5. Category and tags are applied automatically from settings; missing ones are
-   created in the client before the torrent is added.
+5. The proxy applies its configured category and tags; missing ones are created
+   in qBittorrent before the magnet is added. The extension does not choose
+   either value.
 6. After a successful add the popover returns to the torrent list directly; the
    new torrent shows up as soon as the next refresh picks it up.
 7. Use the popover's **Add** button for pasted magnets, or in Chrome for every

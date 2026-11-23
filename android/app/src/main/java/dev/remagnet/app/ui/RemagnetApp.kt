@@ -42,8 +42,8 @@ fun RemagnetApp(viewModel: RemagnetViewModel = viewModel()) {
     val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
         val contents = result.contents
         if (!contents.isNullOrBlank()) {
-            // The settings form is where a code is reviewed before saving, so a
-            // scan from Home moves there without saving anything on its own.
+            // Settings owns code handling: pairing saves immediately, while a
+            // connect link fills the form for review.
             screen = Screen.Settings
             scanResult = contents
         }
@@ -135,12 +135,9 @@ fun RemagnetApp(viewModel: RemagnetViewModel = viewModel()) {
                 screen = Screen.Home
             },
             onSave = viewModel::save,
-            qbitStatus = state.qbitStatus,
-            checkingQbit = state.checkingQbit,
             proxyStatus = state.proxyStatus,
-            checkingProxy = state.checking,
-            onTestQbitConnection = viewModel::checkQbitConnection,
-            onTestConnection = viewModel::checkConnection,
+            checkingProxy = state.checkingProxy,
+            onTestConnection = viewModel::testConnection,
         )
     }
 

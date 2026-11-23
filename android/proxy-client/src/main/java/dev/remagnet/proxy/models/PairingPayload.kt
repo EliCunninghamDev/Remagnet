@@ -27,60 +27,32 @@ package dev.remagnet.proxy.models
 import com.google.gson.annotations.SerializedName
 
 /**
- * Plaintext inside `EncryptedPayload.data` after decryption.
+ * Plaintext inside `EncryptedPayload.data` after decryption. qBittorrent credentials are never part of this payload.
  *
- * @param version
- * @param qbitBaseUrl qBittorrent Web UI URL saved on the proxy.
- * @param authMode
- * @param proxyToken The proxy's `BRIDGE_TOKEN`, so the app can download ZIPs.
- * @param apiKey Present when `authMode` is `apiKey`.
- * @param username Present when `authMode` is `password`.
- * @param password Present when `authMode` is `password`.
+ * @param version Pairing payload version.
+ * @param proxyToken The proxy's `BRIDGE_TOKEN`, so the client can call the torrent API.
  */
 
 
 data class PairingPayload (
 
+    /* Pairing payload version. */
     @SerializedName("version")
     val version: PairingPayload.Version,
 
-    /* qBittorrent Web UI URL saved on the proxy. */
-    @SerializedName("qbitBaseUrl")
-    val qbitBaseUrl: java.net.URI,
-
-    @SerializedName("authMode")
-    val authMode: PairingPayload.AuthMode,
-
-    /* The proxy's `BRIDGE_TOKEN`, so the app can download ZIPs. */
+    /* The proxy's `BRIDGE_TOKEN`, so the client can call the torrent API. */
     @SerializedName("proxyToken")
-    val proxyToken: kotlin.String,
-
-    /* Present when `authMode` is `apiKey`. */
-    @SerializedName("apiKey")
-    val apiKey: kotlin.String? = null,
-
-    /* Present when `authMode` is `password`. */
-    @SerializedName("username")
-    val username: kotlin.String? = null,
-
-    /* Present when `authMode` is `password`. */
-    @SerializedName("password")
-    val password: kotlin.String? = null
+    val proxyToken: kotlin.String
 
 ) {
 
     /**
-     * Values: _1
+     * Pairing payload version.
+     *
+     * Values: _2
      */
     enum class Version(val value: kotlin.Int) {
-        @SerializedName(value = "1") _1(1);
-    }
-    /**
-     * Values: apiKey,password
-     */
-    enum class AuthMode(val value: kotlin.String) {
-        @SerializedName(value = "apiKey") apiKey("apiKey"),
-        @SerializedName(value = "password") password("password");
+        @SerializedName(value = "2") _2(2);
     }
 
 }

@@ -4,7 +4,6 @@ import dev.remagnet.app.client.QbitError
 import dev.remagnet.app.client.QbitResult
 import dev.remagnet.app.client.TorrentState
 import dev.remagnet.app.client.TorrentSummary
-import dev.remagnet.app.data.RemagnetSettings
 import dev.remagnet.app.magnet.MagnetLink
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -69,29 +68,21 @@ class AddMagnetStateTest {
     }
 
     @Test
-    fun theAddRequestUsesTheConfiguredDefaults() {
-        val settings = RemagnetSettings(
-            defaultCategory = "  remagnet  ",
-            defaultTags = "remagnet, linux, remagnet",
-        )
-
-        val request = addRequestFor(settings, magnet, paused = true)
+    fun theAddRequestCarriesTheMagnetAndPausedFlag() {
+        val request = addRequestFor(magnet, paused = true)
 
         assertEquals(listOf(magnet.uri), request.urls)
-        assertEquals("remagnet", request.category)
-        assertEquals(listOf("remagnet", "linux"), request.tags)
         assertTrue(request.paused)
     }
 
     @Test
-    fun blankDefaultsSendNoCategoryOrTags() {
-        val settings = RemagnetSettings(defaultCategory = "", defaultTags = "")
+    fun theAddRequestNeverIncludesCategoryOrTags() {
+        // The proxy applies its own configured defaults; the phone must not
+        // send values it cannot see.
+        val request = addRequestFor(magnet, paused = false)
 
-        val request = addRequestFor(settings, magnet, paused = false)
-
-        assertEquals("", request.category)
-        assertEquals(emptyList<String>(), request.tags)
         assertFalse(request.paused)
+        assertEquals(listOf(magnet.uri), request.urls)
     }
 
     private fun review(

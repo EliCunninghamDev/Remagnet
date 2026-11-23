@@ -11,7 +11,7 @@ WEB_DEMO_MCP="${WEB_DEMO_MCP:-web-demo-mcp}"
 bun run build
 bun demo/prepare-addon.mjs
 
-bun demo/mock-qbittorrent.ts &
+bun demo/mock-proxy.ts &
 mock_pid=$!
 trap 'kill "$mock_pid" 2>/dev/null || true' EXIT
 sleep 0.6

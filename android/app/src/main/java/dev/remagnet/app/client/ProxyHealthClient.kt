@@ -15,6 +15,7 @@ sealed interface ProxyStatus {
     data class Online(
         val appVersion: String,
         val webApiVersion: String,
+        val clientLabel: String = "",
     ) : ProxyStatus
 
     data class Unauthorized(val message: String) : ProxyStatus
@@ -88,12 +89,23 @@ class ProxyHealthClient(
 
         val body = health.body()
         if (health.isSuccessful && body != null) {
-            return ProxyStatus.Online(body.appVersion, body.webApiVersion)
+            return ProxyStatus.Online(
+                appVersion = body.appVersion,
+                webApiVersion = body.webApiVersion,
+                clientLabel = body.clientLabel,
+            )
         }
 
         if (health.code() == 401) {
             return ProxyStatus.Unauthorized(
                 errorMessage(health) ?: "The Remagnet Proxy token is missing or invalid.",
+            )
+        }
+
+        if (health.code() == 503) {
+            return ProxyStatus.QbitUnavailable(
+                errorMessage(health)
+                    ?: "The Remagnet Proxy has no qBittorrent credentials configured yet.",
             )
         }
 

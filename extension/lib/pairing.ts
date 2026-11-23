@@ -1,14 +1,7 @@
-import type { AuthMode } from "./clients/types";
-
 /** Connection details returned by a successful pairing claim. */
 export interface PairedSettings {
   proxyBaseUrl: string;
   proxyToken: string;
-  qbitBaseUrl: string;
-  authMode: AuthMode;
-  apiKey?: string;
-  username?: string;
-  password?: string;
 }
 
 export interface PairingLink {
@@ -100,31 +93,25 @@ export async function claimPairing(link: PairingLink): Promise<PairedSettings> {
     );
   }
 
-  let payload: Partial<PairedSettings> & { version?: number };
+  let payload: { version?: unknown; proxyToken?: unknown };
   try {
     payload = JSON.parse(new TextDecoder().decode(plaintext)) as typeof payload;
   } catch {
     throw new Error("The Remagnet Proxy returned unreadable connection settings.");
   }
 
-  if (
-    payload.version !== 1 ||
-    typeof payload.qbitBaseUrl !== "string" ||
-    !payload.qbitBaseUrl ||
-    typeof payload.proxyToken !== "string" ||
-    !payload.proxyToken
-  ) {
+  if (payload.version !== 2) {
+    throw new Error(
+      "This pairing response uses an unsupported version. Update the Remagnet Proxy or the extension and try again.",
+    );
+  }
+  if (typeof payload.proxyToken !== "string" || !payload.proxyToken.trim()) {
     throw new Error("The Remagnet Proxy returned incomplete connection settings.");
   }
 
   return {
     proxyBaseUrl: link.baseUrl,
-    proxyToken: payload.proxyToken,
-    qbitBaseUrl: payload.qbitBaseUrl,
-    authMode: payload.authMode === "password" ? "password" : "apiKey",
-    apiKey: clean(payload.apiKey),
-    username: clean(payload.username),
-    password: clean(payload.password),
+    proxyToken: payload.proxyToken.trim(),
   };
 }
 
@@ -152,10 +139,6 @@ function normalizeOrigin(raw: string | null): string {
   }
 
   return url.origin;
-}
-
-function clean(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value : undefined;
 }
 
 async function deriveKey(id: string, secret: Uint8Array): Promise<CryptoKey> {

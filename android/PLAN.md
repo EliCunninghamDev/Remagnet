@@ -5,10 +5,16 @@ target architecture and the order the pieces land in. Each phase is meant to
 end with something usable, tested and shippable; later phases build on it
 without leaving throwaway scaffolding behind.
 
+> **Architecture update:** Phase 4 moved the client to the proxy-only model.
+> The phone never talks to qBittorrent directly: `ProxyTorrentClient` uses the
+> Remagnet Proxy's neutral torrent API, and qBittorrent credentials plus the
+> category/tags stay on the server. Earlier phase notes below describe how the
+> code reached that point.
+
 | Phase                                           | Status      |
 | ----------------------------------------------- | ----------- |
 | 1. Settings, secure storage, onboarding, health | Implemented |
-| 2. qBittorrent client                           | Implemented |
+| 2. Torrent client (now proxy-backed)            | Implemented |
 | 3. Magnet intake and review                     | Implemented |
 | 4. Torrent list and archive downloads           | Implemented |
 | 5. Polish and release                           | Planned     |
@@ -21,15 +27,15 @@ the same torrent client the browser extension uses.
 - A magnet link opened from a browser, chat app or file manager opens
   Remagnet with the link already reviewed in a bottom sheet over the torrent
   list. The list stays visible; adding does not replace the screen.
-- Adding sends the magnet to qBittorrent with the configured category and tags.
-- The home screen lists the torrents that belong to Remagnet, shows live
+- Adding sends the magnet through the Remagnet Proxy, which applies its
+  category and tags in qBittorrent.
+- The home screen lists the torrents the proxy exposes, shows live
   progress in the same square-cell bar as the extension, and can remove a
   torrent with a keep-files or delete-files choice.
-- Completed torrents can be downloaded as a ZIP through a deployed Remagnet
-  proxy. The proxy is optional; without it, the app still adds and manages
-  torrents.
-- Onboarding can be a QR code that carries the qBittorrent and proxy
-  connection details, so nothing has to be typed on a phone keyboard.
+- Completed torrents can be downloaded as a ZIP through the proxy.
+- Onboarding is a QR code that carries the proxy URL and a one-time code, so
+  nothing has to be typed on a phone keyboard. qBittorrent credentials never
+  travel to the phone.
 
 The extension remains the primary client. Android shares its domain rules
 (magnet parsing, state labels, formatting, status colours) rather than
@@ -47,9 +53,9 @@ app/
     SecretCipher            encrypt/decrypt seam
     KeystoreSecretCipher    Android Keystore AES-256-GCM
   client/
-    QBittorrentClient       qBittorrent Web API v2 (OkHttp + Gson)
-    ProxyClient             generated Retrofit client + error mapping
-    TorrentModels           neutral models shared by the UI
+    ProxyTorrentClient     Proxy torrent API (generated Retrofit + neutral models)
+    ProxyHealthClient      Proxy and qBittorrent health through the proxy
+    TorrentModels          neutral models shared by the UI
   ui/
     RemagnetApp             navigation and intent routing
     home/                   torrent list, status, empty and error states
@@ -82,9 +88,9 @@ Rules:
   imports work without an unlock prompt.
 - A cleared Keystore or restored backup leaves orphaned ciphertext. It is
   treated as "no saved secret" and the settings screen asks for it again.
-- QR payloads contain credentials. The scanner only accepts the documented
-  `remagnet://connect` scheme and JSON object, shows what it will import, and
-  does not write anything until the user confirms.
+- QR payloads carry the proxy URL and a short-lived pairing secret. The scanner
+  only accepts the documented `remagnet://pair` and `remagnet://connect` forms,
+  shows what it will import, and does not write anything until the user confirms.
 - Release builds allow cleartext only for the emulator host and loopback, as
   the existing network security config does.
 
@@ -346,7 +352,7 @@ source, plus a passing lint, unit and UI test run.
 | ----------- | --------------------------- | -------------------------------------------------------------------- |
 | Pure Kotlin | JUnit 4                     | validation, formatting, QR parsing, state mapping, intent extraction |
 | Repository  | JUnit 4 + fake store/cipher | defaults, round-trips, corrupt ciphertext                            |
-| HTTP        | JUnit 4 + JDK HttpServer    | qBittorrent auth, add/remove, error mapping                          |
+| HTTP        | JUnit 4 + JDK HttpServer    | proxy bearer auth, torrents, archive, error mapping                  |
 | Compose     | Compose UI test             | settings validation, save, connection status                         |
 | Device      | emulator + adb              | install, intent intake, QR import, download                          |
 

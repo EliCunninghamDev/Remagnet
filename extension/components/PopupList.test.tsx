@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@solidjs/testing-library";
 import { describe, expect, test, vi } from "vitest";
-import { clientLabel, popoverTorrents } from "../gallery/fixtures";
+import { popoverTorrents, proxyBaseUrl } from "../gallery/fixtures";
 import PopupList, { type PopupListProps } from "./PopupList";
 
 function renderList(overrides: Partial<PopupListProps> = {}) {
@@ -20,11 +20,8 @@ function renderList(overrides: Partial<PopupListProps> = {}) {
       <PopupList
         torrents={popoverTorrents}
         loading={false}
-        filterActive
-        filterDescription="category 'remagnet'"
-        clientLabel={clientLabel}
-        serverLabel="https://qbt.example.com"
-        archiveReady
+        configured
+        serverLabel={proxyBaseUrl}
         {...handlers}
         {...overrides}
       />
@@ -46,6 +43,14 @@ describe("PopupList", () => {
     expect(screen.queryByText("Loading torrents…")).toBeNull();
   });
 
+  test("names the proxy in the wordmark tooltip", () => {
+    renderList();
+
+    expect(screen.getByRole("heading", { name: "Remagnet" }).getAttribute("title")).toBe(
+      `Remagnet Proxy · ${proxyBaseUrl}`,
+    );
+  });
+
   test("starts the add flow from the header", () => {
     const handlers = renderList();
     fireEvent.click(screen.getByRole("button", { name: "Add" }));
@@ -58,15 +63,24 @@ describe("PopupList", () => {
     expect(handlers.onOpenSettings).toHaveBeenCalledOnce();
   });
 
-  test("explains the active filter when the list is empty", () => {
-    renderList({ torrents: [] });
-    expect(screen.getByText(/No Remagnet torrents yet/)).toBeTruthy();
-    expect(screen.getByText(/category 'remagnet'/)).toBeTruthy();
+  test("shows the get started panel when the proxy is not configured", () => {
+    const handlers = renderList({ configured: false, torrents: [], loading: false });
+
+    expect(screen.getByRole("heading", { name: "Get started" })).toBeTruthy();
+    expect(screen.getByText(/Remagnet connects through your Remagnet Proxy/)).toBeTruthy();
+    expect(screen.queryByText("No Remagnet torrents yet. Add a magnet to see it here.")).toBeNull();
+    expect(screen.queryByText("Loading torrents…")).toBeNull();
+
+    const add = screen.getByRole("button", { name: "Add" }) as HTMLButtonElement;
+    expect(add.disabled).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open settings" }));
+    expect(handlers.onOpenSettings).toHaveBeenCalledOnce();
   });
 
-  test("uses the plain empty message when filtering is off", () => {
-    renderList({ torrents: [], filterActive: false, filterDescription: "" });
-    expect(screen.getByText("No torrents in qBittorrent.")).toBeTruthy();
+  test("keeps the empty list text concise", () => {
+    renderList({ torrents: [] });
+    expect(screen.getByText("No Remagnet torrents yet. Add a magnet to see it here.")).toBeTruthy();
   });
 
   test("shows a loading line before the first response", () => {
@@ -77,11 +91,11 @@ describe("PopupList", () => {
   test("replaces the list with a connection error and retries", () => {
     const handlers = renderList({
       torrents: [],
-      error: "Could not reach qBittorrent at https://qbt.example.com.",
+      error: "Could not reach the Remagnet Proxy at https://remagnet.example.com.",
     });
 
     expect(
-      screen.getByText("Could not reach qBittorrent at https://qbt.example.com."),
+      screen.getByText("Could not reach the Remagnet Proxy at https://remagnet.example.com."),
     ).toBeTruthy();
     expect(screen.queryByText("debian-13.8.0-amd64-netinst.iso")).toBeNull();
 

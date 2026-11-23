@@ -1,6 +1,6 @@
 # Privacy policy
 
-**Last updated: 22 November 2026**
+**Last updated: 23 November 2026**
 
 Remagnet is a local-first browser extension, Android app, and self-hosted proxy.
 The project operates no accounts, no analytics, no telemetry, no advertising, and
@@ -14,11 +14,12 @@ entered them.
 
 ### Browser extension
 
-- The torrent client URL, username, default category and tags, and the Remagnet
-  Proxy URL are kept in the extension's local storage.
-- The client API key or password and the Remagnet Proxy token are encrypted with
-  AES-GCM before they are written to storage. The key is generated on first use,
-  marked non-extractable, and kept in the extension's own IndexedDB.
+- The Remagnet Proxy URL is kept in the extension's local storage. The proxy
+  token is encrypted with AES-GCM before it is written to storage. The key is
+  generated on first use, marked non-extractable, and kept in the extension's own
+  IndexedDB.
+- The extension stores no qBittorrent URL, username, API key, password, category
+  or tags. Those live only on the Remagnet Proxy.
 - Settings stay in that browser profile. They are not synced to a Remagnet
   service.
 - On Chrome, a content script runs on pages so the magnet context-menu item can
@@ -29,29 +30,33 @@ entered them.
 ### Android app
 
 - Settings are stored in the app's private storage.
-- Secrets (the client API key or password and the Remagnet Proxy token) are
-  encrypted with a key held by the Android Keystore.
+- The Remagnet Proxy token is encrypted with a key held by the Android Keystore.
+  The proxy URL stays readable so the settings screen can render.
+- The app stores no qBittorrent URL, username, API key, password, category or
+  tags. Those live only on the Remagnet Proxy.
 - Pairing codes and scanned QR contents are used in memory and are not saved.
   A successful pairing fills the settings form for you to review before saving.
 
 ### Remagnet Proxy
 
 - The proxy keeps `config.json` in its data directory on **your** server. It
-  contains the qBittorrent Web UI URL and whichever credentials you saved.
+  contains the qBittorrent Web UI URL and whichever qBittorrent credentials you
+  saved, along with the category/tags applied to Remagnet magnets.
 - Files are streamed from qBittorrent to your device as a ZIP and are not copied
   or retained by the proxy.
 - Pairing sessions exist only in memory, expire after 60 seconds, are single-use,
-  and are discarded when the proxy restarts. The pairing code itself is never
-  written to disk or included in request logs.
+  and are discarded when the proxy restarts. The pairing payload carries only the
+  proxy URL and token, never qBittorrent credentials. The pairing code itself is
+  never written to disk or included in request logs.
 - The proxy does not log request or response bodies. Its default logs contain
   service startup and shutdown messages; enabling verbose tracing adds ordinary
   request metadata such as method, path, and status.
 
 ## Network connections
 
-The extension and the Android app connect only to the torrent client and, if you
-configure one, the Remagnet Proxy URL that you provide. The proxy connects only to
-the qBittorrent URL that you provide. There are no update checks, crash reports,
+The extension and the Android app connect only to the Remagnet Proxy URL you
+provide. The proxy is the only component that connects to qBittorrent, using the
+URL and credentials you gave it. There are no update checks, crash reports,
 remote configuration, or content requests to the project.
 
 Outbound links to GitHub and Ko-fi open in your browser and are governed by those
@@ -60,15 +65,15 @@ identifiers in those links.
 
 ## Permissions
 
-- **Extension storage** keeps the settings described above.
+- **Extension storage** keeps the proxy URL and encrypted token described above.
 - **Downloads** saves torrent files and completed ZIP downloads.
 - **Host access** to websites is declared in Chrome so the magnet context menu can
   tell whether the pointer is over a magnet link. It only inspects the hovered
-  link. Access used to call the torrent client and proxy is optional and
-  requested only for the origins you enter.
+  link. Access used to call the Remagnet Proxy is optional and requested only for
+  the proxy origin you enter.
 - **Camera** (Android) is used only while you are scanning a pairing QR code.
 - **Notifications** (Android) reports magnet additions and download progress.
-- **Network access** (Android) reaches your torrent client and proxy.
+- **Network access** (Android) reaches your Remagnet Proxy.
 
 Remagnet does not use this access to build a history, profile you, or request
 access to unrelated services.

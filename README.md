@@ -10,12 +10,14 @@
 A torrent forwarding and download proxy for Firefox, Chrome, and Android.
 
 Firefox handles magnet links through a `magnet:` protocol handler. Chrome adds a
-context menu item on magnet links. The Android client is being built around a
-system-wide link handler.
+context menu item on magnet links. The Android client handles magnet links
+system-wide.
 
-Remagnet talks to your torrent client directly with an API key, or through a
-token-secured proxy that zips completed torrents. Android client onboarding uses
-a QR code.
+Clients talk only to the **Remagnet Proxy**, a small self-hosted service that is
+the sole adapter between Remagnet and qBittorrent. The proxy owns the qBittorrent
+Web UI credentials and the category/tags that mark Remagnet torrents; the
+extension and Android app store only the proxy URL and token. Android onboarding
+uses a QR code.
 
 <p align="center">
   <img src="docs/remagnet-demo.gif" alt="Right-clicking a magnet link on The ISO Bay in Chrome, sending it to qBittorrent through Remagnet, then downloading the finished torrent as a ZIP" width="800">
@@ -28,16 +30,17 @@ a QR code.
 
 ## Quick start
 
-Remagnet has three pieces: the browser extension or Android app, qBittorrent,
-and an optional **Remagnet Proxy**. The proxy is a small Docker service that
-streams completed torrents to the client as ZIP files. Magnet forwarding works
-without it; deploy it when you want the Download action.
+Remagnet has three pieces: the browser extension or Android app, the
+**Remagnet Proxy**, and qBittorrent. The proxy is required: it adds magnets,
+lists and removes the torrents Remagnet owns, and streams completed torrents as
+ZIP files. Clients never talk to qBittorrent directly, so qBittorrent does not
+need to be exposed outside its Docker network or the host.
 
 ### 1. Prepare qBittorrent
 
 Enable the Web UI and generate an API key under **Preferences → Web UI → API
-Key** (qBittorrent 5.2 or newer). Note the Web UI URL; Remagnet talks to
-qBittorrent directly for everything except ZIP downloads.
+Key** (qBittorrent 5.2 or newer). Note the Web UI URL reachable from the proxy;
+only the proxy connects to it.
 
 ### 2. Deploy Remagnet Proxy
 
@@ -73,7 +76,17 @@ BRIDGE_TOKEN=replace-with-32-bytes-of-hex
 # Where the proxy reaches qBittorrent's Web UI. If qBittorrent is another
 # Compose service, use its service name and a shared network instead.
 QBIT_BASE_URL=http://host.docker.internal:8080
+
+# Optional: the proxy stores these on first boot, then the config page owns
+# them. Leaving the API key blank lets you finish setup in the web UI.
 QBIT_API_KEY=qbt_replace_with_your_key
+QBIT_USERNAME=
+QBIT_PASSWORD=
+
+# Category and tags that mark torrents as Remagnet's. The proxy applies both to
+# every magnet and uses them to decide which torrents it lists and removes.
+REMAGNET_CATEGORY=remagnet
+REMAGNET_TAGS=remagnet
 ```
 
 Start the service:
@@ -97,26 +110,24 @@ docker compose up -d --build
 Open `http://<docker-host>:8080` and paste the same `BRIDGE_TOKEN`. That field
 only unlocks the proxy's own settings page; it is not a second password. Point
 the proxy at qBittorrent with the Web UI URL and API key, then choose **Test
-connection**.
+connection**. The proxy boots without qBittorrent credentials, so this page is
+also where you can finish setup if `.env` left them blank.
 
 ### 4. Connect Remagnet
 
-In the extension's **Settings → Remagnet Proxy**, enter the proxy origin (for
-example `https://remagnet.example.com`) and the same token. The Download action
-on completed torrents stays disabled until both fields are saved.
+Pair the extension from the proxy page: choose **Copy link** in the **Pair a
+device** panel and paste it into **Settings → Remagnet Proxy → Pairing code**.
+The link fills in the proxy URL and token; the extension never receives
+qBittorrent credentials.
 
-For Android, open the **Remagnet Proxy** page (the URL you deployed in step 2)
-and choose **Show QR code**, then scan it from the app. The phone claims a
-one-time code from the proxy and receives the qBittorrent connection and proxy
-token that are saved on the proxy server. The code rotates every minute and
-works once, so keep it private. Pairing needs an HTTPS proxy origin; you can also
-enter the values under **Settings**, or import a `remagnet://connect` code with
-the QR scanner or paste box.
+For Android, scan the panel's rotating QR code from the app. The phone claims a
+one-time code and stores the same proxy URL and token. The code rotates every
+minute and works once, so keep it private. Pairing needs an HTTPS proxy origin;
+you can also enter the URL and token under **Settings**.
 
-The same page's **Copy link** button produces a pairing link. Paste it into the
-extension's **Remagnet Proxy → Pairing code** field to fill in the proxy URL,
-token, and qBittorrent connection without typing them. A code is single-use, so
-copy a fresh one for each device.
+The proxy owns the category/tags applied to magnets and the filter used by every
+client. A paired device therefore adds and removes only the torrents the proxy
+considers Remagnet's, and qBittorrent credentials stay on the proxy.
 
 Expose the proxy over HTTPS before using it from another machine. A minimal
 Caddy route for the Compose setup in this repository looks like:
@@ -137,7 +148,6 @@ extension/            Firefox and Chrome extension (WXT, SolidJS)
 proxy/                Rust/axum service, OpenAPI contract, ZIP streaming
 android/              Android client (Kotlin, Jetpack Compose)
 packages/
-  qbittorrent/        Typed qBittorrent Web API v2 client
   proxy-client/       TypeScript client generated from the proxy contract
 demo/                 Scripted demo recording
 docs/                 Banner and demo media
@@ -154,17 +164,18 @@ bun run dev:firefox   # Firefox is the primary target
 ```
 
 Firefox starts with the extension installed and keeps its settings in
-`extension/.dev/firefox-profile/`. On the options page, choose the client, enter
-the qBittorrent Web UI URL and authentication, set the default category and
-tags, then grant access to the qBittorrent origin. The popup shows only
-torrents matching those defaults, so a shared qBittorrent instance does not
-bury Remagnet's magnets under the rest of the library.
+`extension/.dev/firefox-profile/`. Pair the extension from your proxy page, or
+enter the proxy URL and token on the options page, then grant access to that
+origin. The popup shows only the torrents the proxy exposes, so a shared
+qBittorrent instance does not bury Remagnet's magnets under the rest of the
+library. Category, tags and qBittorrent credentials are configured on the proxy.
 
 ## OpenAPI Spec
 
 [`proxy/openapi.yaml`](proxy/openapi.yaml) is the contract for every client that
 speaks to the proxy. It is OpenAPI 3.1 and covers both authentication styles,
-the config and health endpoints, the archive stream and each error status.
+health and configuration, the torrent endpoints, pairing, the archive stream and
+each error status.
 
 The TypeScript and Kotlin clients are generated from it, not maintained by hand:
 
@@ -204,13 +215,12 @@ handler, so a magnet click opens the review popover and leaves the current page
 in place. Chrome has no extension protocol handlers, so it uses a right-click
 menu item that appears only on magnet links, plus the popover's **Add** button.
 
-The background worker is the only context that talks to a torrent client.
+The background worker is the only context that talks to the Remagnet Proxy.
 Popup, add and options pages send typed messages to it (`lib/messages.ts`,
-`lib/torrent-service.ts`). Adapters under `lib/clients/` map the client onto
-neutral types, while the UI reads only the static catalog, so client SDKs stay
-out of page bundles. qBittorrent is the bundled adapter; another client needs a
-`ClientKind`, a catalog entry and an adapter registered in
-`lib/clients/index.ts`.
+`lib/torrent-service.ts`). That service uses `@remagnet/proxy-client`, whose
+types are generated from `proxy/openapi.yaml`; there is no local torrent-client
+adapter, and qBittorrent credentials never reach the browser. The extension
+requests host access to one origin, the configured proxy.
 
 The toolbar popover is the main UI. Each row is a name, a 3-block tile bar, live
 stats, and inline **Download** and remove actions. The percentage is a tile-font
@@ -244,24 +254,34 @@ build to include it for review against an installed extension. Component tests
 
 ## Proxy - Rust / Axum
 
-`proxy/` reads files from qBittorrent's Web API and streams a completed torrent
-to the browser as a ZIP, so it needs neither the downloads volume nor temporary
-disk space.
+`proxy/` is the only component that talks to qBittorrent. It owns the Web UI
+credentials and the category/tags applied to Remagnet magnets, exposes neutral
+torrent endpoints to the clients, and streams a completed torrent as a ZIP. It
+reads files from qBittorrent's Web API, so it needs neither the downloads volume
+nor temporary disk space.
 
-| Endpoint             | Auth   | Purpose                                    |
-| -------------------- | ------ | ------------------------------------------ |
-| `GET /`              | none   | Config page for the qBittorrent connection |
-| `GET /healthz`       | none   | Liveness probe                             |
-| `GET /api/health`    | bearer | Test the saved qBittorrent connection      |
-| `GET /api/config`    | bearer | Read non-secret settings                   |
-| `PUT /api/config`    | bearer | Update the qBittorrent URL and credentials |
-| `GET /archive/:hash` | bearer | Stream a completed torrent as a ZIP        |
+| Endpoint                     | Auth   | Purpose                                               |
+| ---------------------------- | ------ | ----------------------------------------------------- |
+| `GET /`                      | none   | Config page for the qBittorrent connection            |
+| `GET /healthz`               | none   | Liveness probe                                        |
+| `GET /api/health`            | bearer | Proxy capabilities, defaults and qBittorrent versions |
+| `GET /api/config`            | bearer | Read non-secret settings                              |
+| `PUT /api/config`            | bearer | Update qBittorrent credentials and magnet defaults    |
+| `GET /api/torrents`          | bearer | List torrents owned by Remagnet                       |
+| `POST /api/torrents`         | bearer | Add magnets with the configured category/tags         |
+| `GET /api/torrents/:hash`    | bearer | Read one torrent, unfiltered                          |
+| `DELETE /api/torrents/:hash` | bearer | Remove a Remagnet-owned torrent                       |
+| `POST /api/pair`             | bearer | Mint a short-lived device pairing code                |
+| `POST /api/pair/claim`       | none   | Claim a code; returns encrypted proxy token           |
+| `GET /archive/:hash`         | bearer | Stream a completed torrent as a ZIP                   |
 
 `Authorization: Bearer <BRIDGE_TOKEN>` is preferred; `?token=` is a fallback for
-browsers whose download API cannot attach headers. Only complete torrents are
-served. Entries are stored uncompressed (media files do not benefit from ZIP
-deflation), and a failed upstream stream aborts the response so the browser
-cannot save a truncated archive.
+browsers whose download API cannot attach headers. `GET /api/torrents` filters
+by the configured category/tags, `POST /api/torrents` always applies them, and
+`DELETE /api/torrents/:hash` refuses torrents outside that filter. Only complete
+torrents are served as ZIPs. Entries are stored uncompressed (media files do not
+benefit from ZIP deflation), and a failed upstream stream aborts the response so
+the browser cannot save a truncated archive.
 
 ```bash
 cd proxy
@@ -270,12 +290,14 @@ cargo run                   # http://127.0.0.1:8080/
 ```
 
 `BRIDGE_TOKEN` must be at least 16 characters. `QBIT_BASE_URL`, `QBIT_API_KEY`
-or `QBIT_USERNAME`/`QBIT_PASSWORD`, `DATA_DIR` and `BIND_ADDR` configure the
-service. The first boot writes `config.json` (mode `0600`) from the environment;
-subsequent changes come from the config page and survive restarts. Deploy behind
-an HTTPS reverse proxy, then enter that URL and the same token under **Settings
-→ Remagnet Proxy** in the extension. A compose file is included for the
-shared `media` network.
+or `QBIT_USERNAME`/`QBIT_PASSWORD`, `REMAGNET_CATEGORY`, `REMAGNET_TAGS`,
+`DATA_DIR` and `BIND_ADDR` configure the service. The proxy starts without
+qBittorrent credentials and answers the torrent and archive endpoints with `503`
+until they are saved. The first boot writes `config.json` (mode `0600`) from the
+environment; subsequent changes come from the config page and survive restarts.
+Deploy behind an HTTPS reverse proxy, then pair the extension or enter that URL
+and the same token under **Settings → Remagnet Proxy**. A compose file is
+included for the shared `media` network.
 
 The crate, binary, Docker image and container keep the historical
 `remagnet-bridge` name, as does the token variable, so existing deployments and
@@ -284,17 +306,16 @@ for deployment, configuration and tests.
 
 ## Android Client - Kotlin
 
-`android/` builds the Kotlin + Jetpack Compose client. The first three phases
-provide the connection settings screen, QR code import, credential storage
-encrypted by the Android Keystore, and a direct qBittorrent Web API client for
-listing, adding and removing torrents with API-key or cookie authentication.
-Magnets arrive through `VIEW magnet:` links or shared text and open a review
-sheet over the home screen, with duplicate detection, category/tag defaults and
-pause-on-add. The magnet parser mirrors the extension's semantics, and
-`ProxyApi` configures the generated Retrofit client with a proxy URL and bearer
-token. `:proxy-client` holds the generated proxy sources; the archive endpoint
-is a streaming response, so downloads stream to disk instead of buffering the ZIP
-in memory.
+`android/` builds the Kotlin + Jetpack Compose client. It is proxy-only: the
+settings screen stores the Remagnet Proxy URL and token, `ProxyTorrentClient`
+implements listing, lookup, add and remove through the proxy's neutral torrent
+API, and `ProxyApi` configures the generated Retrofit client with the bearer
+token. Magnets arrive through `VIEW magnet:` links or shared text and open a
+review sheet over the home screen, with duplicate detection, the proxy's
+category/tag defaults and pause-on-add. The magnet parser mirrors the
+extension's semantics. `:proxy-client` holds the generated proxy sources; the
+archive endpoint is a streaming response, so downloads stream to disk instead of
+buffering the ZIP in memory.
 
 ```bash
 bun run android:build                 # ./gradlew :app:assembleDebug
@@ -384,44 +405,17 @@ The source is licensed under the [Apache License 2.0](LICENSE).
 
 ## qBittorrent notes
 
-- The client targets the qBittorrent Web API v2 (`/api/v2`), supported by
+- The proxy targets the qBittorrent Web API v2 (`/api/v2`), supported by
   qBittorrent 4.1+.
 - API key auth requires qBittorrent 5.2+ (Web API 2.14.1+). API keys cannot call
-  `auth/login` or `auth/logout`, so the client skips them.
-- In the extension, password authentication uses the browser cookie store, so
-  the extension needs host access to the qBittorrent origin. Grant it on the
-  options page.
-- Some qBittorrent versions apply CSRF/Referer checks to the Web UI API. If
-  requests are rejected, enable "Bypass authentication for clients on localhost"
-  or add the extension origin to the Web UI's trusted sources.
-- API key, password and Remagnet Proxy token are encrypted with an AES-GCM key that
-  JavaScript cannot export before they are written to `browser.storage.local`.
-  Extension pages and the background worker decrypt them on demand; web page
-  content cannot read the key or the plaintext. Prefer an API key or a
-  dedicated qBittorrent user with limited permissions.
-
-## Package usage
-
-```ts
-import { QBittorrentClient } from "@remagnet/qbittorrent";
-
-// Preferred: qBittorrent 5.2+ API key (stateless).
-const qbt = new QBittorrentClient({
-  baseUrl: "http://127.0.0.1:8080",
-  apiKey: "qbt_...",
-});
-
-// Legacy: username/password cookie auth.
-const legacy = new QBittorrentClient({
-  baseUrl: "http://127.0.0.1:8080",
-  username: "admin",
-  password: "adminadmin",
-});
-
-await qbt.login(); // no-op for API keys
-const torrents = await qbt.getTorrents({ filter: "downloading" });
-await qbt.addTorrent({ urls: "magnet:?xt=urn:btih:..." });
-```
-
-See [`packages/qbittorrent/README.md`](packages/qbittorrent/README.md) for the
-full API surface.
+  `auth/login` or `auth/logout`, so the proxy skips them.
+- qBittorrent only needs to be reachable from the proxy. It does not need to be
+  exposed outside the Docker network or host, and browser CSRF/cookie rules no
+  longer apply because requests are server-to-server.
+- The proxy owns the category/tags applied to new magnets and the filter used by
+  every client. Clients cannot override them, and only matching torrents can be
+  listed as Remagnet's or removed.
+- qBittorrent credentials live only on the proxy, in `config.json` with mode
+  `0600`. The extension and Android app store only the proxy token, encrypted
+  with a non-exportable key (AES-GCM in the extension, Android Keystore on the
+  phone).

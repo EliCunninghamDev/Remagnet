@@ -1,9 +1,10 @@
 # Remagnet for Android
 
-Kotlin/Jetpack Compose client for Android. The finished app will handle magnet
-links, add them to qBittorrent with the same category and tag rules as the
-browser extension, and download completed torrents as ZIPs through a Remagnet
-proxy.
+Kotlin/Jetpack Compose client for Android. It handles magnet links and talks
+only to the Remagnet Proxy, which adds, lists and removes torrents in qBittorrent
+and streams completed torrents as ZIPs. The proxy owns the qBittorrent
+credentials and the category/tags that mark Remagnet torrents; the phone stores
+only the proxy URL and token.
 
 The build is landing in phases. [`PLAN.md`](PLAN.md) is the full plan, including
 CI and release signing; this README covers what is implemented today.
@@ -12,33 +13,35 @@ CI and release signing; this README covers what is implemented today.
 
 Phases 1-4 are complete:
 
-- A connection screen for qBittorrent and the optional Remagnet Proxy.
-- Settings that validate URLs, authentication and the Remagnet Proxy pair before
-  saving.
-- Encrypted credential storage using the Android Keystore.
-- QR import for `remagnet://connect` links and JSON connect codes, with a paste
-  fallback for devices without a camera.
-- Mobile pairing from rotating `remagnet://pair` codes: claims the code from the
-  proxy, decrypts the connection payload, and fills the form for review.
-- A direct qBittorrent Web API client with API-key and cookie authentication,
-  torrent listing and lookup, add and remove, and category/tag creation.
-- Neutral torrent models, qBittorrent state normalization and the same
-  category/tag filter the extension uses.
-- A Remagnet Proxy health check that distinguishes an unreachable proxy, a bad
-  token and a proxy whose own qBittorrent connection is failing.
-- The settings screen tests qBittorrent directly and reports its version without
-  involving the Remagnet Proxy.
+- A single connection screen for the Remagnet Proxy URL and token.
+- Settings validation, with the same URL and token checks as the browser
+  extension, before anything is saved.
+- Encrypted proxy-token storage using the Android Keystore; the URL stays
+  readable so settings can render.
+- One-step `remagnet://pair` v2 onboarding: scan the rotating code, claim it from
+  the proxy, decrypt the payload, and save the proxy URL and token. A paste
+  fallback covers devices without a camera.
+- QR import for `remagnet://connect` links and JSON codes carrying a proxy URL
+  and token, with a review step before saving.
+- `ProxyTorrentClient`, a generated-Retrofit adapter for the proxy's neutral
+  torrent API: health, list, lookup, add and remove. There is no direct
+  qBittorrent client in the app.
+- Neutral torrent models and proxy state normalization. The proxy applies and
+  filters by category/tags, so the app has no local category or tag settings.
+- A proxy health check that distinguishes an unreachable proxy, a bad token and
+  a proxy whose own qBittorrent connection is failing.
 - Magnet intake from `VIEW magnet:` links and shared `text/plain` text, with a
   review sheet over the home screen.
-- Duplicate detection, category and tag defaults, pause-on-add, and retry after
-  a rejected or failed add.
+- Duplicate detection through the proxy, the proxy-owned category/tag defaults,
+  pause-on-add, and retry after a rejected or failed add.
 - Intent and draft state kept in saved state, so a review survives rotation and
   process death.
 - A torrent list with the shared square-cell bar, percentage counter, state
   colors and live stats, refreshed only while the home screen is visible.
-- Removal with keep-files and delete-files choices.
-- ZIP downloads through the Remagnet Proxy in a foreground service, with a live
-  notification and cancel and retry actions.
+- Removal with keep-files and delete-files choices through the proxy.
+- Always-available ZIP downloads for completed torrents in a foreground service,
+  with a live notification and cancel and retry actions. Both the proxy URL and
+  token are required, so a configured app can always download.
 - Bundled Geist Mono and Departure Mono, so Android matches the browser
   clients.
 
@@ -48,7 +51,7 @@ android/
   app/src/main/java/dev/remagnet/app/
     MainActivity.kt        Entry point and Compose host
     data/                  Settings, encrypted storage, onboarding payloads
-    client/                qBittorrent client, proxy health, neutral models
+    client/                ProxyTorrentClient, proxy health, neutral models
     magnet/                Magnet parser, intent extraction, VIEW/SEND intake
     download/              Archive streaming service, naming and notifications
     proxy/ProxyApi.kt      Configures the generated Retrofit client
@@ -62,52 +65,47 @@ android/
 
 ## Settings
 
-The settings screen accepts:
+The settings screen accepts only the proxy connection:
 
-| Setting                      | Notes                                                      |
-| ---------------------------- | ---------------------------------------------------------- |
-| qBittorrent Web UI URL       | `http://` or `https://`, no credentials, query or fragment |
-| Authentication               | qBittorrent 5.2+ API key, or username and password         |
-| Category / tags              | Defaults for new magnets                                   |
-| Remagnet Proxy URL and token | Optional; both blank disables ZIP downloads                |
+| Setting              | Notes                                                          |
+| -------------------- | -------------------------------------------------------------- |
+| Remagnet Proxy URL   | `http://` or `https://`, no credentials, query or fragment     |
+| Remagnet Proxy token | At least 16 characters; encrypted before it is written to disk |
 
-The default qBittorrent URL is `http://127.0.0.1:8080`, matching the
-extension. Inside the emulator, use `http://10.0.2.2:8080` to reach a service on
-the host. A deployed instance normally uses an HTTPS URL.
+Both fields are required. There is no qBittorrent URL, API key, password,
+category or tags on the device: those are configured on the proxy, which applies
+its category/tag defaults to every add and uses them to filter list and remove
+requests.
 
-Saving validates the whole form, writes the settings, and immediately refreshes
-the torrent list and checks qBittorrent and the Remagnet Proxy when either is
-configured. The home screen lists torrents, while the connection form and its
-status are part of the settings screen.
+Inside the emulator, use `http://10.0.2.2:8080` to reach a proxy on the host. A
+deployed instance normally uses an HTTPS URL. Saving validates the whole form,
+writes the settings, and immediately refreshes the torrent list and checks the
+proxy. The home screen lists torrents, while the connection form and its status
+are part of the settings screen.
 
-## qBittorrent client
+## Proxy client
 
-`client/QBittorrentClient.kt` implements the Web API subset the app needs
-against OkHttp:
+`client/ProxyTorrentClient.kt` implements the app's torrent contract against the
+generated Retrofit client:
 
-| Operation     | Endpoint                                |
-| ------------- | --------------------------------------- |
-| Versions      | `app/version`, `app/webapiVersion`      |
-| List / lookup | `torrents/info` (`sort=added_on`)       |
-| Add           | `torrents/add`                          |
-| Remove        | `torrents/delete`                       |
-| Categories    | `torrents/categories`, `createCategory` |
-| Tags          | `torrents/tags`, `createTags`           |
+| Operation    | Proxy endpoint                |
+| ------------ | ----------------------------- |
+| Health       | `GET /api/health`             |
+| List         | `GET /api/torrents`           |
+| Lookup       | `GET /api/torrents/{hash}`    |
+| Add          | `POST /api/torrents`          |
+| Remove       | `DELETE /api/torrents/{hash}` |
+| Download ZIP | `GET /archive/{hash}`         |
 
-An API key is sent as `Authorization: Bearer <key>`. Username/password auth
-posts to `auth/login`, keeps the `SID` cookie, and retries a request once after
-a 401 or 403 so an expired session recovers on its own. Requests include a
-same-origin `Referer`, which qBittorrent's CSRF protection expects from a
-non-browser client.
+The bearer token is attached by `ProxyApi` through the generated `bearerAuth`
+interceptor. Every method returns `QbitResult`: `Success` with a neutral model,
+or `Failure` with a typed `QbitError` (invalid settings, unauthorized,
+unreachable, HTTP, rejected torrent, unreadable response). Screens render those
+states directly; there is no spinner that can hang.
 
-Every method returns `QbitResult`: `Success` with a neutral model, or `Failure`
-with a typed `QbitError` (invalid settings, unauthorized, unreachable, HTTP,
-rejected torrent, unreadable response). Screens render those states directly;
-there is no spinner that can hang.
-
-Adding a torrent creates the configured category and tags first when they are
-missing. The add form sends both `paused` and `stopped` so the same request
-works with qBittorrent 4.x and 5.x.
+The proxy applies its category and tags when a magnet is added, creates missing
+ones in qBittorrent, and refuses to remove torrents outside that filter. The app
+never sends category or tag values and never sees qBittorrent credentials.
 
 ## Magnet intake and review
 
@@ -133,16 +131,16 @@ tracker-host helpers.
 The review sheet is a Material 3 modal over the home screen:
 
 - It shows the display name, info hash, size, tracker hosts and web-seed count.
-- It asks qBittorrent for the hash before enabling **Send**. An existing torrent
-  is named in the warning and blocks the add. A lookup failure still allows the
+- It asks the proxy for the hash before enabling **Send**. An existing torrent is
+  named in the warning and blocks the add. A lookup failure still allows the
   attempt and explains that duplicates could not be checked.
-- The configured category and tags are shown and applied, and **Add paused**
+- The proxy's category and tags are shown and applied by the proxy; **Add paused**
   sends the torrent stopped.
 - A rejected or failed add keeps the magnet and its settings in the sheet, with
   the error visible. Pressing **Send** again retries the same link.
 - A successful add shows the name, category and tags, with **Add another** and
   **Done** actions.
-- With qBittorrent unconfigured, the link can still be reviewed; sending is
+- With the proxy unconfigured, the link can still be reviewed; sending is
   blocked and **Open settings** goes straight to the connection form.
 
 A pending magnet, the paused choice and an unsent paste draft live in
@@ -153,27 +151,28 @@ home screen opens the same sheet in paste mode.
 
 ## Torrent list and archive downloads
 
-The home screen lists the torrents that match the configured category and tag.
-Each row splits a long name so the extension stays visible, draws the same
-square-cell progress bar as the extension, and shows the percentage counter,
-state color and live transfer stats. Rows cover downloading, stalled, queued,
-checking, moving, seeding, stopped, error and missing-file states; unknown
-future states render neutrally instead of failing.
+The home screen lists the torrents the proxy exposes. Each row splits a long
+name so the extension stays visible, draws the same square-cell progress bar as
+the extension, and shows the percentage counter, state color and live transfer
+stats. Rows cover downloading, stalled, queued, checking, moving, seeding,
+stopped, error and missing-file states; unknown future states render neutrally
+instead of failing.
 
 The list refreshes every five seconds while Home is resumed. Navigating to
 Settings, switching apps or locking the phone cancels the current request and
-stops the loop, so Remagnet does not poll qBittorrent in the background.
-`Retry` appears when the last refresh failed, and the previous rows stay on
-screen instead of being replaced by an error page.
+stops the loop, so Remagnet does not poll the proxy in the background. `Retry`
+appears when the last refresh failed, and the previous rows stay on screen
+instead of being replaced by an error page.
 
 Pressing **Remove** expands a confirmation in the row with **Keep files** and
 **Delete files**. Removal is refused while that torrent's own archive is
-downloading.
+downloading, and the proxy refuses the request for torrents outside its
+configured category/tags.
 
-Completed rows that match the Remagnet Proxy settings get a **Download** action. The
-archive is streamed from `GET /archive/<hash>` by a foreground service, which
-keeps the bearer token in a header and reports bytes and speed. The in-app row
-and the notification both track the same state:
+Completed rows get an always-enabled **Download** action, because the proxy is
+the app's only connection. The archive is streamed from `GET /archive/<hash>` by
+a foreground service, which keeps the bearer token in a header and reports bytes
+and speed. The in-app row and the notification both track the same state:
 
 - Progress is determinate against the torrent size and smoothed over recent
   samples. The Remagnet Proxy streams ZIPs without `Content-Length`, so an
@@ -197,37 +196,32 @@ declines, but progress is only visible inside the app.
 
 ## QR onboarding
 
-There are two code forms. The Remagnet Proxy page's **Pair a device** panel
-displays a `remagnet://pair` code minted by the proxy. The code rotates every
-minute, works once, and carries only the proxy URL and a short-lived secret. When
-the app scans it, it claims the session and receives the qBittorrent URL,
-credentials and proxy token that the proxy has saved, encrypted with a key
-derived from the scanned code. Pairing requires an HTTPS proxy origin.
+The primary code is minted by the Remagnet Proxy page's **Pair a device** panel
+as a `remagnet://pair` code. The code rotates every minute, works once, and
+carries only the proxy URL and a short-lived secret. When the app scans it, it
+claims the session and receives a pairing v2 payload encrypted with a key
+derived from the scanned code. The decrypted payload is `{ version: 2,
+proxyToken }`: the phone gets the proxy URL and token, while qBittorrent
+credentials and category/tags stay on the proxy. Pairing requires an HTTPS proxy
+origin.
 
 The same link can configure the extension instead: paste it into the extension's
 **Remagnet Proxy → Pairing code** field. A code is single-use, so copy a fresh one
 for each device.
 
 A `remagnet://connect` code remains available for manually generated codes and
-for the paste box. It can carry the connection, the proxy pair, or both:
+for the paste box. It can carry the proxy URL, token, or both:
 
 ```
-remagnet://connect?qbit=https%3A%2F%2Fqbt.example.com&apiKey=...&proxy=https%3A%2F%2Fremagnet.example.com&token=...
+remagnet://connect?proxy=https%3A%2F%2Fremagnet.example.com&token=...
 ```
 
 Recognised connect query keys:
 
-| Purpose         | Keys                                                |
-| --------------- | --------------------------------------------------- |
-| qBittorrent URL | `qbit`, `qbitUrl`, `qbitBaseUrl`, `qbittorrent`     |
-| API key         | `apiKey`, `qbitApiKey`, `key`                       |
-| Username        | `username`, `qbitUsername`, `user`                  |
-| Password        | `password`, `qbitPassword`, `pass`                  |
-| Auth mode       | `auth`, `authMode` (`apiKey` or `password`)         |
-| Category        | `category`, `defaultCategory`                       |
-| Tags            | `tags`, `defaultTags`                               |
-| Proxy URL       | `proxy`, `proxyUrl`, `archive`, `archiveUrl`, `url` |
-| Proxy token     | `token`, `proxyToken`, `archiveToken`               |
+| Purpose     | Keys                       |
+| ----------- | -------------------------- |
+| Proxy URL   | `proxy`, `proxyUrl`, `url` |
+| Proxy token | `token`, `proxyToken`      |
 
 The pairing form is:
 
@@ -254,14 +248,14 @@ also the path used in emulator tests.
 
 ## Security
 
-Credentials are encrypted with an AES-256-GCM key generated inside the Android
-Keystore. The key is non-exportable and is not tied to biometrics or a PIN, so
-background health checks work without an unlock prompt.
+The proxy token is encrypted with an AES-256-GCM key generated inside the
+Android Keystore. The key is non-exportable and is not tied to biometrics or a
+PIN, so background health checks work without an unlock prompt.
 
-Public values (URLs, auth mode, username, category, tags) stay readable in
-SharedPreferences so the settings screen can render without decrypting
-anything. The API key, password and Remagnet Proxy token are stored only as
-ciphertext in one encrypted JSON value.
+The proxy URL stays readable in SharedPreferences so the settings screen can
+render without decrypting anything. The Remagnet Proxy token is stored only as
+ciphertext in one encrypted JSON value. The app has no qBittorrent URL,
+username, password or API key to store: those remain on the proxy.
 
 If the Keystore key is lost (a cleared app, a restored backup, a reset device),
 the app treats the ciphertext as absent, removes it, and asks for the secret
@@ -340,17 +334,16 @@ bun run android:test
 ```
 
 Unit tests cover settings validation, encrypted storage round-trips, corrupt
-ciphertext recovery, QR parsing, settings merging, proxy error mapping,
-qBittorrent state and filter rules, and the qBittorrent client against an
-in-process HTTP server. That server exercises API-key and cookie auth,
-re-login after an expired session, list and lookup, category/tag creation, add,
-remove, rejected magnets and malformed responses. Magnet tests cover hex and
-base32 hashes, web seeds, wrapped shared text, `VIEW` and `SEND` intake,
-duplicate-state mapping, add-request defaults and byte formatting. Phase 4 adds
-tests for the shared tile-bar geometry and counter, archive file naming and
-unique suffixes, `Content-Disposition` parsing, proxy error messages, smoothed
-download speed, download state transitions, ETA formatting and long-name
-splitting. They run on the JVM and do not need an emulator.
+ciphertext recovery, QR parsing, settings merging, pairing decryption, proxy
+error mapping, and `ProxyTorrentClient` against an in-process HTTP server. That
+server exercises bearer auth, health, list and lookup, add, remove, rejected
+magnets and malformed responses. Magnet tests cover hex and base32 hashes, web
+seeds, wrapped shared text, `VIEW` and `SEND` intake, duplicate-state mapping,
+add-request defaults and byte formatting. Phase 4 adds tests for the shared
+tile-bar geometry and counter, archive file naming and unique suffixes,
+`Content-Disposition` parsing, proxy error messages, smoothed download speed,
+download state transitions, ETA formatting and long-name splitting. They run on
+the JVM and do not need an emulator.
 
 ## CI
 

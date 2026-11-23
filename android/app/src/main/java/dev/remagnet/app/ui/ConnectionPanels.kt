@@ -1,15 +1,12 @@
 package dev.remagnet.app.ui
 
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import dev.remagnet.app.client.ProxyStatus
-import dev.remagnet.app.data.AuthMode
 import dev.remagnet.app.data.RemagnetSettings
 import dev.remagnet.app.ui.components.Panel
 import dev.remagnet.app.ui.components.PrimaryButton
@@ -19,54 +16,12 @@ import dev.remagnet.app.ui.components.StatusTone
 import dev.remagnet.app.ui.theme.GeistMono
 import dev.remagnet.app.ui.theme.RemagnetPalette
 
-/** The saved qBittorrent endpoint, its last check, and a manual retest. */
-@Composable
-fun TorrentClientPanel(
-    settings: RemagnetSettings,
-    status: QbitStatus?,
-    checking: Boolean,
-    onTest: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Panel(modifier) {
-        SectionLabel("Torrent client")
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = "qBittorrent",
-                color = RemagnetPalette.Text,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.weight(1f),
-            )
-            Text(
-                text = if (settings.authMode == AuthMode.ApiKey) "API KEY" else "PASSWORD",
-                color = RemagnetPalette.Done,
-                fontFamily = GeistMono,
-                fontSize = 9.sp,
-                letterSpacing = 1.sp,
-            )
-        }
-        Text(
-            text = settings.qbitBaseUrl,
-            color = RemagnetPalette.Muted,
-            fontFamily = GeistMono,
-            fontSize = 11.sp,
-        )
-        val note = qbitNote(status, checking)
-        StatusNote(text = note.text, tone = note.tone)
-        PrimaryButton(
-            text = if (checking) "Checking…" else "Test qBittorrent",
-            onClick = onTest,
-            enabled = !checking,
-            modifier = Modifier.fillMaxWidth(),
-        )
-    }
-}
-
-/** The saved Remagnet Proxy endpoint, its last check, and a manual retest. */
+/**
+ * The saved Remagnet Proxy endpoint, its last check, and a manual retest.
+ *
+ * This is the app's only connection: qBittorrent is reached by the proxy, so a
+ * successful check also reports the backend client and its versions.
+ */
 @Composable
 fun ProxyPanel(
     settings: RemagnetSettings,
@@ -83,10 +38,26 @@ fun ProxyPanel(
             fontFamily = GeistMono,
             fontSize = 11.sp,
         )
+        if (status is ProxyStatus.Online) {
+            Column {
+                Text(
+                    text = "Backend: ${status.clientLabel.ifBlank { "qBittorrent" }}",
+                    color = RemagnetPalette.Done,
+                    fontFamily = GeistMono,
+                    fontSize = 10.sp,
+                )
+                Text(
+                    text = "App ${status.appVersion} · Web API ${status.webApiVersion}",
+                    color = RemagnetPalette.Muted,
+                    fontFamily = GeistMono,
+                    fontSize = 10.sp,
+                )
+            }
+        }
         val note = proxyNote(status, checking)
         StatusNote(text = note.text, tone = note.tone)
         PrimaryButton(
-            text = if (checking) "Checking…" else "Test Remagnet Proxy",
+            text = if (checking) "Checking…" else "Test connection",
             onClick = onTest,
             enabled = !checking,
             modifier = Modifier.fillMaxWidth(),
@@ -94,27 +65,12 @@ fun ProxyPanel(
     }
 }
 
-private fun qbitNote(status: QbitStatus?, checking: Boolean): Note = when {
-    checking -> Note("Checking qBittorrent directly…", StatusTone.Neutral)
-    status == null -> Note("Not tested yet.", StatusTone.Neutral)
-    status is QbitStatus.Online -> Note(
-        "qBittorrent ${status.appVersion} (Web API ${status.webApiVersion}).",
-        StatusTone.Ok,
-    )
-
-    status is QbitStatus.Unauthorized -> Note(status.message, StatusTone.Error)
-    status is QbitStatus.Unreachable -> Note(status.message, StatusTone.Error)
-    status is QbitStatus.Error -> Note(status.message, StatusTone.Error)
-    status is QbitStatus.NotConfigured -> Note("Not configured.", StatusTone.Neutral)
-    else -> Note("Unknown qBittorrent state.", StatusTone.Neutral)
-}
-
 private fun proxyNote(status: ProxyStatus?, checking: Boolean): Note = when {
     checking -> Note("Checking the Remagnet Proxy and its qBittorrent connection…", StatusTone.Neutral)
     status == null -> Note("Not tested yet.", StatusTone.Neutral)
     status is ProxyStatus.Online -> Note(
-        "Remagnet Proxy online. qBittorrent ${status.appVersion} " +
-            "(Web API ${status.webApiVersion}).",
+        "Remagnet Proxy online. ${status.clientLabel.ifBlank { "qBittorrent" }} " +
+            "${status.appVersion} (Web API ${status.webApiVersion}).",
         StatusTone.Ok,
     )
 

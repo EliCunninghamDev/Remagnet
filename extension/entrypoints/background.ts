@@ -1,13 +1,12 @@
-import { archiveDownloadUrl, createProxyClient, proxyErrorMessage } from "@remagnet/proxy-client";
+import { archiveDownloadUrl } from "@remagnet/proxy-client";
 import { browser } from "wxt/browser";
 import { defineBackground } from "wxt/utils/define-background";
-import { archiveFilename, requireArchiveSettings } from "../lib/archive";
+import { archiveFilename } from "../lib/archive";
 import { forgetHashes, startCompletionWatch, trackAddedHashes } from "../lib/completion-watch";
 import { startContextMenu } from "../lib/context-menu";
 import {
   type AddTorrentsResult,
   type ArchiveDownloadResult,
-  type ArchiveTestResult,
   type BackgroundRequest,
   type BackgroundResponse,
   COMPLETE_PROGRESS,
@@ -16,12 +15,10 @@ import {
   type RemoveTorrentsResult,
   type TorrentListResult,
   type TorrentLookupResult,
-  type TorrentTaxonomyResult,
 } from "../lib/messages";
-import { getSettings, restrictSettingsStorageAccess } from "../lib/settings";
+import { getSettings, requireProxySettings, restrictSettingsStorageAccess } from "../lib/settings";
 import {
   addTorrents,
-  getTaxonomy,
   getTorrent,
   listTorrents,
   removeTorrents,
@@ -60,8 +57,6 @@ async function handleRequest(request: BackgroundRequest): Promise<BackgroundResp
       case "torrents:add": {
         const result: AddTorrentsResult = await addTorrents({
           urls: request.urls,
-          category: request.category,
-          tags: request.tags,
           paused: request.paused,
         });
         await trackAddedHashes(result.hashes);
@@ -84,14 +79,6 @@ async function handleRequest(request: BackgroundRequest): Promise<BackgroundResp
         const result: RemoveTorrentsResult = { removed: request.hashes };
         return { ok: true, data: result };
       }
-      case "torrents:taxonomy": {
-        const result: TorrentTaxonomyResult = await getTaxonomy();
-        return { ok: true, data: result };
-      }
-      case "archive:test": {
-        const result: ArchiveTestResult = await testArchive();
-        return { ok: true, data: result };
-      }
       case "archive:download": {
         const result: ArchiveDownloadResult = await downloadArchive(request.hash, request.name);
         return { ok: true, data: result };
@@ -105,30 +92,15 @@ async function handleRequest(request: BackgroundRequest): Promise<BackgroundResp
   }
 }
 
-/** Check the archive bridge and its saved qBittorrent credentials. */
-async function testArchive(): Promise<ArchiveTestResult> {
-  const archive = requireArchiveSettings(await getSettings());
-  const client = createProxyClient(archive);
-  const { data, error, response } = await client.GET("/api/health");
-
-  if (error || !data) throw new Error(proxyErrorMessage(response, error));
-
-  return {
-    appVersion: data.appVersion,
-    webApiVersion: data.webApiVersion,
-  };
-}
-
 /**
  * Ask the browser to download a completed torrent's ZIP.
  *
  * Firefox supports an Authorization header on downloads; other browsers get
- * the token as a query parameter instead. The bridge enforces completion, and
+ * the token as a query parameter instead. The proxy enforces completion, and
  * this checks it first so the popup can report a useful error immediately.
  */
 async function downloadArchive(hash: string, name?: string): Promise<ArchiveDownloadResult> {
-  const settings = await getSettings();
-  const archive = requireArchiveSettings(settings);
+  const proxy = requireProxySettings(await getSettings());
 
   const torrent = await getTorrent(hash);
   if (!torrent) throw new Error("That torrent is no longer in the client.");
@@ -141,12 +113,12 @@ async function downloadArchive(hash: string, name?: string): Promise<ArchiveDown
 
   const startDownload = (useHeader: boolean) =>
     browser.downloads.download({
-      url: archiveDownloadUrl(archive.baseUrl, hash, archive.token, useHeader),
+      url: archiveDownloadUrl(proxy.baseUrl, hash, proxy.token, useHeader),
       filename,
       conflictAction: "uniquify",
       saveAs: false,
       ...(useHeader
-        ? { headers: [{ name: "Authorization", value: `Bearer ${archive.token}` }] }
+        ? { headers: [{ name: "Authorization", value: `Bearer ${proxy.token}` }] }
         : {}),
     });
 

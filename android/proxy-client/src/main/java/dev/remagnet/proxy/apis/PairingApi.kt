@@ -15,10 +15,10 @@ import dev.remagnet.proxy.models.PairingSession
 interface PairingApi {
     /**
      * POST api/pair/claim
-     * Claim a pairing code and receive encrypted connection settings
-     * The Android app, or the extension&#39;s pairing field, sends the session id and &#x60;SHA-256(code)&#x60;, not the code itself. On success the proxy consumes the session and returns the qBittorrent URL, credentials, and proxy token encrypted with AES-256-GCM. Both sides derive the key from the scanned code and the session id, so a logged request or response is useless without the code.  The plaintext is a JSON object described by &#x60;PairingPayload&#x60;. Invalid, expired, or already-claimed codes return &#x60;400&#x60; and no payload.
+     * Claim a pairing code and receive the encrypted proxy token
+     * The Android app, or the extension&#39;s pairing field, sends the session id and &#x60;SHA-256(code)&#x60;, not the code itself. On success the proxy consumes the session and returns &#x60;{ version: 2, proxyToken }&#x60; encrypted with AES-256-GCM. Both sides derive the key from the scanned code and the session id, so a logged request or response is useless without the code. qBittorrent credentials are never included.  The plaintext is a JSON object described by &#x60;PairingPayload&#x60;. Invalid, expired, or already-claimed codes return &#x60;400&#x60; and no payload.
      * Responses:
-     *  - 200: Encrypted connection settings for the scanning device.
+     *  - 200: Encrypted settings for the scanning device.
      *  - 400: The pairing code is invalid, expired, or already used.
      *
      * @param pairingClaim
@@ -30,7 +30,7 @@ interface PairingApi {
     /**
      * POST api/pair
      * Mint a short-lived device pairing code
-     * Creates an in-memory pairing session and returns the &#x60;remagnet://pair&#x60; link plus a ready-to-display SVG QR code. The Remagnet Proxy page shows the QR for the Android app and copies the link for the extension, which claims it from Settings. The code is single-use and is never stored on disk; restarting the proxy invalidates outstanding sessions.  Minting requires the proxy token. Claiming the code does not, because the device or extension claiming it has not been configured yet. Pairing carries credentials, so the origin must use HTTPS unless it is loopback or the Android emulator host (&#x60;10.0.2.2&#x60;).
+     * Creates an in-memory pairing session and returns the &#x60;remagnet://pair&#x60; link plus a ready-to-display SVG QR code. The Remagnet Proxy page shows the QR for the Android app and copies the link for the extension, which claims it from Settings. The code is single-use and is never stored on disk; restarting the proxy invalidates outstanding sessions.  Minting requires the proxy token. Claiming the code does not, because the device or extension claiming it has not been configured yet. Pairing carries the proxy token, so the origin must use HTTPS unless it is loopback or the Android emulator host (&#x60;10.0.2.2&#x60;).
      * Responses:
      *  - 200: A pairing session and its rendered QR code.
      *  - 400: The supplied origin is invalid, unreachable without HTTPS, or missing.

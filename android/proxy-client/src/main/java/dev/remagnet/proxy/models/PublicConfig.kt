@@ -33,6 +33,8 @@ import com.google.gson.annotations.SerializedName
  * @param qbitUsername Saved qBittorrent username, or an empty string.
  * @param hasApiKey Whether a qBittorrent API key is saved.
  * @param hasPassword Whether a qBittorrent password is saved.
+ * @param defaultCategory Category applied to new magnets and used for filtering.
+ * @param defaultTags Tags applied to new magnets and used for filtering.
  */
 
 
@@ -52,7 +54,15 @@ data class PublicConfig (
 
     /* Whether a qBittorrent password is saved. */
     @SerializedName("hasPassword")
-    val hasPassword: kotlin.Boolean
+    val hasPassword: kotlin.Boolean,
+
+    /* Category applied to new magnets and used for filtering. */
+    @SerializedName("defaultCategory")
+    val defaultCategory: kotlin.String,
+
+    /* Tags applied to new magnets and used for filtering. */
+    @SerializedName("defaultTags")
+    val defaultTags: kotlin.collections.List<kotlin.String>
 
 ) {
 

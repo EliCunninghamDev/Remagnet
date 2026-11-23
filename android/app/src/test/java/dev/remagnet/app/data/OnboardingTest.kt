@@ -9,19 +9,13 @@ class OnboardingTest {
     @Test
     fun parsesAConnectUri() {
         val result = parseOnboarding(
-            "remagnet://connect?qbit=https%3A%2F%2Fqbt.example.com" +
-                "&apiKey=qbt_key&proxy=https%3A%2F%2Fproxy.example.com" +
-                "&token=abc%2Bdef%2F0123456789&category=remagnet&tags=games%2C%20isos",
+            "remagnet://connect?proxy=https%3A%2F%2Fproxy.example.com" +
+                "&token=abc%2Bdef%2F0123456789",
         ) as OnboardingResult.Parsed
 
-        assertEquals("https://qbt.example.com", result.payload.qbitBaseUrl)
-        assertEquals("qbt_key", result.payload.qbitApiKey)
         assertEquals("https://proxy.example.com", result.payload.proxyBaseUrl)
         // `+` is a literal plus in these values; spaces arrive as %20.
         assertEquals("abc+def/0123456789", result.payload.proxyToken)
-        assertEquals("remagnet", result.payload.defaultCategory)
-        assertEquals("games, isos", result.payload.defaultTags)
-        assertEquals(AuthMode.ApiKey, result.payload.authMode)
     }
 
     @Test
@@ -29,30 +23,22 @@ class OnboardingTest {
         val result = parseOnboarding(
             """
             {
-              "qbitUrl": "https://qbt.example.com",
-              "username": "admin",
-              "password": " secret ",
-              "proxyUrl": "https://proxy.example.com",
-              "token": "0123456789abcdef",
-              "authMode": "password"
+              "proxy": "https://proxy.example.com",
+              "token": "0123456789abcdef"
             }
             """.trimIndent(),
         ) as OnboardingResult.Parsed
 
-        assertEquals("https://qbt.example.com", result.payload.qbitBaseUrl)
-        assertEquals("admin", result.payload.qbitUsername)
-        assertEquals(" secret ", result.payload.qbitPassword)
         assertEquals("https://proxy.example.com", result.payload.proxyBaseUrl)
         assertEquals("0123456789abcdef", result.payload.proxyToken)
-        assertEquals(AuthMode.Password, result.payload.authMode)
     }
 
     @Test
     fun acceptsABareHttpUrlAsAProxyUrl() {
-        val result = parseOnboarding("https://remagnet.example.com") as OnboardingResult.Parsed
+        val result = parseOnboarding("https://remagnet.example.com/") as OnboardingResult.Parsed
 
         assertEquals("https://remagnet.example.com", result.payload.proxyBaseUrl)
-        assertNull(result.payload.qbitBaseUrl)
+        assertNull(result.payload.proxyToken)
     }
 
     @Test
@@ -62,6 +48,17 @@ class OnboardingTest {
 
         assertTrue(wrongScheme is OnboardingResult.Invalid)
         assertTrue(wrongHost is OnboardingResult.Invalid)
+    }
+
+    @Test
+    fun ignoresLegacyQbitFields() {
+        val result = parseOnboarding(
+            "remagnet://connect?proxy=https%3A%2F%2Fproxy.example.com" +
+                "&token=0123456789abcdef&qbit=https%3A%2F%2Fqbt.example.com&apiKey=qbt_key",
+        ) as OnboardingResult.Parsed
+
+        assertEquals("https://proxy.example.com", result.payload.proxyBaseUrl)
+        assertEquals("0123456789abcdef", result.payload.proxyToken)
     }
 
     @Test
@@ -95,13 +92,26 @@ class OnboardingTest {
         val ipv6Loopback = parseOnboarding(
             "remagnet://pair?url=http%3A%2F%2F%5B%3A%3A1%5D%3A8080&id=a&code=b",
         )
+        val emulatorHost = parseOnboarding(
+            "remagnet://pair?url=http%3A%2F%2F10.0.2.2%3A8080&id=a&code=b",
+        )
         val remote = parseOnboarding(
             "remagnet://pair?url=http%3A%2F%2Fproxy.example.com&id=a&code=b",
         )
 
         assertTrue(loopback is OnboardingResult.Pairing)
         assertTrue(ipv6Loopback is OnboardingResult.Pairing)
+        assertTrue(emulatorHost is OnboardingResult.Pairing)
         assertTrue(remote is OnboardingResult.Invalid)
+    }
+
+    @Test
+    fun rejectsPairingUrlsWithCredentials() {
+        val result = parseOnboarding(
+            "remagnet://pair?url=https%3A%2F%2Fuser%3Apass%40proxy.example.com&id=a&code=b",
+        )
+
+        assertTrue(result is OnboardingResult.Invalid)
     }
 
     @Test
@@ -118,35 +128,31 @@ class OnboardingTest {
     @Test
     fun mergesOnlyPresentFields() {
         val current = RemagnetSettings(
-            qbitBaseUrl = "http://old.example.com",
-            qbitApiKey = "old-key",
-            defaultCategory = "old-category",
+            proxyBaseUrl = "https://old-proxy.example.com",
+            proxyToken = "old-token-0123456789",
+        )
+        val payload = OnboardingPayload(proxyToken = "new-token-0123456789")
+
+        val merged = payload.applyTo(current)
+
+        assertEquals("https://old-proxy.example.com", merged.proxyBaseUrl)
+        assertEquals("new-token-0123456789", merged.proxyToken)
+    }
+
+    @Test
+    fun replacesThePairedProxyUrl() {
+        val current = RemagnetSettings(
             proxyBaseUrl = "https://old-proxy.example.com",
             proxyToken = "old-token-0123456789",
         )
         val payload = OnboardingPayload(
-            qbitBaseUrl = "https://new.example.com",
+            proxyBaseUrl = "https://new-proxy.example.com",
             proxyToken = "new-token-0123456789",
         )
 
         val merged = payload.applyTo(current)
 
-        assertEquals("https://new.example.com", merged.qbitBaseUrl)
-        assertEquals("https://old-proxy.example.com", merged.proxyBaseUrl)
+        assertEquals("https://new-proxy.example.com", merged.proxyBaseUrl)
         assertEquals("new-token-0123456789", merged.proxyToken)
-        assertEquals("old-key", merged.qbitApiKey)
-        assertEquals("old-category", merged.defaultCategory)
-        assertEquals(AuthMode.ApiKey, merged.authMode)
-    }
-
-    @Test
-    fun infersPasswordModeFromCredentials() {
-        val current = RemagnetSettings()
-        val payload = OnboardingPayload(
-            qbitUsername = "admin",
-            qbitPassword = "secret",
-        )
-
-        assertEquals(AuthMode.Password, payload.applyTo(current).authMode)
     }
 }

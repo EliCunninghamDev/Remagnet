@@ -51,9 +51,3 @@ export interface TorrentSummary {
   seeds: number;
   peers: number;
 }
-
-/** Categories and tags available on the configured client. */
-export interface TorrentTaxonomy {
-  categories: string[];
-  tags: string[];
-}

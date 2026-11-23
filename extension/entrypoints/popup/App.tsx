@@ -1,10 +1,8 @@
-import { createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
+import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { browser } from "wxt/browser";
 import AddTorrent from "../../components/AddTorrent";
 import PopupList from "../../components/PopupList";
 import Wordmark from "../../components/Wordmark";
-import { getArchiveSettings } from "../../lib/archive";
-import { getTorrentClientDefinition } from "../../lib/clients/catalog";
 import { parseMagnet } from "../../lib/magnet";
 import {
   type ArchiveDownloadResult,
@@ -15,8 +13,7 @@ import {
   type TorrentLookupResult,
 } from "../../lib/messages";
 import { pendingMagnetItem } from "../../lib/pending-magnet";
-import { getTorrentFilter } from "../../lib/relevance";
-import { getSettings, type Settings } from "../../lib/settings";
+import { getSettings, isProxyConfigured, type Settings } from "../../lib/settings";
 import type { TorrentSummary } from "../../lib/torrents";
 
 /** A moving torrent is polled every second so the bars feel live. */
@@ -40,9 +37,14 @@ export default function App() {
 
   let refreshing = false;
 
+  /** The popover has nothing to show until both proxy fields are set. */
+  const configured = () => {
+    const current = settings();
+    return current ? isProxyConfigured(current) : false;
+  };
+
   onMount(() => {
-    void getSettings().then(setSettings);
-    void refresh();
+    void loadSettings();
 
     // The popover is a normal page, so it can poll while it is open. Schedule
     // the next request only after the previous one finishes: a slow client must
@@ -83,10 +85,24 @@ export default function App() {
     onCleanup(unwatch);
   });
 
+  async function loadSettings() {
+    try {
+      const current = await getSettings();
+      setSettings(current);
+      if (isProxyConfigured(current)) {
+        await refresh();
+      } else {
+        setLoading(false);
+      }
+    } catch {
+      setLoading(false);
+    }
+  }
+
   /** Open the review screen, unless the client already has this torrent. */
   async function acceptMagnet(value: string) {
     const hash = parseMagnet(value)?.infoHash ?? null;
-    if (hash) {
+    if (hash && configured()) {
       try {
         const result = await sendBackgroundMessage<TorrentLookupResult>({
           type: "torrents:get",
@@ -112,6 +128,17 @@ export default function App() {
 
   async function refresh(silent = false) {
     if (refreshing) return;
+
+    // A fresh install has no proxy yet. Leave the list empty and let the
+    // "Get started" panel explain what to do instead of showing a red error.
+    if (!configured()) {
+      if (!silent) {
+        setLoading(false);
+        setError();
+      }
+      return;
+    }
+
     refreshing = true;
 
     if (!silent) {
@@ -137,6 +164,7 @@ export default function App() {
   }
 
   function startAdd() {
+    if (!configured()) return;
     setPendingMagnet("");
     setView("add");
   }
@@ -181,35 +209,7 @@ export default function App() {
     }
   }
 
-  const archiveReady = createMemo(() => {
-    const current = settings();
-    return current ? getArchiveSettings(current) !== null : false;
-  });
-
-  const filter = createMemo(() => {
-    const current = settings();
-    return current
-      ? getTorrentFilter(current)
-      : { active: false, category: "", tags: [] as string[] };
-  });
-
-  const filterDescription = createMemo(() => {
-    const { category, tags } = filter();
-    const parts: string[] = [];
-    if (category) parts.push(`category '${category}'`);
-    if (tags.length > 0) {
-      const label = tags.length === 1 ? "tag" : "tags";
-      parts.push(`${label} ${tags.map((tag) => `'${tag}'`).join(", ")}`);
-    }
-    return parts.join(" or ");
-  });
-
-  const clientLabel = createMemo(() => {
-    const current = settings();
-    return current ? getTorrentClientDefinition(current.client).label : "Loading…";
-  });
-
-  const serverLabel = () => settings()?.baseUrl ?? "Loading…";
+  const serverLabel = () => settings()?.proxyBaseUrl ?? "Loading…";
 
   return (
     <main class="popup">
@@ -219,13 +219,10 @@ export default function App() {
           <PopupList
             torrents={torrents()}
             loading={loading()}
+            configured={configured()}
             error={error()}
             actionError={actionError()}
-            filterActive={filter().active}
-            filterDescription={filterDescription()}
-            clientLabel={clientLabel()}
             serverLabel={serverLabel()}
-            archiveReady={archiveReady()}
             downloadingHash={downloading()}
             removingHash={removing()}
             confirmingHash={confirmingRemove()}
@@ -245,7 +242,7 @@ export default function App() {
         <header class="popup-header add-header">
           <div class="header-text">
             <div class="title-row">
-              <Wordmark as="h1" title={`${clientLabel()} · ${serverLabel()}`} />
+              <Wordmark as="h1" title={`Remagnet Proxy · ${serverLabel()}`} />
             </div>
           </div>
           <button

@@ -1,6 +1,6 @@
 import { createSignal, For } from "solid-js";
 import TorrentCard from "../components/TorrentCard";
-import { clientLabel, torrentCases } from "./fixtures";
+import { torrentCases } from "./fixtures";
 import { Section, Specimen } from "./Section";
 
 /** Every row state, rendered with the real TorrentCard in the popover theme. */
@@ -22,8 +22,6 @@ export default function Torrents() {
                   <TorrentCard
                     torrent={item.torrent}
                     zipping={Boolean(item.zipping)}
-                    archiveReady={Boolean(item.archiveReady)}
-                    clientLabel={clientLabel}
                     removing={Boolean(item.removing)}
                     confirming={Boolean(item.confirming) || confirming() === item.torrent.hash}
                     onZip={() => undefined}

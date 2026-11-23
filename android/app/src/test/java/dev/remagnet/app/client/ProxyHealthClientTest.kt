@@ -16,7 +16,9 @@ class ProxyHealthClientTest {
     private var authorization: String? = null
     private var healthCode = 200
     private var healthBody =
-        """{"ok":true,"appVersion":"5.3.0","webApiVersion":"2.16.2"}"""
+        """{"ok":true,"clientLabel":"qBittorrent","appVersion":"5.3.0",""" +
+            """"webApiVersion":"2.16.2","capabilities":{"pauseOnAdd":true},""" +
+            """"defaultCategory":"remagnet","defaultTags":["remagnet"]}"""
 
     @Before
     fun setUp() {

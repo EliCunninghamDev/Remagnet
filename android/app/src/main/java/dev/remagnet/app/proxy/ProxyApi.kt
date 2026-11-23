@@ -3,6 +3,7 @@ package dev.remagnet.app.proxy
 import dev.remagnet.proxy.apis.ArchivesApi
 import dev.remagnet.proxy.apis.ConfigurationApi
 import dev.remagnet.proxy.apis.ServiceApi
+import dev.remagnet.proxy.apis.TorrentsApi
 import dev.remagnet.proxy.infrastructure.ApiClient
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
@@ -21,6 +22,7 @@ class ProxyApi(
 ) {
     val service: ServiceApi
     val configuration: ConfigurationApi
+    val torrents: TorrentsApi
     val archives: ArchivesApi
 
     init {
@@ -28,10 +30,10 @@ class ProxyApi(
         val normalizedToken = token.trim()
 
         require(normalizedUrl.startsWith("http://") || normalizedUrl.startsWith("https://")) {
-            "The archive bridge URL must use http:// or https://."
+            "The Remagnet Proxy URL must use http:// or https://."
         }
         require(normalizedToken.isNotEmpty()) {
-            "The archive bridge token is required."
+            "The Remagnet Proxy token is required."
         }
 
         val http = OkHttpClient.Builder()
@@ -50,6 +52,7 @@ class ProxyApi(
 
         service = client.createService(ServiceApi::class.java)
         configuration = client.createService(ConfigurationApi::class.java)
+        torrents = client.createService(TorrentsApi::class.java)
         archives = client.createService(ArchivesApi::class.java)
     }
 

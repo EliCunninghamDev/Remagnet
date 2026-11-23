@@ -8,6 +8,7 @@ import okhttp3.ResponseBody
 import com.google.gson.annotations.SerializedName
 
 import dev.remagnet.proxy.models.Error
+import dev.remagnet.proxy.models.ServiceUnavailable
 
 interface ArchivesApi {
     /**
@@ -22,6 +23,7 @@ interface ArchivesApi {
      *  - 409: The torrent is not complete yet, a file is still downloading, or the torrent has no files to archive.
      *  - 500: The proxy could not save configuration or start the archive.
      *  - 502: qBittorrent could not be reached or returned an error.
+     *  - 503: qBittorrent credentials have not been configured on the proxy yet.
      *
      * @param hash Torrent info hash. Accepts a 40-character BitTorrent v1 hash or a 64-character v2 hash, case-insensitively.
      * @param token Proxy token as a query parameter. Alternative to &#x60;Authorization: Bearer &lt;token&gt;&#x60;; either one is sufficient.  (optional)

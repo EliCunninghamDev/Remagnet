@@ -6,17 +6,12 @@ import Wordmark from "./Wordmark";
 export interface PopupListProps {
   torrents: TorrentSummary[];
   loading: boolean;
+  /** False on a fresh install, before a proxy has been paired or configured. */
+  configured: boolean;
   error?: string;
   actionError?: string;
-  /** Whether the configured category/tags limit the list. */
-  filterActive: boolean;
-  /** Human-readable summary of the active filter, e.g. `category 'remagnet'`. */
-  filterDescription: string;
-  clientLabel: string;
-  /** Shown alongside the client in the wordmark tooltip. */
+  /** Proxy URL shown alongside the wordmark in its tooltip. */
   serverLabel?: string;
-  /** The archive bridge is configured, so completed rows can download a ZIP. */
-  archiveReady: boolean;
   downloadingHash?: string;
   removingHash?: string;
   confirmingHash?: string;
@@ -31,7 +26,7 @@ export interface PopupListProps {
 }
 
 /**
- * The popover's default view: heading, actions, and the filtered torrent list.
+ * The popover's default view: heading, actions, and the torrent list.
  *
  * It takes plain data and callbacks rather than reading storage or talking to
  * the background worker, which keeps every list state renderable in the
@@ -39,7 +34,7 @@ export interface PopupListProps {
  */
 export default function PopupList(props: PopupListProps) {
   const wordmarkTitle = () =>
-    props.serverLabel ? `${props.clientLabel} · ${props.serverLabel}` : props.clientLabel;
+    props.serverLabel ? `Remagnet Proxy · ${props.serverLabel}` : "Remagnet Proxy";
 
   return (
     <>
@@ -53,7 +48,15 @@ export default function PopupList(props: PopupListProps) {
           </div>
         </div>
         <div class="header-actions">
-          <button class="add-button" type="button" title="Add a magnet link" onClick={props.onAdd}>
+          <button
+            class="add-button"
+            type="button"
+            title={
+              props.configured ? "Add a magnet link" : "Configure Remagnet Proxy before adding"
+            }
+            disabled={!props.configured}
+            onClick={props.onAdd}
+          >
             <svg viewBox="0 0 16 16" aria-hidden="true">
               <path d="M8 3.5v9M3.5 8h9" />
             </svg>
@@ -102,48 +105,57 @@ export default function PopupList(props: PopupListProps) {
         )}
       </Show>
 
-      <Show when={!props.error}>
-        <Show
-          when={!props.loading || props.torrents.length > 0}
-          fallback={<p class="muted">Loading torrents…</p>}
-        >
+      <Show
+        when={props.configured}
+        fallback={
+          <section class="panel stack get-started">
+            <h2>Get started</h2>
+            <p class="muted">
+              Remagnet connects through your Remagnet Proxy, which talks to your torrent client for
+              you. Pair this extension with a link from your proxy page, or enter the proxy URL and
+              token in settings.
+            </p>
+            <div class="actions">
+              <button type="button" onClick={props.onOpenSettings}>
+                Open settings
+              </button>
+            </div>
+          </section>
+        }
+      >
+        <Show when={!props.error}>
           <Show
-            when={props.torrents.length > 0}
-            fallback={
-              <Show
-                when={props.filterActive}
-                fallback={<p class="muted empty">No torrents in {props.clientLabel}.</p>}
-              >
-                <p class="muted empty">
-                  No Remagnet torrents yet. Add a magnet to see it here; matching uses{" "}
-                  {props.filterDescription}.
-                </p>
-              </Show>
-            }
+            when={!props.loading || props.torrents.length > 0}
+            fallback={<p class="muted">Loading torrents…</p>}
           >
-            <ul class="torrent-list">
-              {/*
-                Index (not For) keeps each row's DOM and canvas alive while the
-                polled list replaces its objects. For would remount every bar on
-                every refresh and replay the fill and sweep.
-              */}
-              <Index each={props.torrents}>
-                {(torrent) => (
-                  <TorrentCard
-                    torrent={torrent()}
-                    zipping={props.downloadingHash === torrent().hash}
-                    archiveReady={props.archiveReady}
-                    clientLabel={props.clientLabel}
-                    removing={props.removingHash === torrent().hash}
-                    confirming={props.confirmingHash === torrent().hash}
-                    onZip={() => props.onZip(torrent())}
-                    onRemoveToggle={() => props.onRemoveToggle(torrent())}
-                    onRemove={(deleteFiles) => props.onRemove(torrent(), deleteFiles)}
-                    onCancelRemove={() => props.onCancelRemove()}
-                  />
-                )}
-              </Index>
-            </ul>
+            <Show
+              when={props.torrents.length > 0}
+              fallback={
+                <p class="muted empty">No Remagnet torrents yet. Add a magnet to see it here.</p>
+              }
+            >
+              <ul class="torrent-list">
+                {/*
+                  Index (not For) keeps each row's DOM and canvas alive while the
+                  polled list replaces its objects. For would remount every bar on
+                  every refresh and replay the fill and sweep.
+                */}
+                <Index each={props.torrents}>
+                  {(torrent) => (
+                    <TorrentCard
+                      torrent={torrent()}
+                      zipping={props.downloadingHash === torrent().hash}
+                      removing={props.removingHash === torrent().hash}
+                      confirming={props.confirmingHash === torrent().hash}
+                      onZip={() => props.onZip(torrent())}
+                      onRemoveToggle={() => props.onRemoveToggle(torrent())}
+                      onRemove={(deleteFiles) => props.onRemove(torrent(), deleteFiles)}
+                      onCancelRemove={() => props.onCancelRemove()}
+                    />
+                  )}
+                </Index>
+              </ul>
+            </Show>
           </Show>
         </Show>
       </Show>

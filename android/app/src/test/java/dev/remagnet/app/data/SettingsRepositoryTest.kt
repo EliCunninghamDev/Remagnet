@@ -32,12 +32,6 @@ class SettingsRepositoryTest {
     }
 
     private fun valid() = RemagnetSettings(
-        qbitBaseUrl = "http://127.0.0.1:8080",
-        authMode = AuthMode.Password,
-        qbitUsername = "admin",
-        qbitPassword = "  secret  ",
-        defaultCategory = "remagnet",
-        defaultTags = "remagnet, android",
         proxyBaseUrl = "https://proxy.example.com",
         proxyToken = "0123456789abcdef",
     )
@@ -46,9 +40,7 @@ class SettingsRepositoryTest {
     fun emptyStorageReturnsDefaults() {
         val settings = SettingsRepository(FakeStore(), FakeCipher()).load()
 
-        assertEquals(DEFAULT_QBIT_BASE_URL, settings.qbitBaseUrl)
-        assertEquals(AuthMode.ApiKey, settings.authMode)
-        assertEquals("", settings.qbitApiKey)
+        assertEquals("", settings.proxyBaseUrl)
         assertEquals("", settings.proxyToken)
     }
 
@@ -60,24 +52,58 @@ class SettingsRepositoryTest {
         repository.save(valid())
         val loaded = repository.load()
 
-        assertEquals(valid().qbitBaseUrl, loaded.qbitBaseUrl)
-        assertEquals(AuthMode.Password, loaded.authMode)
-        assertEquals("admin", loaded.qbitUsername)
-        assertEquals("  secret  ", loaded.qbitPassword)
-        assertEquals("remagnet, android", loaded.defaultTags)
         assertEquals("https://proxy.example.com", loaded.proxyBaseUrl)
         assertEquals("0123456789abcdef", loaded.proxyToken)
     }
 
     @Test
-    fun neverWritesSecretsInPlaintext() {
+    fun neverWritesTheTokenInPlaintext() {
         val store = FakeStore()
         SettingsRepository(store, FakeCipher()).save(valid())
 
         val everything = store.values.values.joinToString("\n")
-        assertFalse(everything.contains("  secret  "))
         assertFalse(everything.contains("0123456789abcdef"))
         assertTrue(everything.contains("enc:"))
+    }
+
+    @Test
+    fun writesOnlyTheProxyFields() {
+        val store = FakeStore()
+        SettingsRepository(store, FakeCipher()).save(valid())
+
+        val public = store.values.getValue("settings.public.v1")
+        val secrets = store.values.getValue("settings.secrets.v1")
+        assertFalse(public.contains("qbit"))
+        assertFalse(public.contains("defaultCategory"))
+        assertFalse(secrets.contains("qbit"))
+    }
+
+    @Test
+    fun ignoresLegacyQbitFields() {
+        val store = FakeStore()
+        val cipher = FakeCipher()
+        store.putString(
+            "settings.public.v1",
+            """
+            {
+              "qbitBaseUrl": "http://127.0.0.1:8080",
+              "authMode": "password",
+              "qbitUsername": "admin",
+              "defaultCategory": "remagnet",
+              "defaultTags": "remagnet, android",
+              "proxyBaseUrl": "https://proxy.example.com"
+            }
+            """.trimIndent(),
+        )
+        store.putString(
+            "settings.secrets.v1",
+            cipher.encrypt("""{"qbitApiKey":"qbt_key","qbitPassword":"secret","proxyToken":"0123456789abcdef"}"""),
+        )
+
+        val loaded = SettingsRepository(store, cipher).load()
+
+        assertEquals("https://proxy.example.com", loaded.proxyBaseUrl)
+        assertEquals("0123456789abcdef", loaded.proxyToken)
     }
 
     @Test
@@ -90,11 +116,10 @@ class SettingsRepositoryTest {
 
         val loaded = repository.load()
 
-        assertEquals("", loaded.qbitPassword)
         assertEquals("", loaded.proxyToken)
         assertNull(store.values["settings.secrets.v1"])
         // Public settings stay usable so the form can show what was configured.
-        assertEquals("admin", loaded.qbitUsername)
+        assertEquals("https://proxy.example.com", loaded.proxyBaseUrl)
     }
 
     @Test
@@ -105,14 +130,14 @@ class SettingsRepositoryTest {
 
         val loaded = repository.load()
 
-        assertEquals(DEFAULT_QBIT_BASE_URL, loaded.qbitBaseUrl)
+        assertEquals("", loaded.proxyBaseUrl)
         assertNull(store.values["settings.public.v1"])
     }
 
     @Test(expected = IllegalArgumentException::class)
     fun refusesToSaveInvalidSettings() {
         SettingsRepository(FakeStore(), FakeCipher()).save(
-            valid().copy(qbitBaseUrl = "not-a-url"),
+            valid().copy(proxyBaseUrl = "not-a-url"),
         )
     }
 
@@ -126,9 +151,6 @@ class SettingsRepositoryTest {
 
         val loaded = SettingsRepository(store, FakeCipher()).load()
 
-        assertEquals("https://qbt.example.com", loaded.qbitBaseUrl)
-        assertEquals("admin", loaded.qbitUsername)
-        assertEquals(DEFAULT_CATEGORY, loaded.defaultCategory)
-        assertEquals(DEFAULT_TAGS, loaded.defaultTags)
+        assertEquals("", loaded.proxyBaseUrl)
     }
 }

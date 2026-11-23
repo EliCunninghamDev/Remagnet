@@ -73,7 +73,7 @@ class HomeScreenUiTest {
     fun firstRunOffersSettingsAndScanCode() {
         render(RemagnetUiState(loaded = true))
 
-        compose.onNodeWithText("Connect your torrent client").assertIsDisplayed()
+        compose.onNodeWithText("Connect to Remagnet Proxy").assertIsDisplayed()
         compose.onNodeWithText("Open settings").assertIsDisplayed()
         compose.onAllNodesWithText("Scan code").assertCountEquals(1)
     }
@@ -81,7 +81,6 @@ class HomeScreenUiTest {
     @Test
     fun configuredHomeShowsTorrentsWithoutConnectionSettings() {
         val settings = RemagnetSettings(
-            qbitApiKey = "test-key",
             proxyBaseUrl = "https://proxy.example",
             proxyToken = "test-token-12345",
         )

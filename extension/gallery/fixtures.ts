@@ -1,4 +1,3 @@
-import type { TorrentClientCapabilities } from "../lib/clients/types";
 import { type MagnetLink, parseMagnet } from "../lib/magnet";
 import type { TorrentSummary } from "../lib/torrents";
 
@@ -39,7 +38,6 @@ export interface TorrentCase {
   description: string;
   torrent: TorrentSummary;
   zipping?: boolean;
-  archiveReady?: boolean;
   removing?: boolean;
   confirming?: boolean;
 }
@@ -90,7 +88,7 @@ export const torrentCases: TorrentCase[] = [
   {
     id: "complete",
     label: "Complete + Download",
-    description: "A finished torrent offers the archive action when configured.",
+    description: "A finished torrent always offers the archive action.",
     torrent: torrent("d4", "ubuntu-26.04-desktop-amd64.iso", {
       state: "seeding",
       progress: 1,
@@ -101,21 +99,6 @@ export const torrentCases: TorrentCase[] = [
       peers: 12,
       seeds: 58,
     }),
-    archiveReady: true,
-  },
-  {
-    id: "complete-no-proxy",
-    label: "Complete, no proxy",
-    description: "Download stays visible but disabled until the Remagnet Proxy is configured.",
-    torrent: torrent("d7", "ubuntu-26.04-server-amd64.iso", {
-      state: "seeding",
-      progress: 1,
-      downloadSpeed: 0,
-      eta: 0,
-      peers: 4,
-      seeds: 21,
-    }),
-    archiveReady: false,
   },
   {
     id: "zipping",
@@ -129,7 +112,6 @@ export const torrentCases: TorrentCase[] = [
       peers: 2,
       seeds: 18,
     }),
-    archiveReady: true,
     zipping: true,
   },
   {
@@ -212,13 +194,4 @@ export const existingTorrent = torrent("e75", "debian-13.8.0-amd64-netinst.iso",
   peers: 5,
 });
 
-export const clientLabel = "qBittorrent";
-
-export const clientCapabilities: TorrentClientCapabilities = {
-  categories: true,
-  tags: true,
-  pauseOnAdd: true,
-  completedFileDownload: true,
-};
-
-export const filterDescription = "category 'remagnet'";
+export const proxyBaseUrl = "https://remagnet.example.com";

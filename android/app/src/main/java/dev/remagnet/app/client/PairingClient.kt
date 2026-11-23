@@ -2,7 +2,7 @@ package dev.remagnet.app.client
 
 import com.google.gson.Gson
 import com.google.gson.JsonParser
-import dev.remagnet.app.data.AuthMode
+import dev.remagnet.app.data.PairedSettings
 import dev.remagnet.app.data.PairingCrypto
 import dev.remagnet.app.data.PairingLink
 import java.io.IOException
@@ -14,18 +14,8 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 
-/** The connection details returned by a successful pairing claim. */
-data class PairedConnection(
-    val qbitBaseUrl: String,
-    val authMode: AuthMode,
-    val apiKey: String?,
-    val username: String?,
-    val password: String?,
-    val proxyToken: String,
-)
-
 sealed interface PairingClaim {
-    data class Success(val connection: PairedConnection) : PairingClaim
+    data class Success(val settings: PairedSettings) : PairingClaim
 
     data class Failed(val message: String) : PairingClaim
 }
@@ -35,7 +25,7 @@ sealed interface PairingClaim {
  *
  * Only the code's hash is sent to the proxy. The response is encrypted with a
  * key derived from the code, so a proxy access log or a TLS-terminating
- * reverse proxy never sees the qBittorrent credentials or the proxy token.
+ * reverse proxy never sees the proxy token.
  */
 class PairingClient(
     private val http: OkHttpClient = OkHttpClient(),
@@ -102,30 +92,15 @@ class PairingClient(
                 )
             }
 
-            val payload = try {
-                gson.fromJson(plaintext, WireConnection::class.java)
-            } catch (_: Exception) {
-                null
-            }
-            if (payload == null ||
-                payload.qbitBaseUrl.isBlank() ||
-                payload.proxyToken.isBlank()
-            ) {
+            val settings = try {
+                PairingCrypto.parsePayload(plaintext, link.proxyBaseUrl)
+            } catch (error: IllegalArgumentException) {
                 return@withContext PairingClaim.Failed(
-                    "The Remagnet Proxy returned incomplete connection settings.",
+                    error.message ?: "The Remagnet Proxy returned unusable connection settings.",
                 )
             }
 
-            PairingClaim.Success(
-                PairedConnection(
-                    qbitBaseUrl = payload.qbitBaseUrl,
-                    authMode = AuthMode.fromStorage(payload.authMode),
-                    apiKey = payload.apiKey?.takeIf { value -> value.isNotBlank() },
-                    username = payload.username?.takeIf { value -> value.isNotBlank() },
-                    password = payload.password,
-                    proxyToken = payload.proxyToken,
-                ),
-            )
+            PairingClaim.Success(settings)
         }
     }
 }
@@ -135,14 +110,4 @@ private val JSON = "application/json; charset=utf-8".toMediaType()
 private data class EncryptedResponse(
     val iv: String = "",
     val data: String = "",
-)
-
-private data class WireConnection(
-    val version: Int = 1,
-    val qbitBaseUrl: String = "",
-    val authMode: String? = null,
-    val apiKey: String? = null,
-    val username: String? = null,
-    val password: String? = null,
-    val proxyToken: String = "",
 )

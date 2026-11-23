@@ -1,7 +1,7 @@
 name: remagnet
 
 # The page is served over HTTP so the Chrome content script can report the
-# hovered link. The addon is the normal Chrome build plus a local mock client.
+# hovered link. The addon is the normal Chrome build plus a local mock proxy.
 extension: ./.build/addon
 serve: ./page
 url: /index.html

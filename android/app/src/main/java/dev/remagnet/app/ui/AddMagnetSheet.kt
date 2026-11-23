@@ -27,7 +27,6 @@ import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import dev.remagnet.app.client.splitTagList
 import dev.remagnet.app.data.RemagnetSettings
 import dev.remagnet.app.magnet.magnetLabel
 import dev.remagnet.app.magnet.trackerHosts
@@ -112,7 +111,6 @@ fun AddMagnetSheet(
 
                 is AddSheetState.Review -> ReviewContent(
                     state = state,
-                    settings = settings,
                     onPausedChange = onPausedChange,
                     onSubmit = onSubmit,
                     onRetryDuplicate = onRetryDuplicate,
@@ -187,10 +185,10 @@ private fun PasteContent(
             )
         }
     }
-    if (!settings.qbitConfigured) {
+    if (!settings.proxyConfigured) {
         StatusNote(
-            text = "qBittorrent is not configured yet. You can review the link now " +
-                "and send it after saving settings.",
+            text = "Remagnet Proxy is not configured yet. You can review the link now " +
+                "and send it after pairing or saving settings.",
             tone = StatusTone.Warn,
         )
         SecondaryButton(
@@ -204,7 +202,6 @@ private fun PasteContent(
 @Composable
 private fun ReviewContent(
     state: AddSheetState.Review,
-    settings: RemagnetSettings,
     onPausedChange: (Boolean) -> Unit,
     onSubmit: () -> Unit,
     onRetryDuplicate: () -> Unit,
@@ -213,8 +210,6 @@ private fun ReviewContent(
     onOpenSettings: () -> Unit,
 ) {
     val magnet = state.magnet
-    val category = settings.defaultCategory.trim()
-    val tags = splitTagList(settings.defaultTags)
 
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -250,8 +245,6 @@ private fun ReviewContent(
         if (magnet.webSeeds.isNotEmpty()) {
             MetadataRow("Web seeds", magnet.webSeeds.size.toString())
         }
-        if (category.isNotEmpty()) MetadataRow("Category", category)
-        if (tags.isNotEmpty()) MetadataRow("Tags", tags.joinToString(", "))
     }
 
     DuplicateNotice(
@@ -316,7 +309,7 @@ private fun DuplicateNotice(
 ) {
     when (duplicate) {
         DuplicateState.Checking -> StatusNote(
-            text = "Checking qBittorrent for this info hash…",
+            text = "Checking qBittorrent through Remagnet Proxy…",
             tone = StatusTone.Neutral,
         )
 
@@ -346,8 +339,8 @@ private fun DuplicateNotice(
 
         DuplicateState.NotConfigured -> {
             StatusNote(
-                text = "qBittorrent is not configured. Add the Web UI URL and a key " +
-                    "or password in Settings before sending.",
+                text = "Remagnet Proxy is not configured. Pair this phone or enter " +
+                    "the proxy URL and token in Settings before sending.",
                 tone = StatusTone.Warn,
             )
             SecondaryButton(
@@ -373,7 +366,7 @@ private fun AddedContent(
         fontWeight = FontWeight.SemiBold,
         lineHeight = 21.sp,
     )
-    StatusNote("qBittorrent accepted the magnet.", StatusTone.Ok)
+    StatusNote("Remagnet Proxy sent the magnet to qBittorrent.", StatusTone.Ok)
     if (state.category.isNotEmpty()) MetadataRow("Category", state.category)
     if (state.tags.isNotEmpty()) MetadataRow("Tags", state.tags.joinToString(", "))
 

@@ -56,11 +56,7 @@ describe("claimPairing", () => {
     let seenBody = "";
     const encrypted = await encrypt(
       JSON.stringify({
-        version: 1,
-        qbitBaseUrl: "https://qbt.example.com",
-        authMode: "password",
-        username: "admin",
-        password: "secret",
+        version: 2,
         proxyToken: "0123456789abcdef",
       }),
       ID,
@@ -83,11 +79,6 @@ describe("claimPairing", () => {
     expect(paired).toEqual({
       proxyBaseUrl: "https://proxy.example.com",
       proxyToken: "0123456789abcdef",
-      qbitBaseUrl: "https://qbt.example.com",
-      authMode: "password",
-      apiKey: undefined,
-      username: "admin",
-      password: "secret",
     });
   });
 
@@ -101,6 +92,24 @@ describe("claimPairing", () => {
     await expect(claimPairing(parsePairingLink(link()))).rejects.toThrow(
       "The pairing code is invalid or expired.",
     );
+  });
+
+  test("asks the user to update when the payload is not version 2", async () => {
+    const encrypted = await encrypt(
+      JSON.stringify({ version: 1, qbitBaseUrl: "https://qbt", proxyToken: "token" }),
+      ID,
+      CODE,
+    );
+    globalThis.fetch = (async () => Response.json(encrypted)) as unknown as typeof fetch;
+
+    await expect(claimPairing(parsePairingLink(link()))).rejects.toThrow("unsupported version");
+  });
+
+  test("rejects a payload that is missing the proxy token", async () => {
+    const encrypted = await encrypt(JSON.stringify({ version: 2 }), ID, CODE);
+    globalThis.fetch = (async () => Response.json(encrypted)) as unknown as typeof fetch;
+
+    await expect(claimPairing(parsePairingLink(link()))).rejects.toThrow("incomplete");
   });
 
   test("rejects a payload encrypted for a different code", async () => {

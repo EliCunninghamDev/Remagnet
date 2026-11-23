@@ -1,13 +1,7 @@
 import { fireEvent, render, screen } from "@solidjs/testing-library";
 import { createSignal } from "solid-js";
 import { describe, expect, test, vi } from "vitest";
-import {
-  clientCapabilities,
-  clientLabel,
-  existingTorrent,
-  galleryMagnet,
-  galleryMagnetUri,
-} from "../gallery/fixtures";
+import { existingTorrent, galleryMagnet, galleryMagnetUri } from "../gallery/fixtures";
 import AddedSummary from "./AddedSummary";
 import type { FlowStatus } from "./flow-status";
 import MagnetForm from "./MagnetForm";
@@ -32,14 +26,11 @@ function ReviewHarness(props: {
   busy?: boolean;
   status?: FlowStatus;
   onPausedChange?: (paused: boolean) => void;
-  onOpenClient?: () => void;
 }) {
   const [paused, setPaused] = createSignal(false);
   return (
     <MagnetReview
       link={galleryMagnet}
-      clientLabel={clientLabel}
-      capabilities={clientCapabilities}
       existing={props.existing ? existingTorrent : undefined}
       paused={paused()}
       busy={Boolean(props.busy)}
@@ -50,7 +41,6 @@ function ReviewHarness(props: {
         setPaused(value);
         props.onPausedChange?.(value);
       }}
-      onOpenClient={props.onOpenClient ?? (() => undefined)}
     />
   );
 }
@@ -90,14 +80,15 @@ describe("MagnetReview", () => {
     expect(screen.getByText("635 MB")).toBeTruthy();
     expect(screen.getByText(/2 · tracker\.example\.org, tracker\.example\.net/)).toBeTruthy();
     expect(screen.getByText("1")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Send to qBittorrent" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Send to Remagnet Proxy" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Open/ })).toBeNull();
   });
 
-  test("disables sending when the client already has the hash", () => {
+  test("disables sending when the proxy already has the hash", () => {
     render(() => <ReviewHarness existing />);
 
-    expect(screen.getByText(/Already in qBittorrent/)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Send to qBittorrent" })).toHaveProperty(
+    expect(screen.getByText(/Already in Remagnet Proxy/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Send to Remagnet Proxy" })).toHaveProperty(
       "disabled",
       true,
     );
@@ -110,26 +101,18 @@ describe("MagnetReview", () => {
 
     render(() => (
       <ReviewHarness
-        status={{ tone: "error", message: "qBittorrent rejected the request (403 Forbidden)." }}
+        status={{ tone: "error", message: "The Remagnet Proxy could not reach qBittorrent." }}
       />
     ));
-    expect(screen.getByText("qBittorrent rejected the request (403 Forbidden).")).toBeTruthy();
+    expect(screen.getByText("The Remagnet Proxy could not reach qBittorrent.")).toBeTruthy();
   });
 
-  test("offers Pause only through adapter capabilities and forwards the choice", () => {
+  test("offers Pause and forwards the choice", () => {
     const onPausedChange = vi.fn();
     render(() => <ReviewHarness onPausedChange={onPausedChange} />);
 
     fireEvent.click(screen.getByRole("checkbox", { name: "Add paused" }));
     expect(onPausedChange).toHaveBeenCalledWith(true);
-  });
-
-  test("opens the client from the quiet text link", () => {
-    const onOpenClient = vi.fn();
-    render(() => <ReviewHarness onOpenClient={onOpenClient} />);
-
-    fireEvent.click(screen.getByRole("button", { name: "Open qBittorrent" }));
-    expect(onOpenClient).toHaveBeenCalledOnce();
   });
 });
 
@@ -140,9 +123,7 @@ describe("AddedSummary", () => {
         name="debian-13.8.0-amd64-netinst.iso"
         category="remagnet"
         tags={["remagnet", "linux"]}
-        clientLabel={clientLabel}
         embedded
-        onOpenClient={() => undefined}
         onAddAnother={() => undefined}
         onClose={() => undefined}
       />
@@ -152,6 +133,7 @@ describe("AddedSummary", () => {
     expect(screen.getByText(/Category: remagnet/)).toBeTruthy();
     expect(screen.getByText(/Tags: remagnet, linux/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "View downloads" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Open/ })).toBeNull();
   });
 
   test("uses the page label outside the popover", () => {
@@ -160,9 +142,7 @@ describe("AddedSummary", () => {
         name="debian-13.8.0-amd64-netinst.iso"
         category=""
         tags={[]}
-        clientLabel={clientLabel}
         embedded={false}
-        onOpenClient={() => undefined}
         onAddAnother={() => undefined}
         onClose={() => undefined}
       />

@@ -22,11 +22,12 @@ use crate::{config::Config, qbit::QbitClient};
 ///
 /// The qBittorrent client is swapped atomically when the config page saves new
 /// settings; requests clone the current client out of the read lock and keep
-/// using it even if a save happens mid-download.
+/// using it even if a save happens mid-download. It stays `None` until enough
+/// credentials exist, so a fresh proxy can boot and serve its setup page.
 pub struct AppState {
     pub config_path: PathBuf,
     pub config: RwLock<Config>,
-    pub qbit: RwLock<QbitClient>,
+    pub qbit: RwLock<Option<QbitClient>>,
     pub token: String,
     pub pairings: Mutex<pairing::PairingStore>,
 }
@@ -51,13 +52,22 @@ async fn main() -> Result<()> {
     let config_path = Path::new(&data_dir).join("config.json");
     let (config, created) = config::load_or_create(&config_path, config::ConfigEnv::from_env())
         .context("could not load the bridge configuration")?;
-    let qbit = QbitClient::new(&config).context("could not initialize qBittorrent")?;
+    let qbit = if config.has_credentials() {
+        Some(QbitClient::new(&config).context("could not initialize qBittorrent")?)
+    } else {
+        None
+    };
 
     if created {
         tracing::info!(
             path = %config_path.display(),
             qbit = %config.qbit_base_url,
             "created a bridge configuration from environment variables"
+        );
+    }
+    if qbit.is_none() {
+        tracing::warn!(
+            "qBittorrent is not configured yet; open the Remagnet Proxy page to set it up"
         );
     }
 

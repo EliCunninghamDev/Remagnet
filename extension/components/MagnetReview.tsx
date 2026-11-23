@@ -1,5 +1,4 @@
 import { For, Show } from "solid-js";
-import type { TorrentClientCapabilities } from "../lib/clients/types";
 import { formatBytes, formatPercent, stateLabel } from "../lib/format";
 import { type MagnetLink, magnetLabel, trackerHosts } from "../lib/magnet";
 import type { TorrentSummary } from "../lib/torrents";
@@ -7,9 +6,7 @@ import type { FlowStatus } from "./flow-status";
 
 export interface MagnetReviewProps {
   link: MagnetLink;
-  clientLabel: string;
-  capabilities: TorrentClientCapabilities;
-  /** A torrent with the same info hash, when the client already has it. */
+  /** A torrent with the same info hash, when the proxy already has it. */
   existing?: TorrentSummary | null;
   paused: boolean;
   busy: boolean;
@@ -17,7 +14,6 @@ export interface MagnetReviewProps {
   onEdit: () => void;
   onSubmit: (event: SubmitEvent) => void;
   onPausedChange: (paused: boolean) => void;
-  onOpenClient: () => void;
 }
 
 /**
@@ -82,7 +78,7 @@ export default function MagnetReview(props: MagnetReviewProps) {
       <Show when={props.existing}>
         {(torrent) => (
           <p class="status warn">
-            Already in {props.clientLabel}: <strong>{torrent().name}</strong> (
+            Already in Remagnet Proxy: <strong>{torrent().name}</strong> (
             {stateLabel(torrent().state)} · {formatPercent(torrent().progress)}).
           </p>
         )}
@@ -92,26 +88,17 @@ export default function MagnetReview(props: MagnetReviewProps) {
         <div class="submit-row">
           <div class="submit-main">
             <button type="submit" disabled={props.busy || Boolean(props.existing)}>
-              {props.busy ? "Sending…" : `Send to ${props.clientLabel}`}
+              {props.busy ? "Sending…" : "Send to Remagnet Proxy"}
             </button>
-            <Show when={props.capabilities.pauseOnAdd}>
-              <label
-                class="check compact"
-                title={`Add stopped, and start it manually in ${props.clientLabel}`}
-              >
-                <input
-                  type="checkbox"
-                  checked={props.paused}
-                  onChange={(event) => props.onPausedChange(event.currentTarget.checked)}
-                />
-                <span>Add paused</span>
-              </label>
-            </Show>
+            <label class="check compact" title="Add stopped, and start it manually in your client">
+              <input
+                type="checkbox"
+                checked={props.paused}
+                onChange={(event) => props.onPausedChange(event.currentTarget.checked)}
+              />
+              <span>Add paused</span>
+            </label>
           </div>
-
-          <button type="button" class="client-link" onClick={props.onOpenClient}>
-            Open {props.clientLabel}
-          </button>
         </div>
 
         <Show when={props.status}>

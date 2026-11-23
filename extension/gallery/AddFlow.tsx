@@ -3,13 +3,7 @@ import AddedSummary from "../components/AddedSummary";
 import type { FlowStatus } from "../components/flow-status";
 import MagnetForm from "../components/MagnetForm";
 import MagnetReview from "../components/MagnetReview";
-import {
-  clientCapabilities,
-  clientLabel,
-  existingTorrent,
-  galleryMagnet,
-  galleryMagnetUri,
-} from "./fixtures";
+import { existingTorrent, galleryMagnet, galleryMagnetUri } from "./fixtures";
 import { Section, Specimen } from "./Section";
 
 const invalid: FlowStatus = {
@@ -19,7 +13,7 @@ const invalid: FlowStatus = {
 
 const failed: FlowStatus = {
   tone: "error",
-  message: "qBittorrent rejected the request (403 Forbidden).",
+  message: "The Remagnet Proxy could not reach qBittorrent.",
 };
 
 function InteractiveMagnetForm(props: {
@@ -49,8 +43,6 @@ function InteractiveMagnetReview(props: {
   return (
     <MagnetReview
       link={galleryMagnet}
-      clientLabel={clientLabel}
-      capabilities={clientCapabilities}
       existing={props.existing ? existingTorrent : undefined}
       paused={paused()}
       busy={Boolean(props.busy)}
@@ -58,7 +50,6 @@ function InteractiveMagnetReview(props: {
       onEdit={() => undefined}
       onSubmit={(event) => event.preventDefault()}
       onPausedChange={setPaused}
-      onOpenClient={() => undefined}
     />
   );
 }
@@ -79,7 +70,7 @@ export default function AddFlow() {
     <Section
       id="add"
       title="Add flow"
-      description="The same presentational components AddTorrent composes. The live flow adds settings, lookup and submit behavior on top."
+      description="The same presentational components AddTorrent composes. The live flow adds lookup and submit behavior on top."
     >
       <div class="popover-gallery">
         <Specimen label="Paste" note="Empty input; Continue stays disabled.">
@@ -112,7 +103,7 @@ export default function AddFlow() {
           </PopupSpecimen>
         </Specimen>
 
-        <Specimen label="Submit error" note="The client's rejection message is shown in place.">
+        <Specimen label="Submit error" note="The proxy's rejection message is shown in place.">
           <PopupSpecimen>
             <InteractiveMagnetReview status={failed} />
           </PopupSpecimen>
@@ -127,9 +118,7 @@ export default function AddFlow() {
               name={galleryMagnet.displayName ?? galleryMagnetUri}
               category="remagnet"
               tags={["remagnet", "linux"]}
-              clientLabel={clientLabel}
               embedded
-              onOpenClient={() => undefined}
               onAddAnother={() => undefined}
               onClose={() => undefined}
             />
@@ -142,9 +131,7 @@ export default function AddFlow() {
               name={galleryMagnet.displayName ?? galleryMagnetUri}
               category="remagnet"
               tags={["remagnet", "linux"]}
-              clientLabel={clientLabel}
               embedded={false}
-              onOpenClient={() => undefined}
               onAddAnother={() => undefined}
               onClose={() => undefined}
             />

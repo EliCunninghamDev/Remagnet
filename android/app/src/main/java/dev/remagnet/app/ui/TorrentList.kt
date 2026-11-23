@@ -12,17 +12,12 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.remagnet.app.client.TorrentState
 import dev.remagnet.app.client.TorrentSummary
-import dev.remagnet.app.client.torrentFilterDescription
-import dev.remagnet.app.client.torrentFilterFor
-import dev.remagnet.app.data.RemagnetSettings
 import dev.remagnet.app.download.ArchiveDownloadState
 import dev.remagnet.app.ui.components.Panel
 import dev.remagnet.app.ui.components.PrimaryButton
@@ -41,11 +36,11 @@ import dev.remagnet.app.util.splitTorrentName
 
 /**
  * The homepage torrent list. Every state is explicit: loading, an unreachable
- * client, an empty client, an empty filtered list and the rows themselves.
+ * proxy, an empty list and the rows themselves. The proxy applies its own
+ * category/tag filter before responding, so the app renders the result as-is.
  */
 @Composable
 fun TorrentListSection(
-    settings: RemagnetSettings,
     torrents: List<TorrentSummary>,
     loading: Boolean,
     error: String?,
@@ -63,8 +58,6 @@ fun TorrentListSection(
     onOpenArchive: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val filter = torrentFilterFor(settings)
-
     Panel(modifier) {
         when {
             error != null && torrents.isEmpty() -> {
@@ -91,26 +84,12 @@ fun TorrentListSection(
                 fontSize = 12.sp,
             )
 
-            torrents.isEmpty() -> {
-                Text(
-                    text = if (filter.active) {
-                        "No Remagnet torrents yet. Add a magnet to see it here; matching " +
-                            "uses ${torrentFilterDescription(filter)}."
-                    } else {
-                        "No torrents in qBittorrent."
-                    },
-                    color = RemagnetPalette.Muted,
-                    fontSize = 12.sp,
-                    lineHeight = 17.sp,
-                )
-                if (filter.active) {
-                    SecondaryButton(
-                        text = "Open settings",
-                        onClick = onOpenSettings,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-            }
+            torrents.isEmpty() -> Text(
+                text = "No Remagnet torrents yet. Add a magnet to see it here.",
+                color = RemagnetPalette.Muted,
+                fontSize = 12.sp,
+                lineHeight = 17.sp,
+            )
 
             else -> {
                 if (error != null) {
@@ -127,7 +106,6 @@ fun TorrentListSection(
                     if (index > 0) HorizontalDivider(color = RemagnetPalette.Line)
                     TorrentRow(
                         torrent = torrent,
-                        archiveReady = settings.archiveReady,
                         download = download.forHash(torrent.hash),
                         confirming = confirmingHash == torrent.hash,
                         removing = removingHash == torrent.hash,
@@ -149,7 +127,6 @@ fun TorrentListSection(
 @Composable
 private fun TorrentRow(
     torrent: TorrentSummary,
-    archiveReady: Boolean,
     download: ArchiveDownloadState?,
     confirming: Boolean,
     removing: Boolean,
@@ -362,7 +339,6 @@ private fun TorrentRow(
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         DownloadButton(
                             torrent = torrent,
-                            archiveReady = archiveReady,
                             download = download,
                             onDownload = onDownload,
                             onCancelDownload = onCancelDownload,
@@ -393,7 +369,6 @@ private fun TorrentRow(
                     )
                     DownloadButton(
                         torrent = torrent,
-                        archiveReady = archiveReady,
                         download = download,
                         onDownload = onDownload,
                         onCancelDownload = onCancelDownload,
@@ -411,11 +386,15 @@ private fun TorrentRow(
     }
 }
 
-/** The Cancel/Download control that depends on this torrent's archive state. */
+/**
+ * The Cancel/Download control that depends on this torrent's archive state.
+ *
+ * Torrents only arrive through a configured proxy, so a completed torrent can
+ * always be downloaded; there is no separate "configure it first" state.
+ */
 @Composable
 private fun DownloadButton(
     torrent: TorrentSummary,
-    archiveReady: Boolean,
     download: ArchiveDownloadState?,
     onDownload: () -> Unit,
     onCancelDownload: () -> Unit,
@@ -435,16 +414,7 @@ private fun DownloadButton(
         SecondaryButton(
             text = "Download",
             onClick = onDownload,
-            enabled = archiveReady,
-            modifier =
-                if (archiveReady) {
-                    modifier
-                } else {
-                    modifier.semantics {
-                        contentDescription =
-                            "Download unavailable. Configure Remagnet Proxy in Settings."
-                    }
-                },
+            modifier = modifier,
         )
     }
 }

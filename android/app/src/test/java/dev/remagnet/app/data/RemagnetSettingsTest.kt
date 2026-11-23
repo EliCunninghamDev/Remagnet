@@ -1,96 +1,55 @@
 package dev.remagnet.app.data
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RemagnetSettingsTest {
     private fun valid() = RemagnetSettings(
-        qbitBaseUrl = "http://127.0.0.1:8080",
-        authMode = AuthMode.ApiKey,
-        qbitApiKey = "qbt_example",
         proxyBaseUrl = "https://remagnet.example.com",
         proxyToken = "0123456789abcdef",
     )
 
     @Test
-    fun normalizesUrlsAndTags() {
+    fun normalizesUrlAndToken() {
         val normalized = RemagnetSettings(
-            qbitBaseUrl = "  http://127.0.0.1:8080///  ",
-            qbitApiKey = "  qbt_key  ",
-            qbitUsername = "  admin  ",
-            defaultCategory = "  remagnet  ",
-            defaultTags = " remagnet, android, , remagnet ",
             proxyBaseUrl = " https://proxy.example.com/// ",
             proxyToken = " 0123456789abcdef ",
         ).normalized()
 
-        assertEquals("http://127.0.0.1:8080", normalized.qbitBaseUrl)
-        assertEquals("qbt_key", normalized.qbitApiKey)
-        assertEquals("admin", normalized.qbitUsername)
-        assertEquals("remagnet", normalized.defaultCategory)
-        assertEquals("remagnet, android", normalized.defaultTags)
         assertEquals("https://proxy.example.com", normalized.proxyBaseUrl)
         assertEquals("0123456789abcdef", normalized.proxyToken)
     }
 
     @Test
-    fun keepsPasswordWhitespace() {
-        val normalized = RemagnetSettings(qbitPassword = "  secret  ").normalized()
-
-        assertEquals("  secret  ", normalized.qbitPassword)
-    }
-
-    @Test
-    fun acceptsAValidApiKeyConfiguration() {
+    fun acceptsAValidProxyConfiguration() {
         assertTrue(validateSettings(valid()).isEmpty())
+        assertTrue(valid().validate().isEmpty())
+        assertTrue(valid().archiveReady)
     }
 
     @Test
-    fun requiresApiKeyOrACompletePassword() {
-        val missingKey = validateSettings(valid().copy(qbitApiKey = ""))
-        assertEquals(SettingsField.QbitApiKey, missingKey.single().field)
+    fun requiresBothFields() {
+        val missingUrl = validateSettings(valid().copy(proxyBaseUrl = ""))
+        assertEquals(SettingsField.ProxyUrl, missingUrl.single().field)
 
-        val passwordMode = valid().copy(
-            authMode = AuthMode.Password,
-            qbitUsername = "",
-            qbitPassword = "",
-        )
-        val fields = validateSettings(passwordMode).map { it.field }
-        assertTrue(SettingsField.QbitUsername in fields)
-        assertTrue(SettingsField.QbitPassword in fields)
+        val missingToken = validateSettings(valid().copy(proxyToken = ""))
+        assertEquals(SettingsField.ProxyToken, missingToken.single().field)
     }
 
     @Test
     fun rejectsUrlsWithCredentialsQueryOrFragment() {
         listOf(
-            "ftp://127.0.0.1:8080",
-            "http://user:pass@127.0.0.1:8080",
-            "http://127.0.0.1:8080/api?x=1",
-            "http://127.0.0.1:8080/#fragment",
+            "ftp://proxy.example.com",
+            "http://user:pass@proxy.example.com",
+            "https://proxy.example.com/api?x=1",
+            "https://proxy.example.com/#fragment",
             "not a url",
         ).forEach { url ->
-            val errors = validateSettings(valid().copy(qbitBaseUrl = url))
-            assertEquals("expected $url to be rejected", SettingsField.QbitUrl, errors.first().field)
+            val errors = validateSettings(valid().copy(proxyBaseUrl = url))
+            assertEquals("expected $url to be rejected", SettingsField.ProxyUrl, errors.first().field)
         }
-    }
-
-    @Test
-    fun treatsAnEmptyProxyAsDisabled() {
-        val errors = validateSettings(
-            valid().copy(proxyBaseUrl = "", proxyToken = ""),
-        )
-
-        assertTrue(errors.isEmpty())
-    }
-
-    @Test
-    fun rejectsHalfConfiguredProxy() {
-        val urlOnly = validateSettings(valid().copy(proxyToken = ""))
-        assertEquals(SettingsField.ProxyToken, urlOnly.single().field)
-
-        val tokenOnly = validateSettings(valid().copy(proxyBaseUrl = ""))
-        assertEquals(SettingsField.ProxyUrl, tokenOnly.single().field)
     }
 
     @Test
@@ -101,11 +60,13 @@ class RemagnetSettingsTest {
     }
 
     @Test
-    fun requiresProxyUrlWhenTokenIsPresent() {
-        val errors = validateSettings(
-            valid().copy(proxyBaseUrl = "http://proxy.example.com?token=hidden"),
+    fun anIncompleteSnapshotIsNotReady() {
+        assertFalse(RemagnetSettings().archiveReady)
+        assertFalse(
+            RemagnetSettings(
+                proxyBaseUrl = "https://remagnet.example.com",
+                proxyToken = "",
+            ).archiveReady,
         )
-
-        assertEquals(SettingsField.ProxyUrl, errors.single().field)
     }
 }

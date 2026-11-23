@@ -122,22 +122,6 @@ button.ghost {
   font-weight: 500;
 }
 
-.button-link {
-  display: inline-flex;
-  align-items: center;
-  padding: 8px 14px;
-  border: 1px solid var(--border);
-  background: transparent;
-  color: var(--text);
-  font-weight: 500;
-  text-decoration: none;
-  white-space: nowrap;
-}
-
-.button-link:hover {
-  filter: brightness(1.08);
-}
-
 input,
 select,
 textarea {

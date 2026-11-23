@@ -18,7 +18,6 @@
   },
   "dependencies": {
     "@remagnet/proxy-client": "workspace:*",
-    "@remagnet/qbittorrent": "workspace:*",
     "solid-js": "^1.9.20"
   },
   "devDependencies": {

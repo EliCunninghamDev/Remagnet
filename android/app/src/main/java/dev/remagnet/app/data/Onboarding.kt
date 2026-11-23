@@ -8,55 +8,25 @@ import java.net.URLDecoder
 /**
  * A connection package that can be scanned from a QR code.
  *
- * The documented form is:
+ * The primary form is a `remagnet://pair` link. The documented fallbacks are:
  *
- * `remagnet://connect?qbit=https://qbt.example.com&apiKey=...&proxy=https://remagnet.example.com&token=...`
+ * `remagnet://connect?proxy=https://remagnet.example.com&token=...`
  *
- * A JSON object with the same names is also accepted so a generated code can be
- * produced without URL-encoding every secret. A bare `http(s)` URL is treated as
- * a proxy URL, which is useful for a minimal hand-written code.
+ * a JSON object with `proxy` and `token`, or a bare `http(s)` URL treated as
+ * the proxy. qBittorrent credentials never travel to the phone.
  */
 data class OnboardingPayload(
-    val qbitBaseUrl: String? = null,
-    val authMode: AuthMode? = null,
-    val qbitApiKey: String? = null,
-    val qbitUsername: String? = null,
-    val qbitPassword: String? = null,
-    val defaultCategory: String? = null,
-    val defaultTags: String? = null,
     val proxyBaseUrl: String? = null,
     val proxyToken: String? = null,
 ) {
-    val hasQbitValues: Boolean
-        get() = qbitBaseUrl != null ||
-            qbitApiKey != null ||
-            qbitUsername != null ||
-            qbitPassword != null ||
-            defaultCategory != null ||
-            defaultTags != null
-
     val hasProxyValues: Boolean
         get() = proxyBaseUrl != null || proxyToken != null
 
     /** Merge the package over the current settings, leaving absent fields alone. */
-    fun applyTo(current: RemagnetSettings): RemagnetSettings {
-        val inferredAuth = authMode ?: when {
-            qbitApiKey != null -> AuthMode.ApiKey
-            qbitUsername != null || qbitPassword != null -> AuthMode.Password
-            else -> current.authMode
-        }
-        return current.copy(
-            qbitBaseUrl = qbitBaseUrl ?: current.qbitBaseUrl,
-            authMode = inferredAuth,
-            qbitApiKey = qbitApiKey ?: current.qbitApiKey,
-            qbitUsername = qbitUsername ?: current.qbitUsername,
-            qbitPassword = qbitPassword ?: current.qbitPassword,
-            defaultCategory = defaultCategory ?: current.defaultCategory,
-            defaultTags = defaultTags ?: current.defaultTags,
-            proxyBaseUrl = proxyBaseUrl ?: current.proxyBaseUrl,
-            proxyToken = proxyToken ?: current.proxyToken,
-        )
-    }
+    fun applyTo(current: RemagnetSettings): RemagnetSettings = current.copy(
+        proxyBaseUrl = proxyBaseUrl ?: current.proxyBaseUrl,
+        proxyToken = proxyToken ?: current.proxyToken,
+    )
 }
 
 sealed interface OnboardingResult {
@@ -90,10 +60,12 @@ fun parseOnboarding(text: String): OnboardingResult {
         trimmed.startsWith("remagnet:", ignoreCase = true) -> parseRemagnetUri(trimmed)
         trimmed.startsWith("http://", ignoreCase = true) ||
             trimmed.startsWith("https://", ignoreCase = true) ->
-            OnboardingResult.Parsed(OnboardingPayload(proxyBaseUrl = trimmed))
+            OnboardingResult.Parsed(
+                OnboardingPayload(proxyBaseUrl = normalizeBaseUrl(trimmed)),
+            )
 
         else -> OnboardingResult.Invalid(
-            "This is not a Remagnet connect code. Expected a remagnet:// link or JSON.",
+            "This is not a Remagnet code. Expected a remagnet://pair link, a remagnet://connect link, JSON, or a proxy URL.",
         )
     }
 }
@@ -102,18 +74,18 @@ private fun parseRemagnetUri(text: String): OnboardingResult {
     val uri: URI = try {
         URI(text)
     } catch (_: Exception) {
-        return OnboardingResult.Invalid("The connect link is not a valid URI.")
+        return OnboardingResult.Invalid("The Remagnet link is not a valid URI.")
     }
 
     if (!uri.scheme.equals("remagnet", ignoreCase = true)) {
-        return OnboardingResult.Invalid("The connect link must use the remagnet:// scheme.")
+        return OnboardingResult.Invalid("The link must use the remagnet:// scheme.")
     }
 
     return when {
-        uri.host.equals("connect", ignoreCase = true) -> fromValues(parseQuery(uri.rawQuery))
         uri.host.equals("pair", ignoreCase = true) -> fromPairingValues(parseQuery(uri.rawQuery))
+        uri.host.equals("connect", ignoreCase = true) -> fromValues(parseQuery(uri.rawQuery))
         else -> OnboardingResult.Invalid(
-            "The connect link must point at remagnet://connect or remagnet://pair.",
+            "The link must point at remagnet://pair or remagnet://connect.",
         )
     }
 }
@@ -144,11 +116,15 @@ private fun fromPairingValues(values: Map<String, String>): OnboardingResult {
     if (uri.host.isNullOrEmpty()) {
         return OnboardingResult.Invalid("The pairing proxy URL needs a host.")
     }
-    // The pairing response carries credentials, so a non-loopback plain HTTP
-    // origin would let anyone on the path read them despite the inner
+    if (uri.userInfo != null) {
+        return OnboardingResult.Invalid("The pairing proxy URL must not contain credentials.")
+    }
+    // The pairing response carries the proxy token, so a non-loopback plain
+    // HTTP origin would let anyone on the path read it despite the inner
     // encryption. The Android network security config also blocks cleartext.
-    val loopback = uri.host == "127.0.0.1" || uri.host == "localhost" ||
-        uri.host == "::1" || uri.host == "[::1]" || uri.host == "10.0.2.2"
+    val host = uri.host.lowercase()
+    val loopback = host == "127.0.0.1" || host == "localhost" ||
+        host == "::1" || host == "[::1]" || host == "10.0.2.2"
     if (!uri.scheme.equals("https", ignoreCase = true) && !loopback) {
         return OnboardingResult.Invalid(
             "Pairing needs an HTTPS Remagnet Proxy URL. Put the proxy behind HTTPS and try again.",
@@ -174,42 +150,17 @@ private fun fromValues(values: Map<String, String>): OnboardingResult {
         values[key]?.takeIf { it.isNotBlank() }
     }
 
-    // Tokens and keys are trimmed, passwords are not: whitespace can be part of
-    // a real password, and changing it would produce a confusing auth failure.
-    val apiKey = value("apiKey", "qbitApiKey", "key")?.trim()
-    val username = value("username", "qbitUsername", "user")?.trim()
-    val password = value("password", "qbitPassword", "pass")
-    val explicitAuth = value("auth", "authMode")?.let { parseAuthMode(it) }
-    val inferredAuth = explicitAuth ?: when {
-        apiKey != null -> AuthMode.ApiKey
-        username != null || password != null -> AuthMode.Password
-        else -> null
-    }
+    val proxy = value("proxy", "proxyUrl", "url")?.trim()?.trimEnd('/')
+    val token = value("token", "proxyToken")?.trim()
 
-    val payload = OnboardingPayload(
-        qbitBaseUrl = value("qbit", "qbitUrl", "qbitBaseUrl", "qbittorrent")?.trim(),
-        authMode = inferredAuth,
-        qbitApiKey = apiKey,
-        qbitUsername = username,
-        qbitPassword = password,
-        defaultCategory = value("category", "defaultCategory")?.trim(),
-        defaultTags = value("tags", "defaultTags")?.trim(),
-        proxyBaseUrl = value("proxy", "proxyUrl", "archive", "archiveUrl", "url")?.trim(),
-        proxyToken = value("token", "proxyToken", "archiveToken")?.trim(),
-    )
-
-    if (!payload.hasQbitValues && !payload.hasProxyValues) {
+    if (proxy == null && token == null) {
         return OnboardingResult.Invalid(
-            "The code does not contain any Remagnet connection settings.",
+            "The code does not contain a Remagnet Proxy URL or token.",
         )
     }
-    return OnboardingResult.Parsed(payload)
-}
-
-private fun parseAuthMode(value: String): AuthMode? = when (value.trim().lowercase()) {
-    "apikey", "api_key", "key" -> AuthMode.ApiKey
-    "password", "userpass", "username" -> AuthMode.Password
-    else -> null
+    return OnboardingResult.Parsed(
+        OnboardingPayload(proxyBaseUrl = proxy, proxyToken = token),
+    )
 }
 
 private fun parseQuery(rawQuery: String?): Map<String, String> {

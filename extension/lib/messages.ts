@@ -1,26 +1,26 @@
 import { browser } from "wxt/browser";
-import type { AddTorrentResult, ConnectionDetails } from "./clients/types";
-import type { TorrentSummary, TorrentTaxonomy } from "./torrents";
+import type { TorrentSummary } from "./torrents";
 
 export { COMPLETE_PROGRESS } from "./torrents";
 
 export type BackgroundRequest =
   | { type: "connection:test" }
-  | {
-      type: "torrents:add";
-      urls: string[];
-      category?: string;
-      tags?: string[];
-      paused?: boolean;
-    }
+  | { type: "torrents:add"; urls: string[]; paused?: boolean }
   | { type: "torrents:list" }
   | { type: "torrents:get"; hash: string }
   | { type: "torrents:remove"; hashes: string[]; deleteFiles?: boolean }
-  | { type: "torrents:taxonomy" }
-  | { type: "archive:test" }
   | { type: "archive:download"; hash: string; name?: string };
 
-export type ConnectionTestResult = ConnectionDetails;
+export interface ConnectionTestResult {
+  clientLabel: string;
+  appVersion: string;
+  webApiVersion: string;
+  capabilities: {
+    pauseOnAdd: boolean;
+  };
+  defaultCategory: string;
+  defaultTags: string[];
+}
 
 export interface TorrentListResult {
   torrents: TorrentSummary[];
@@ -28,17 +28,15 @@ export interface TorrentListResult {
   fetchedAt: number;
 }
 
-export type AddTorrentsResult = AddTorrentResult;
+export interface AddTorrentsResult {
+  added: number;
+  hashes: string[];
+  category: string;
+  tags: string[];
+}
 
 export interface TorrentLookupResult {
   torrent: TorrentSummary | null;
-}
-
-export type TorrentTaxonomyResult = TorrentTaxonomy;
-
-export interface ArchiveTestResult {
-  appVersion: string;
-  webApiVersion: string;
 }
 
 export interface ArchiveDownloadResult {
@@ -68,8 +66,6 @@ export function isBackgroundRequest(value: unknown): value is BackgroundRequest 
   const candidate = value as {
     type?: unknown;
     urls?: unknown;
-    category?: unknown;
-    tags?: unknown;
     paused?: unknown;
     hash?: unknown;
     name?: unknown;
@@ -80,8 +76,6 @@ export function isBackgroundRequest(value: unknown): value is BackgroundRequest 
   switch (candidate.type) {
     case "connection:test":
     case "torrents:list":
-    case "torrents:taxonomy":
-    case "archive:test":
       return true;
     case "torrents:get":
       return typeof candidate.hash === "string" && candidate.hash.length > 0;
@@ -102,10 +96,6 @@ export function isBackgroundRequest(value: unknown): value is BackgroundRequest 
       return (
         Array.isArray(candidate.urls) &&
         candidate.urls.every((url) => typeof url === "string") &&
-        (candidate.category === undefined || typeof candidate.category === "string") &&
-        (candidate.tags === undefined ||
-          (Array.isArray(candidate.tags) &&
-            candidate.tags.every((tag) => typeof tag === "string"))) &&
         (candidate.paused === undefined || typeof candidate.paused === "boolean")
       );
     default:

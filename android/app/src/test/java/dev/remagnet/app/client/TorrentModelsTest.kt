@@ -1,7 +1,5 @@
 package dev.remagnet.app.client
 
-import dev.remagnet.app.data.RemagnetSettings
-import java.util.Locale
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -9,49 +7,34 @@ import org.junit.Test
 
 class TorrentModelsTest {
     @Test
-    fun normalizesEveryKnownQBittorrentState() {
+    fun normalizesEveryKnownProxyState() {
         val cases = mapOf(
-            "allocating" to TorrentState.Checking,
-            "checkingDL" to TorrentState.Checking,
-            "checkingResumeData" to TorrentState.Checking,
-            "checkingUP" to TorrentState.Checking,
-            "metaDL" to TorrentState.Metadata,
+            "checking" to TorrentState.Checking,
+            "metadata" to TorrentState.Metadata,
             "downloading" to TorrentState.Downloading,
-            "forcedDL" to TorrentState.Downloading,
-            "stalledDL" to TorrentState.Stalled,
-            "queuedDL" to TorrentState.Queued,
-            "queuedUP" to TorrentState.Queued,
+            "stalled" to TorrentState.Stalled,
+            "queued" to TorrentState.Queued,
             "moving" to TorrentState.Moving,
-            "uploading" to TorrentState.Seeding,
-            "forcedUP" to TorrentState.Seeding,
-            "stalledUP" to TorrentState.Seeding,
-            "pausedDL" to TorrentState.Stopped,
-            "pausedUP" to TorrentState.Stopped,
-            "stoppedDL" to TorrentState.Stopped,
-            "stoppedUP" to TorrentState.Stopped,
+            "seeding" to TorrentState.Seeding,
+            "stopped" to TorrentState.Stopped,
             "error" to TorrentState.Error,
-            "missingFiles" to TorrentState.MissingFiles,
+            "missingfiles" to TorrentState.MissingFiles,
             "unknown" to TorrentState.Unknown,
         )
 
         cases.forEach { (raw, expected) ->
-            assertEquals("$raw should map to $expected", expected, TorrentState.fromQbittorrent(raw))
+            assertEquals("$raw should map to $expected", expected, TorrentState.fromProxy(raw))
         }
     }
 
     @Test
     fun keepsUnknownFutureStatesRenderable() {
-        assertEquals(TorrentState.Unknown, TorrentState.fromQbittorrent("someNewState"))
+        assertEquals(TorrentState.Unknown, TorrentState.fromProxy("someNewState"))
     }
 
     @Test
-    fun normalizesTagsFromStringsAndLists() {
-        assertEquals(
-            listOf("remagnet", "linux", "isos"),
-            normalizeTagList(listOf(" remagnet, linux ", "isos", "remagnet")),
-        )
-        assertEquals(listOf("one", "two"), splitTagList(" one, ,two, one "))
-        assertEquals(emptyList<String>(), splitTagList(null))
+    fun stateNamesAreMatchedCaseInsensitively() {
+        assertEquals(TorrentState.Downloading, TorrentState.fromProxy(" DOWNLOADING "))
     }
 
     @Test
@@ -61,68 +44,42 @@ class TorrentModelsTest {
     }
 
     @Test
-    fun aBlankFilterShowsEverything() {
-        val filter = torrentFilterFor(
-            RemagnetSettings(defaultCategory = "", defaultTags = ""),
+    fun treatsSeedingAsCompleteRegardlessOfProgress() {
+        assertTrue(torrent(progress = 0.5, state = TorrentState.Seeding).isComplete)
+    }
+
+    @Test
+    fun theAddRequestSendsOnlyUrlsAndPaused() {
+        val request = AddTorrentRequest(urls = listOf("magnet:?xt=urn:btih:abc"), paused = true)
+
+        assertEquals(listOf("magnet:?xt=urn:btih:abc"), request.urls)
+        assertTrue(request.paused)
+    }
+
+    @Test
+    fun theAddResultCarriesTheProxyAppliedMetadata() {
+        val result = AddTorrentResult(
+            added = 1,
+            hashes = listOf("abc"),
+            category = "remagnet",
+            tags = listOf("linux"),
         )
 
-        assertFalse(filter.active)
-        assertEquals(listOf(torrent(category = "tv")), filterTorrents(listOf(torrent(category = "tv")), filter))
-    }
-
-    @Test
-    fun filtersByCategoryCaseInsensitively() {
-        val filter = TorrentFilter(active = true, category = "Remagnet", tags = emptyList())
-
-        assertTrue(matchesFilter(torrent(category = "remagnet"), filter))
-        assertTrue(matchesFilter(torrent(category = " REMAGNET "), filter))
-        assertFalse(matchesFilter(torrent(category = "films"), filter))
-    }
-
-    @Test
-    fun matchesAnyConfiguredTag() {
-        val filter = TorrentFilter(active = true, category = "", tags = listOf("linux", "isos"))
-
-        assertTrue(matchesFilter(torrent(tags = listOf("Remagnet", "Linux")), filter))
-        assertTrue(matchesFilter(torrent(tags = listOf("isos")), filter))
-        assertFalse(matchesFilter(torrent(tags = listOf("films")), filter))
-    }
-
-    @Test
-    fun matchesTagsWithoutDependingOnTheDeviceLocale() {
-        val previous = Locale.getDefault()
-        try {
-            // Turkish lowercases an ASCII I to a dotless ı. Matching category
-            // and tag names should not change with the phone's language.
-            Locale.setDefault(Locale.forLanguageTag("tr"))
-            val filter = TorrentFilter(active = true, category = "", tags = listOf("ISO"))
-
-            assertTrue(matchesFilter(torrent(tags = listOf("iso")), filter))
-        } finally {
-            Locale.setDefault(previous)
-        }
-    }
-
-    @Test
-    fun buildsAFilterFromSettings() {
-        val filter = torrentFilterFor(
-            RemagnetSettings(defaultCategory = " remagnet ", defaultTags = "linux, isos"),
-        )
-
-        assertTrue(filter.active)
-        assertEquals("remagnet", filter.category)
-        assertEquals(listOf("linux", "isos"), filter.tags)
+        assertEquals(1, result.added)
+        assertEquals("remagnet", result.category)
+        assertEquals(listOf("linux"), result.tags)
     }
 
     private fun torrent(
         category: String = "remagnet",
         tags: List<String> = listOf("remagnet"),
         progress: Double = 0.5,
+        state: TorrentState = TorrentState.Downloading,
     ) = TorrentSummary(
         hash = "abc",
         name = "Example",
-        state = TorrentState.Downloading,
-        rawState = "downloading",
+        state = state,
+        rawState = state.label,
         progress = progress,
         size = 1024,
         downloadSpeed = 100,

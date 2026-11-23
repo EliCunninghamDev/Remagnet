@@ -8,7 +8,6 @@ import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.remagnet.app.client.TorrentState
 import dev.remagnet.app.client.TorrentSummary
-import dev.remagnet.app.data.RemagnetSettings
 import dev.remagnet.app.download.ArchiveDownloadState
 import dev.remagnet.app.ui.theme.RemagnetTheme
 import org.junit.Assert.assertEquals
@@ -27,12 +26,6 @@ import org.robolectric.annotation.Config
 class TorrentListUiTest {
     @get:Rule
     val compose = createComposeRule()
-
-    private val settings = RemagnetSettings(
-        qbitApiKey = "test-key",
-        proxyBaseUrl = "https://proxy.example",
-        proxyToken = "test-token-12345",
-    )
 
     private val torrent = TorrentSummary(
         hash = "a".repeat(40),
@@ -54,7 +47,6 @@ class TorrentListUiTest {
 
     private fun render(
         torrents: List<TorrentSummary> = listOf(torrent),
-        settings: RemagnetSettings = this.settings,
         confirmingHash: String? = null,
         removingHash: String? = null,
         download: ArchiveDownloadState = ArchiveDownloadState.Idle,
@@ -65,7 +57,6 @@ class TorrentListUiTest {
         compose.setContent {
             RemagnetTheme {
                 TorrentListSection(
-                    settings = settings,
                     torrents = torrents,
                     loading = false,
                     error = error,
@@ -98,10 +89,10 @@ class TorrentListUiTest {
     }
 
     @Test
-    fun completeTorrentDisablesDownloadWithoutProxy() {
-        render(settings = RemagnetSettings(qbitApiKey = "test-key"))
+    fun incompleteTorrentHasNoDownloadButton() {
+        render(torrents = listOf(torrent.copy(state = TorrentState.Downloading, progress = 0.5)))
 
-        compose.onNodeWithText("Download").assertIsDisplayed().assertIsNotEnabled()
+        compose.onNodeWithText("Download").assertDoesNotExist()
     }
 
     @Test
@@ -177,12 +168,11 @@ class TorrentListUiTest {
     }
 
     @Test
-    fun filteredEmptyListExplainsTheFilter() {
+    fun emptyListInvitesAddingAMagnet() {
         render(torrents = emptyList())
 
         compose.onNodeWithText(
-            "No Remagnet torrents yet. Add a magnet to see it here; matching uses " +
-                "category \"remagnet\" and tag \"remagnet\".",
+            "No Remagnet torrents yet. Add a magnet to see it here.",
         ).assertExists()
     }
 }

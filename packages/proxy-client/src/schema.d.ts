@@ -13,9 +13,10 @@ export interface paths {
         };
         /**
          * Configuration page
-         * @description Static HTML page for setting the qBittorrent Web UI URL and credentials.
-         *     The page never receives saved secrets back. Served with `Cache-Control: no-store`
-         *     and `X-Content-Type-Options: nosniff`.
+         * @description Static HTML page for setting the qBittorrent Web UI URL and credentials,
+         *     plus the category and tags applied to new magnets. The page never
+         *     receives saved secrets back. Served with `Cache-Control: no-store` and
+         *     `X-Content-Type-Options: nosniff`.
          */
         get: operations["getConfigPage"];
         put?: never;
@@ -54,10 +55,11 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Test the saved qBittorrent connection
+         * Read proxy capabilities and qBittorrent versions
          * @description Calls qBittorrent's `app/version` and `app/webapiVersion` endpoints with
-         *     the saved credentials. Used by the extension's "Save & test Remagnet Proxy"
-         *     action and the configuration page.
+         *     the saved credentials and reports the neutral capabilities and current
+         *     magnet defaults. Used by the extension's connection test, the Android
+         *     app and the configuration page.
          */
         get: operations["checkQbitConnection"];
         put?: never;
@@ -77,13 +79,14 @@ export interface paths {
         };
         /**
          * Read non-secret configuration
-         * @description Returns the qBittorrent base URL and username plus flags indicating
-         *     whether an API key and password are saved. Secret values are never
-         *     returned, and this endpoint does not contact qBittorrent.
+         * @description Returns the qBittorrent base URL and username, flags indicating whether an
+         *     API key and password are saved, and the category/tags applied to magnets.
+         *     Secret values are never returned, and this endpoint does not contact
+         *     qBittorrent.
          */
         get: operations["getConfig"];
         /**
-         * Update the qBittorrent connection
+         * Update the qBittorrent connection and magnet defaults
          * @description Replaces the saved qBittorrent settings and returns the new public
          *     configuration. `qbitBaseUrl` is required and is normalized by trimming
          *     whitespace and trailing slashes; credentials in the URL, query strings
@@ -91,12 +94,85 @@ export interface paths {
          *
          *     For the secret fields (`qbitApiKey`, `qbitUsername`, `qbitPassword`),
          *     omitting a field keeps the saved value and sending an empty string clears
-         *     it. At least one of `qbitApiKey` or `qbitUsername` must remain set. A
-         *     request that fails validation leaves the stored configuration untouched.
+         *     it. Credentials are not required when saving: the proxy remains bootable
+         *     and qBittorrent-backed endpoints return `503` until an API key or
+         *     username is saved. Saving valid credentials activates the client without
+         *     a restart.
+         *
+         *     `defaultCategory` and `defaultTags` are the values applied to every
+         *     magnet added through the proxy. Omitting either field keeps the saved
+         *     value. Tags are trimmed and deduplicated; an empty array clears the tag
+         *     filter. When both the category and tags are empty, every torrent in
+         *     qBittorrent is exposed.
          */
         put: operations["updateConfig"];
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/torrents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the torrents owned by Remagnet
+         * @description Lists qBittorrent torrents sorted by added time (newest first) and
+         *     filters them server-side with the configured category and tags. A torrent
+         *     matches when its category equals the configured category
+         *     (case-insensitively) or any of its tags equals a configured tag. When both
+         *     defaults are empty, every torrent matches.
+         */
+        get: operations["listTorrents"];
+        put?: never;
+        /**
+         * Add one or more magnets
+         * @description Adds `urls` to qBittorrent with the proxy's configured category and tags.
+         *     Clients cannot override either value. A non-empty category is created
+         *     first when missing, as are missing tags. With `paused: true` the proxy
+         *     sends both qBittorrent 4.x (`paused`) and 5.x (`stopped`) form fields.
+         *
+         *     `hashes` contains the v1/v2 info hashes extracted from submitted
+         *     `magnet:` URLs; non-magnet URLs simply contribute no hash. qBittorrent
+         *     rejecting the torrent (for example because it already exists) returns
+         *     `400` with an explanatory message.
+         */
+        post: operations["addTorrents"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/torrents/{hash}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read one torrent by info hash
+         * @description Fetches a torrent without applying the relevance filter. Clients use this
+         *     for duplicate checks, so an existing torrent anywhere in qBittorrent is
+         *     reported even when Remagnet does not own it.
+         */
+        get: operations["getTorrent"];
+        put?: never;
+        post?: never;
+        /**
+         * Remove a torrent owned by Remagnet
+         * @description Deletes a torrent only when it matches the proxy's configured
+         *     category/tags filter. A torrent that does not exist, or that exists but
+         *     is not owned by Remagnet, returns `404` so clients cannot remove
+         *     unrelated torrents from a shared qBittorrent instance.
+         */
+        delete: operations["removeTorrent"];
         options?: never;
         head?: never;
         patch?: never;
@@ -119,10 +195,10 @@ export interface paths {
          *     claims it from Settings. The code is single-use and is never stored on
          *     disk; restarting the proxy invalidates outstanding sessions.
          *
-         *     Minting requires the proxy token. Claiming the code does not, because
-         *     the device or extension claiming it has not been configured yet. Pairing
-         *     carries credentials, so the origin must use HTTPS unless it is loopback
-         *     or the Android emulator host (`10.0.2.2`).
+         *     Minting requires the proxy token. Claiming the code does not, because the
+         *     device or extension claiming it has not been configured yet. Pairing
+         *     carries the proxy token, so the origin must use HTTPS unless it is
+         *     loopback or the Android emulator host (`10.0.2.2`).
          */
         post: operations["createPairing"];
         delete?: never;
@@ -162,13 +238,13 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Claim a pairing code and receive encrypted connection settings
+         * Claim a pairing code and receive the encrypted proxy token
          * @description The Android app, or the extension's pairing field, sends the session id
          *     and `SHA-256(code)`, not the code itself. On success the proxy consumes
-         *     the session and returns the qBittorrent URL, credentials, and proxy
-         *     token encrypted with AES-256-GCM. Both sides derive the key from the
-         *     scanned code and the session id, so a logged request or response is
-         *     useless without the code.
+         *     the session and returns `{ version: 2, proxyToken }` encrypted with
+         *     AES-256-GCM. Both sides derive the key from the scanned code and the
+         *     session id, so a logged request or response is useless without the code.
+         *     qBittorrent credentials are never included.
          *
          *     The plaintext is a JSON object described by `PairingPayload`. Invalid,
          *     expired, or already-claimed codes return `400` and no payload.
@@ -218,6 +294,14 @@ export interface components {
             /** @description Human-readable message safe to display to the user. */
             error: string;
         };
+        /**
+         * @description Returned by qBittorrent-backed endpoints before the proxy has credentials.
+         *     Saving an API key or username through `PUT /api/config` clears it.
+         */
+        ServiceUnavailable: {
+            /** @example qBittorrent is not configured yet. Open the Remagnet Proxy page to set it up. */
+            error: string;
+        };
         Liveness: {
             /**
              * @description Always true for a successful liveness probe.
@@ -232,12 +316,26 @@ export interface components {
             /** @description Crate version from `CARGO_PKG_VERSION`. */
             version: string;
         };
+        /** @description Features the proxy supports through its neutral torrent API. */
+        TorrentCapabilities: {
+            /**
+             * @description Whether `POST /api/torrents` accepts `paused`.
+             * @example true
+             */
+            pauseOnAdd: boolean;
+        };
+        /** @description Successful qBittorrent connection check plus the effective magnet defaults. */
         ConnectionHealth: {
             /**
              * @description Always true when qBittorrent answers.
              * @example true
              */
             ok: boolean;
+            /**
+             * @description Human-readable name of the adapted torrent client.
+             * @example qBittorrent
+             */
+            clientLabel: string;
             /**
              * @description qBittorrent application version reported by qBittorrent.
              * @example 5.3.0
@@ -248,6 +346,112 @@ export interface components {
              * @example 2.16.2
              */
             webApiVersion: string;
+            capabilities: components["schemas"]["TorrentCapabilities"];
+            /**
+             * @description Category applied to new magnets and used for filtering.
+             * @example remagnet
+             */
+            defaultCategory: string;
+            /**
+             * @description Tags applied to new magnets and used for filtering.
+             * @example [
+             *       "remagnet"
+             *     ]
+             */
+            defaultTags: string[];
+        };
+        /**
+         * @description A torrent in the client-neutral shape shared by the browser extension and
+         *     Android app. `state` is normalized from qBittorrent's vocabulary.
+         */
+        TorrentSummary: {
+            /**
+             * @description Torrent info hash, lowercase when qBittorrent returns it that way.
+             * @example dc555f7a26f1acae38a18edc04e53588ade33051
+             */
+            hash: string;
+            /** @description Torrent display name. */
+            name: string;
+            /**
+             * @description Normalized state. Known values are `checking`, `downloading`,
+             *     `metadata`, `stalled`, `queued`, `moving`, `seeding`, `stopped`,
+             *     `error`, `missingFiles` and `unknown`; unrecognized qBittorrent
+             *     states pass through unchanged.
+             * @example downloading
+             */
+            state: string;
+            /**
+             * Format: double
+             * @description Completion from 0 to 1.
+             */
+            progress: number;
+            /**
+             * Format: int64
+             * @description Total torrent size in bytes.
+             */
+            size: number;
+            /**
+             * Format: int64
+             * @description Current download speed in bytes per second.
+             */
+            downloadSpeed: number;
+            /**
+             * Format: int64
+             * @description Current upload speed in bytes per second.
+             */
+            uploadSpeed: number;
+            /**
+             * Format: int64
+             * @description Seconds until completion; qBittorrent's sentinel for unknown.
+             * @example 60
+             */
+            eta: number;
+            /**
+             * Format: double
+             * @description Share ratio.
+             */
+            ratio: number;
+            /** @description qBittorrent category, or an empty string. */
+            category: string;
+            /** @description Split qBittorrent tags without empty entries. */
+            tags: string[];
+            /**
+             * Format: int64
+             * @description Connected seeds.
+             */
+            seeds: number;
+            /**
+             * Format: int64
+             * @description Connected peers (qBittorrent `num_leechs`).
+             */
+            peers: number;
+        };
+        TorrentList: {
+            /** @description Torrents matching the configured category/tags filter. */
+            torrents: components["schemas"]["TorrentSummary"][];
+        };
+        /**
+         * @description Magnets or torrent URLs to add. Category and tags are intentionally not
+         *     accepted: the proxy always applies its configured defaults.
+         */
+        AddTorrentRequest: {
+            /** @description Magnet links or http(s) URLs understood by qBittorrent. */
+            urls: string[];
+            /**
+             * @description Add the torrents stopped instead of starting them immediately.
+             * @default false
+             */
+            paused: boolean;
+        };
+        AddTorrentResult: {
+            /** @description Number of submitted URLs. */
+            added: number;
+            /** @description Info hashes extracted from submitted `magnet:` URLs. */
+            hashes: string[];
+            /** @description Category the proxy applied to the added torrents. */
+            category: string;
+            /** @description Tags the proxy applied to the added torrents. */
+            tags: string[];
         };
         /**
          * @description Non-secret view of the saved configuration. Secret values are represented
@@ -266,6 +470,18 @@ export interface components {
             hasApiKey: boolean;
             /** @description Whether a qBittorrent password is saved. */
             hasPassword: boolean;
+            /**
+             * @description Category applied to new magnets and used for filtering.
+             * @example remagnet
+             */
+            defaultCategory: string;
+            /**
+             * @description Tags applied to new magnets and used for filtering.
+             * @example [
+             *       "remagnet"
+             *     ]
+             */
+            defaultTags: string[];
         };
         ConfigUpdate: {
             /**
@@ -291,6 +507,22 @@ export interface components {
              *     send an empty string to clear it.
              */
             qbitPassword?: string;
+            /**
+             * @description Category applied to new magnets and used to decide which torrents
+             *     Remagnet owns. Omit to keep the saved value; send an empty string to
+             *     disable category matching.
+             * @example remagnet
+             */
+            defaultCategory?: string;
+            /**
+             * @description Tags applied to new magnets and used to decide which torrents
+             *     Remagnet owns. Omit to keep the saved value; send an empty array to
+             *     disable tag matching. Entries are trimmed and deduplicated.
+             * @example [
+             *       "remagnet"
+             *     ]
+             */
+            defaultTags?: string[];
         };
         CreatePairingRequest: {
             /**
@@ -359,24 +591,17 @@ export interface components {
             /** @description Base64url ciphertext with the 16-byte GCM tag appended. */
             data: string;
         };
-        /** @description Plaintext inside `EncryptedPayload.data` after decryption. */
+        /**
+         * @description Plaintext inside `EncryptedPayload.data` after decryption. qBittorrent
+         *     credentials are never part of this payload.
+         */
         PairingPayload: {
-            /** @constant */
-            version: 1;
             /**
-             * Format: uri
-             * @description qBittorrent Web UI URL saved on the proxy.
+             * @description Pairing payload version.
+             * @constant
              */
-            qbitBaseUrl: string;
-            /** @enum {string} */
-            authMode: "apiKey" | "password";
-            /** @description Present when `authMode` is `apiKey`. */
-            apiKey?: string;
-            /** @description Present when `authMode` is `password`. */
-            username?: string;
-            /** @description Present when `authMode` is `password`. */
-            password?: string;
-            /** @description The proxy's `BRIDGE_TOKEN`, so the app can download ZIPs. */
+            version: 2;
+            /** @description The proxy's `BRIDGE_TOKEN`, so the client can call the torrent API. */
             proxyToken: string;
         };
     };
@@ -395,7 +620,7 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
-        /** @description The request was rejected, for example an invalid URL or no usable credentials. */
+        /** @description The request was rejected, for example an invalid URL, hash or field. */
         BadRequest: {
             headers: {
                 [name: string]: unknown;
@@ -404,6 +629,20 @@ export interface components {
                 /**
                  * @example {
                  *       "error": "Enter a valid http:// or https:// URL."
+                 *     }
+                 */
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description The torrent does not exist or is not owned by Remagnet. */
+        NotFound: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "error": "Torrent not found."
                  *     }
                  */
                 "application/json": components["schemas"]["Error"];
@@ -427,6 +666,15 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
+        /** @description qBittorrent credentials have not been configured on the proxy yet. */
+        ServiceUnavailable: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ServiceUnavailable"];
+            };
+        };
     };
     parameters: {
         /**
@@ -434,6 +682,12 @@ export interface components {
          *     `Authorization: Bearer <token>`; either one is sufficient.
          */
         TokenQuery: string;
+        /**
+         * @description Torrent info hash. Accepts a 40-character BitTorrent v1 hash or a
+         *     64-character v2 hash, case-insensitively.
+         * @example dc555f7a26f1acae38a18edc04e53588ade33051
+         */
+        Hash: string;
     };
     requestBodies: never;
     headers: never;
@@ -514,8 +768,16 @@ export interface operations {
                     /**
                      * @example {
                      *       "ok": true,
+                     *       "clientLabel": "qBittorrent",
                      *       "appVersion": "5.3.0",
-                     *       "webApiVersion": "2.16.2"
+                     *       "webApiVersion": "2.16.2",
+                     *       "capabilities": {
+                     *         "pauseOnAdd": true
+                     *       },
+                     *       "defaultCategory": "remagnet",
+                     *       "defaultTags": [
+                     *         "remagnet"
+                     *       ]
                      *     }
                      */
                     "application/json": components["schemas"]["ConnectionHealth"];
@@ -523,6 +785,7 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             502: components["responses"]["BadGateway"];
+            503: components["responses"]["ServiceUnavailable"];
         };
     };
     getConfig: {
@@ -551,7 +814,11 @@ export interface operations {
                      *       "qbitBaseUrl": "http://gluetun:8080",
                      *       "qbitUsername": "",
                      *       "hasApiKey": true,
-                     *       "hasPassword": false
+                     *       "hasPassword": false,
+                     *       "defaultCategory": "remagnet",
+                     *       "defaultTags": [
+                     *         "remagnet"
+                     *       ]
                      *     }
                      */
                     "application/json": components["schemas"]["PublicConfig"];
@@ -591,6 +858,166 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             500: components["responses"]["InternalError"];
+        };
+    };
+    listTorrents: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Proxy token as a query parameter. Alternative to
+                 *     `Authorization: Bearer <token>`; either one is sufficient.
+                 */
+                token?: components["parameters"]["TokenQuery"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The filtered torrent list. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TorrentList"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            502: components["responses"]["BadGateway"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    addTorrents: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Proxy token as a query parameter. Alternative to
+                 *     `Authorization: Bearer <token>`; either one is sufficient.
+                 */
+                token?: components["parameters"]["TokenQuery"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "urls": [
+                 *         "magnet:?xt=urn:btih:dc555f7a26f1acae38a18edc04e53588ade33051"
+                 *       ],
+                 *       "paused": false
+                 *     }
+                 */
+                "application/json": components["schemas"]["AddTorrentRequest"];
+            };
+        };
+        responses: {
+            /** @description qBittorrent accepted the add request. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AddTorrentResult"];
+                };
+            };
+            /** @description No URLs were supplied or qBittorrent rejected the torrent. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "qBittorrent rejected the torrent. It may already exist, or the magnet link may be invalid."
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            502: components["responses"]["BadGateway"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    getTorrent: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Proxy token as a query parameter. Alternative to
+                 *     `Authorization: Bearer <token>`; either one is sufficient.
+                 */
+                token?: components["parameters"]["TokenQuery"];
+            };
+            header?: never;
+            path: {
+                /**
+                 * @description Torrent info hash. Accepts a 40-character BitTorrent v1 hash or a
+                 *     64-character v2 hash, case-insensitively.
+                 * @example dc555f7a26f1acae38a18edc04e53588ade33051
+                 */
+                hash: components["parameters"]["Hash"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The torrent in the neutral shape. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TorrentSummary"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            502: components["responses"]["BadGateway"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    removeTorrent: {
+        parameters: {
+            query?: {
+                /** @description Also delete the downloaded files. */
+                deleteFiles?: boolean;
+                /**
+                 * @description Proxy token as a query parameter. Alternative to
+                 *     `Authorization: Bearer <token>`; either one is sufficient.
+                 */
+                token?: components["parameters"]["TokenQuery"];
+            };
+            header?: never;
+            path: {
+                /**
+                 * @description Torrent info hash. Accepts a 40-character BitTorrent v1 hash or a
+                 *     64-character v2 hash, case-insensitively.
+                 * @example dc555f7a26f1acae38a18edc04e53588ade33051
+                 */
+                hash: components["parameters"]["Hash"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The torrent was deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            502: components["responses"]["BadGateway"];
+            503: components["responses"]["ServiceUnavailable"];
         };
     };
     createPairing: {
@@ -636,7 +1063,7 @@ export interface operations {
                 content: {
                     /**
                      * @example {
-                     *       "error": "Android pairing needs an HTTPS Remagnet Proxy URL."
+                     *       "error": "Pairing needs an HTTPS Remagnet Proxy URL."
                      *     }
                      */
                     "application/json": components["schemas"]["Error"];
@@ -685,7 +1112,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Encrypted connection settings for the scanning device. */
+            /** @description Encrypted settings for the scanning device. */
             200: {
                 headers: {
                     "Cache-Control"?: "no-store";
@@ -727,7 +1154,7 @@ export interface operations {
                  *     64-character v2 hash, case-insensitively.
                  * @example dc555f7a26f1acae38a18edc04e53588ade33051
                  */
-                hash: string;
+                hash: components["parameters"]["Hash"];
             };
             cookie?: never;
         };
@@ -802,6 +1229,7 @@ export interface operations {
             };
             500: components["responses"]["InternalError"];
             502: components["responses"]["BadGateway"];
+            503: components["responses"]["ServiceUnavailable"];
         };
     };
 }

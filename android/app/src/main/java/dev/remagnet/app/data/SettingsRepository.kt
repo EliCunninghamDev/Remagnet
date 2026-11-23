@@ -5,12 +5,16 @@ import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 
 /**
- * Persist settings with the three credentials encrypted.
+ * Persist settings with the proxy token encrypted.
  *
  * JSON is written and read field by field rather than through reflective
  * serialization, so a missing field gets the documented default instead of a
  * JVM zero value and release builds do not need Gson keep rules for these
  * classes.
+ *
+ * Older builds wrote qBittorrent credentials and magnet defaults to the same
+ * keys. Those fields are simply not read any more; a load leaves them in place
+ * until the next save rewrites the objects with the proxy-only shape.
  */
 class SettingsRepository(
     private val store: KeyValueStore,
@@ -20,13 +24,6 @@ class SettingsRepository(
         val public = readPublic()
         val secrets = readSecrets()
         return RemagnetSettings(
-            qbitBaseUrl = public?.qbitBaseUrl ?: DEFAULT_QBIT_BASE_URL,
-            authMode = public?.authMode ?: AuthMode.ApiKey,
-            qbitApiKey = secrets.qbitApiKey,
-            qbitUsername = public?.qbitUsername ?: "admin",
-            qbitPassword = secrets.qbitPassword,
-            defaultCategory = public?.defaultCategory ?: DEFAULT_CATEGORY,
-            defaultTags = public?.defaultTags ?: DEFAULT_TAGS,
             proxyBaseUrl = public?.proxyBaseUrl ?: "",
             proxyToken = secrets.proxyToken,
         ).normalized()
@@ -38,7 +35,7 @@ class SettingsRepository(
      */
     fun save(settings: RemagnetSettings): RemagnetSettings {
         val normalized = settings.normalized()
-        val errors = validateSettings(normalized)
+        val errors = normalized.validate()
         require(errors.isEmpty()) {
             errors.joinToString(separator = " ") { it.message }
         }
@@ -53,11 +50,6 @@ class SettingsRepository(
         return try {
             val json = JsonParser.parseString(raw).asJsonObject
             PublicSettings(
-                qbitBaseUrl = json.stringOrDefault("qbitBaseUrl", DEFAULT_QBIT_BASE_URL),
-                authMode = AuthMode.fromStorage(json.stringOrNull("authMode")),
-                qbitUsername = json.stringOrDefault("qbitUsername", "admin"),
-                defaultCategory = json.stringOrDefault("defaultCategory", DEFAULT_CATEGORY),
-                defaultTags = json.stringOrDefault("defaultTags", DEFAULT_TAGS),
                 proxyBaseUrl = json.stringOrDefault("proxyBaseUrl", ""),
             )
         } catch (_: Exception) {
@@ -80,8 +72,6 @@ class SettingsRepository(
         return try {
             val json = JsonParser.parseString(plaintext).asJsonObject
             SecretSettings(
-                qbitApiKey = json.stringOrDefault("qbitApiKey", ""),
-                qbitPassword = json.stringOrDefault("qbitPassword", ""),
                 proxyToken = json.stringOrDefault("proxyToken", ""),
             )
         } catch (_: Exception) {
@@ -91,17 +81,10 @@ class SettingsRepository(
     }
 
     private fun encodePublic(settings: RemagnetSettings): String = JsonObject().apply {
-        addProperty("qbitBaseUrl", settings.qbitBaseUrl)
-        addProperty("authMode", settings.authMode.storageValue)
-        addProperty("qbitUsername", settings.qbitUsername)
-        addProperty("defaultCategory", settings.defaultCategory)
-        addProperty("defaultTags", settings.defaultTags)
         addProperty("proxyBaseUrl", settings.proxyBaseUrl)
     }.toString()
 
     private fun encodeSecrets(settings: RemagnetSettings): String = JsonObject().apply {
-        addProperty("qbitApiKey", settings.qbitApiKey)
-        addProperty("qbitPassword", settings.qbitPassword)
         addProperty("proxyToken", settings.proxyToken)
     }.toString()
 
@@ -115,17 +98,10 @@ class SettingsRepository(
         stringOrNull(key) ?: default
 
     private data class PublicSettings(
-        val qbitBaseUrl: String,
-        val authMode: AuthMode,
-        val qbitUsername: String,
-        val defaultCategory: String,
-        val defaultTags: String,
         val proxyBaseUrl: String,
     )
 
     private data class SecretSettings(
-        val qbitApiKey: String = "",
-        val qbitPassword: String = "",
         val proxyToken: String = "",
     )
 

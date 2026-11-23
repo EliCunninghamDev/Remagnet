@@ -1,10 +1,17 @@
 package dev.remagnet.app.data
 
+import com.google.gson.JsonParser
 import java.security.MessageDigest
 import java.util.Base64
 import javax.crypto.Cipher
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
+
+/** Connection settings returned by a successful v2 pairing claim. */
+data class PairedSettings(
+    val proxyBaseUrl: String,
+    val proxyToken: String,
+)
 
 /**
  * The client half of the mobile pairing exchange.
@@ -16,6 +23,7 @@ import javax.crypto.spec.SecretKeySpec
  */
 object PairingCrypto {
     private const val CONTEXT = "remagnet-pair-v1"
+    private const val PAYLOAD_VERSION = 2
     private val UTF_8 = Charsets.UTF_8
 
     /** `SHA-256(code)` in the base64url form the claim endpoint expects. */
@@ -35,6 +43,49 @@ object PairingCrypto {
             GCMParameterSpec(128, nonce),
         )
         return String(cipher.doFinal(decode(data)), UTF_8)
+    }
+
+    /**
+     * Parse and validate the decrypted pairing payload.
+     *
+     * Version 2 contains only the proxy token; qBittorrent credentials stay on
+     * the proxy. Throws [IllegalArgumentException] with a message safe to show
+     * when the payload is unusable or was produced by an older proxy.
+     */
+    fun parsePayload(plaintext: String, proxyBaseUrl: String): PairedSettings {
+        val json = try {
+            JsonParser.parseString(plaintext).asJsonObject
+        } catch (_: Exception) {
+            throw IllegalArgumentException(
+                "The Remagnet Proxy returned unreadable connection settings.",
+            )
+        }
+
+        val version = json.get("version")
+            ?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }
+            ?.asInt
+        if (version != PAYLOAD_VERSION) {
+            throw IllegalArgumentException(
+                "This pairing response uses an unsupported version. " +
+                    "Update the Remagnet Proxy or the app and try again.",
+            )
+        }
+
+        val token = json.get("proxyToken")
+            ?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }
+            ?.asString
+            ?.trim()
+            .orEmpty()
+        if (token.isEmpty()) {
+            throw IllegalArgumentException(
+                "The Remagnet Proxy returned incomplete connection settings.",
+            )
+        }
+
+        return PairedSettings(
+            proxyBaseUrl = proxyBaseUrl.trim().trimEnd('/'),
+            proxyToken = token,
+        )
     }
 
     /**

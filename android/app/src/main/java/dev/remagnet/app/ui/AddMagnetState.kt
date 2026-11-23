@@ -3,8 +3,6 @@ package dev.remagnet.app.ui
 import dev.remagnet.app.client.AddTorrentRequest
 import dev.remagnet.app.client.QbitResult
 import dev.remagnet.app.client.TorrentSummary
-import dev.remagnet.app.client.normalizeTagList
-import dev.remagnet.app.data.RemagnetSettings
 import dev.remagnet.app.magnet.MagnetLink
 
 /** The states of the add flow that lives in a bottom sheet over the home screen. */
@@ -54,7 +52,7 @@ sealed interface DuplicateState {
     /** The lookup failed; adding may still work, so the sheet explains it. */
     data class Failed(val message: String) : DuplicateState
 
-    /** qBittorrent is not configured, so there is nothing to check or add to. */
+    /** The proxy is not configured, so there is nothing to check or add to. */
     data object NotConfigured : DuplicateState
 }
 
@@ -67,14 +65,13 @@ fun duplicateStateFor(result: QbitResult<TorrentSummary?>): DuplicateState = whe
     is QbitResult.Failure -> DuplicateState.Failed(result.error.message)
 }
 
-/** Apply the configured defaults exactly as the extension does. */
-fun addRequestFor(
-    settings: RemagnetSettings,
-    magnet: MagnetLink,
-    paused: Boolean,
-): AddTorrentRequest = AddTorrentRequest(
+/**
+ * Build the proxy request for one magnet.
+ *
+ * Category and tags are deliberately absent: the proxy applies its configured
+ * defaults, so the phone never has to know them before adding.
+ */
+fun addRequestFor(magnet: MagnetLink, paused: Boolean): AddTorrentRequest = AddTorrentRequest(
     urls = listOf(magnet.uri),
-    category = settings.defaultCategory.trim(),
-    tags = normalizeTagList(listOf(settings.defaultTags)),
     paused = paused,
 )

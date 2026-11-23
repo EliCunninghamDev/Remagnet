@@ -3,79 +3,39 @@ package dev.remagnet.app.data
 import java.net.URI
 import java.net.URISyntaxException
 
-/** Authentication styles supported by the qBittorrent adapter. */
-enum class AuthMode(val storageValue: String) {
-    ApiKey("apiKey"),
-    Password("password"),
-    ;
-
-    companion object {
-        fun fromStorage(value: String?): AuthMode =
-            entries.firstOrNull { it.storageValue == value } ?: ApiKey
-    }
-}
-
-const val DEFAULT_QBIT_BASE_URL = "http://127.0.0.1:8080"
-const val DEFAULT_CATEGORY = "remagnet"
-const val DEFAULT_TAGS = "remagnet"
 const val MIN_PROXY_TOKEN_LENGTH = 16
 
 /**
- * Everything the app needs to reach qBittorrent and the optional proxy.
+ * Everything the app needs to reach the Remagnet Proxy.
  *
- * This is the in-memory shape. [SettingsRepository] keeps the three secrets
- * encrypted and everything else readable.
+ * qBittorrent credentials never reach the phone: the proxy owns that connection
+ * and the app authenticates to the proxy with a single bearer token. This is
+ * the in-memory shape; [SettingsRepository] keeps the token encrypted.
  */
 data class RemagnetSettings(
-    val qbitBaseUrl: String = DEFAULT_QBIT_BASE_URL,
-    val authMode: AuthMode = AuthMode.ApiKey,
-    val qbitApiKey: String = "",
-    val qbitUsername: String = "admin",
-    val qbitPassword: String = "",
-    val defaultCategory: String = DEFAULT_CATEGORY,
-    val defaultTags: String = DEFAULT_TAGS,
     val proxyBaseUrl: String = "",
     val proxyToken: String = "",
 ) {
-    /** A client connection is only useful once a credential is present. */
-    val qbitConfigured: Boolean
-        get() = when (authMode) {
-            AuthMode.ApiKey -> qbitBaseUrl.isNotBlank() && qbitApiKey.isNotBlank()
-            AuthMode.Password ->
-                qbitBaseUrl.isNotBlank() &&
-                    qbitUsername.isNotBlank() &&
-                    qbitPassword.isNotEmpty()
-        }
-
-    /** The proxy is optional; both fields blank means the feature is off. */
+    /** Both fields are required before any request can be made. */
     val proxyConfigured: Boolean
         get() = proxyBaseUrl.isNotBlank() && proxyToken.isNotBlank()
 
-    /**
-     * Trim the values users type into forms, without touching the password:
-     * leading and trailing spaces can be part of a real password.
-     */
+    /** Trim the values users type into forms and drop trailing slashes. */
     fun normalized(): RemagnetSettings = copy(
-        qbitBaseUrl = normalizeBaseUrl(qbitBaseUrl),
-        qbitApiKey = qbitApiKey.trim(),
-        qbitUsername = qbitUsername.trim(),
-        defaultCategory = defaultCategory.trim(),
-        defaultTags = normalizeTags(defaultTags),
         proxyBaseUrl = normalizeBaseUrl(proxyBaseUrl),
         proxyToken = proxyToken.trim(),
     )
 
     /** True when a completed torrent can be downloaded through the proxy. */
     val archiveReady: Boolean
-        get() = proxyConfigured && validateSettings(this).isEmpty()
+        get() = proxyConfigured && validate().isEmpty()
+
+    /** Validate this snapshot, returning one error per unusable field. */
+    fun validate(): List<SettingsError> = validateSettings(this)
 }
 
 /** Fields that can carry a validation message, in screen order. */
 enum class SettingsField {
-    QbitUrl,
-    QbitApiKey,
-    QbitUsername,
-    QbitPassword,
     ProxyUrl,
     ProxyToken,
 }
@@ -83,98 +43,43 @@ enum class SettingsField {
 data class SettingsError(val field: SettingsField, val message: String)
 
 /**
- * Validate a settings snapshot. The proxy is optional, but half-configuring it
- * is not: an empty URL with a saved token would silently disable downloads.
+ * Validate a settings snapshot. The proxy is the only connection the app has,
+ * so both the URL and the token are required.
  */
 fun validateSettings(settings: RemagnetSettings): List<SettingsError> {
     val values = settings.normalized()
     val errors = mutableListOf<SettingsError>()
 
-    if (parseHttpUrl(values.qbitBaseUrl) == null) {
+    if (parseHttpUrl(values.proxyBaseUrl) == null) {
         errors += SettingsError(
-            SettingsField.QbitUrl,
-            "Enter a valid http:// or https:// Web UI URL without credentials, a query or a fragment.",
+            SettingsField.ProxyUrl,
+            "Enter a valid http:// or https:// Remagnet Proxy URL without credentials, a query or a fragment.",
+        )
+    }
+    if (values.proxyToken.isBlank()) {
+        errors += SettingsError(
+            SettingsField.ProxyToken,
+            "Enter the Remagnet Proxy token.",
+        )
+    } else if (values.proxyToken.length < MIN_PROXY_TOKEN_LENGTH) {
+        errors += SettingsError(
+            SettingsField.ProxyToken,
+            "The Remagnet Proxy token must be at least $MIN_PROXY_TOKEN_LENGTH characters.",
         )
     }
 
-    when (values.authMode) {
-        AuthMode.ApiKey -> if (values.qbitApiKey.isBlank()) {
-            errors += SettingsError(
-                SettingsField.QbitApiKey,
-                "Enter an API key, or switch to username & password.",
-            )
-        }
-
-        AuthMode.Password -> {
-            if (values.qbitUsername.isBlank()) {
-                errors += SettingsError(
-                    SettingsField.QbitUsername,
-                    "Enter a username, or switch to an API key.",
-                )
-            }
-            if (values.qbitPassword.isEmpty()) {
-                errors += SettingsError(
-                    SettingsField.QbitPassword,
-                    "Enter a password, or switch to an API key.",
-                )
-            }
-        }
-    }
-
-    errors += validateProxySettings(values)
     return errors
 }
 
 /**
- * Validate only the optional proxy fields. Health checks use this so an
- * unconfigured torrent client cannot hide a perfectly good proxy result.
+ * Validate only the proxy fields. Kept as a name because the download service
+ * and health check describe their subset of the connection this way; both
+ * fields are now mandatory, so this is the full validation.
  */
-fun validateProxySettings(settings: RemagnetSettings): List<SettingsError> {
-    val values = settings.normalized()
-    val errors = mutableListOf<SettingsError>()
-    val hasProxyUrl = values.proxyBaseUrl.isNotEmpty()
-    val hasProxyToken = values.proxyToken.isNotEmpty()
+fun validateProxySettings(settings: RemagnetSettings): List<SettingsError> = validateSettings(settings)
 
-    if (hasProxyUrl != hasProxyToken) {
-        errors += if (hasProxyUrl) {
-            SettingsError(
-                SettingsField.ProxyToken,
-                "Enter the Remagnet Proxy token, or clear the Remagnet Proxy URL.",
-            )
-        } else {
-            SettingsError(
-                SettingsField.ProxyUrl,
-                "Enter the Remagnet Proxy URL, or clear the Remagnet Proxy token.",
-            )
-        }
-    } else if (hasProxyUrl) {
-        if (parseHttpUrl(values.proxyBaseUrl) == null) {
-            errors += SettingsError(
-                SettingsField.ProxyUrl,
-                "Enter a valid http:// or https:// Remagnet Proxy URL without credentials, a query or a fragment.",
-            )
-        }
-        if (values.proxyToken.length < MIN_PROXY_TOKEN_LENGTH) {
-            errors += SettingsError(
-                SettingsField.ProxyToken,
-                "The Remagnet Proxy token must be at least $MIN_PROXY_TOKEN_LENGTH characters.",
-            )
-        }
-    }
-
-    return errors
-}
-
-/** Trim, drop trailing slashes and leave an unusable value as typed. */
+/** Trim and drop trailing slashes. */
 fun normalizeBaseUrl(value: String): String = value.trim().trimEnd('/')
-
-/** Collapse `a, b,, a` into `a, b` so repeated saves stay stable. */
-fun normalizeTags(value: String): String = value
-    .split(',')
-    .map { it.trim() }
-    .filter { it.isNotEmpty() }
-    .distinct()
-    .joinToString(", ")
 
 /**
  * Parse an HTTP(S) URL and reject the parts that would hide a second source of

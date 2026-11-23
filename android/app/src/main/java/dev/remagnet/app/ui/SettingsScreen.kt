@@ -42,7 +42,6 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.remagnet.app.client.ProxyStatus
-import dev.remagnet.app.data.AuthMode
 import dev.remagnet.app.data.OnboardingResult
 import dev.remagnet.app.data.PairingLink
 import dev.remagnet.app.data.RemagnetSettings
@@ -54,7 +53,6 @@ import dev.remagnet.app.ui.components.Panel
 import dev.remagnet.app.ui.components.PrimaryButton
 import dev.remagnet.app.ui.components.SecondaryButton
 import dev.remagnet.app.ui.components.SectionLabel
-import dev.remagnet.app.ui.components.SegmentedChoice
 import dev.remagnet.app.ui.components.StatusNote
 import dev.remagnet.app.ui.components.StatusTone
 import dev.remagnet.app.ui.theme.GeistMono
@@ -72,11 +70,8 @@ fun SettingsScreen(
     onScanCode: () -> Unit,
     onBack: () -> Unit,
     onSave: suspend (RemagnetSettings) -> SaveResult,
-    qbitStatus: QbitStatus?,
-    checkingQbit: Boolean,
     proxyStatus: ProxyStatus?,
     checkingProxy: Boolean,
-    onTestQbitConnection: () -> Unit,
     onTestConnection: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -144,18 +139,12 @@ fun SettingsScreen(
             }
 
             is PairingState.Paired -> {
-                draft = draft.copy(
-                    qbitBaseUrl = current.settings.qbitBaseUrl,
-                    authMode = current.settings.authMode,
-                    qbitApiKey = current.settings.qbitApiKey,
-                    qbitUsername = current.settings.qbitUsername,
-                    qbitPassword = current.settings.qbitPassword,
-                    proxyBaseUrl = current.settings.proxyBaseUrl,
-                    proxyToken = current.settings.proxyToken,
-                ).normalized()
+                // Pairing saves immediately, so the form mirrors the stored
+                // values and the user has nothing left to confirm.
+                draft = current.settings
                 errors = emptyList()
                 message = FormMessage(
-                    "Paired with Remagnet Proxy. Review the connection, then save.",
+                    "Paired with Remagnet Proxy. Connection saved.",
                     StatusTone.Ok,
                 )
                 onPairingConsumed()
@@ -189,7 +178,8 @@ fun SettingsScreen(
                 )
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    text = "Point Remagnet at your qBittorrent Web UI.",
+                    text = "Pair this phone with your Remagnet Proxy. " +
+                        "qBittorrent credentials stay on the proxy.",
                     color = RemagnetPalette.Muted,
                     style = MaterialTheme.typography.bodyMedium,
                     lineHeight = 19.sp,
@@ -199,102 +189,19 @@ fun SettingsScreen(
 
         item {
             Panel {
-                SectionLabel("Torrent client")
-                Field(
-                    label = "Web UI URL",
-                    value = draft.qbitBaseUrl,
-                    onValueChange = { edit(draft.copy(qbitBaseUrl = it)) },
-                    placeholder = "http://127.0.0.1:8080",
-                    error = errors.messageFor(SettingsField.QbitUrl),
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Uri,
-                        imeAction = ImeAction.Next,
-                    ),
+                SectionLabel("Pairing")
+                Text(
+                    text = "Pair with Remagnet Proxy",
+                    color = RemagnetPalette.Text,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
                 )
-                SectionLabel("Authentication")
-                SegmentedChoice(
-                    options = listOf(
-                        "API key" to (draft.authMode == AuthMode.ApiKey),
-                        "Password" to (draft.authMode == AuthMode.Password),
-                    ),
-                    onSelect = { index ->
-                        edit(
-                            draft.copy(
-                                authMode = if (index == 0) AuthMode.ApiKey else AuthMode.Password,
-                            ),
-                        )
-                    },
-                )
-                when (draft.authMode) {
-                    AuthMode.ApiKey -> SecretField(
-                        label = "API key",
-                        value = draft.qbitApiKey,
-                        onValueChange = { edit(draft.copy(qbitApiKey = it)) },
-                        error = errors.messageFor(SettingsField.QbitApiKey),
-                        help = "qBittorrent 5.2+ → Preferences → Web UI → API Key.",
-                    )
-
-                    AuthMode.Password -> {
-                        Field(
-                            label = "Username",
-                            value = draft.qbitUsername,
-                            onValueChange = {
-                                edit(draft.copy(qbitUsername = it))
-                            },
-                            error = errors.messageFor(SettingsField.QbitUsername),
-                            keyboardOptions = KeyboardOptions(
-                                keyboardType = KeyboardType.Text,
-                                imeAction = ImeAction.Next,
-                            ),
-                        )
-                        SecretField(
-                            label = "Password",
-                            value = draft.qbitPassword,
-                            onValueChange = {
-                                edit(draft.copy(qbitPassword = it))
-                            },
-                            error = errors.messageFor(SettingsField.QbitPassword),
-                        )
-                    }
-                }
-                Field(
-                    label = "Category",
-                    value = draft.defaultCategory,
-                    onValueChange = {
-                        edit(draft.copy(defaultCategory = it))
-                    },
-                )
-                Field(
-                    label = "Tags",
-                    value = draft.defaultTags,
-                    onValueChange = { edit(draft.copy(defaultTags = it)) },
-                    help = "Comma-separated.",
-                )
-            }
-        }
-
-        item {
-            Panel {
-                SectionLabel("Remagnet Proxy")
-                Field(
-                    label = "Remagnet Proxy URL",
-                    value = draft.proxyBaseUrl,
-                    onValueChange = {
-                        edit(draft.copy(proxyBaseUrl = it))
-                    },
-                    placeholder = "https://remagnet.example.com",
-                    error = errors.messageFor(SettingsField.ProxyUrl),
-                    help = "Leave this and the token blank to disable ZIP downloads.",
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Uri,
-                        imeAction = ImeAction.Next,
-                    ),
-                )
-                SecretField(
-                    label = "Remagnet Proxy token",
-                    value = draft.proxyToken,
-                    onValueChange = { edit(draft.copy(proxyToken = it)) },
-                    error = errors.messageFor(SettingsField.ProxyToken),
+                Text(
+                    text = "Scan the code shown by your proxy, or paste a " +
+                        "remagnet://pair link. Pairing saves the URL and token for you.",
+                    color = RemagnetPalette.Muted,
+                    fontSize = 12.sp,
+                    lineHeight = 17.sp,
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     SecondaryButton(
@@ -308,6 +215,32 @@ fun SettingsScreen(
                         modifier = Modifier.weight(1f),
                     )
                 }
+            }
+        }
+
+        item {
+            Panel {
+                SectionLabel("Manual connection")
+                Field(
+                    label = "Remagnet Proxy URL",
+                    value = draft.proxyBaseUrl,
+                    onValueChange = {
+                        edit(draft.copy(proxyBaseUrl = it))
+                    },
+                    placeholder = "https://remagnet.example.com",
+                    error = errors.messageFor(SettingsField.ProxyUrl),
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Uri,
+                        imeAction = ImeAction.Next,
+                    ),
+                )
+                SecretField(
+                    label = "Remagnet Proxy token",
+                    value = draft.proxyToken,
+                    onValueChange = { edit(draft.copy(proxyToken = it)) },
+                    error = errors.messageFor(SettingsField.ProxyToken),
+                    help = "Shown by the proxy when you create a token.",
+                )
             }
         }
 
@@ -356,36 +289,22 @@ fun SettingsScreen(
             )
         }
 
-        if (!dirty && (saved.qbitConfigured || saved.proxyConfigured)) {
+        if (!dirty && saved.proxyConfigured) {
             item { SectionLabel("Connection status") }
-
-            if (saved.qbitConfigured) {
-                item {
-                    TorrentClientPanel(
-                        settings = saved,
-                        status = qbitStatus,
-                        checking = checkingQbit,
-                        onTest = onTestQbitConnection,
-                    )
-                }
-            }
-
-            if (saved.proxyConfigured) {
-                item {
-                    ProxyPanel(
-                        settings = saved,
-                        status = proxyStatus,
-                        checking = checkingProxy,
-                        onTest = onTestConnection,
-                    )
-                }
+            item {
+                ProxyPanel(
+                    settings = saved,
+                    status = proxyStatus,
+                    checking = checkingProxy,
+                    onTest = onTestConnection,
+                )
             }
         }
 
         item {
             Text(
-                text = "The API key, password and Remagnet Proxy token are encrypted " +
-                    "with a key held by the Android Keystore.",
+                text = "The Remagnet Proxy token is encrypted with a key held by " +
+                    "the Android Keystore.",
                 color = RemagnetPalette.Muted,
                 fontFamily = GeistMono,
                 fontSize = 10.sp,
@@ -475,11 +394,13 @@ private fun PasteCodeDialog(
     var code by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Import connect code") },
+        title = { Text("Paste pairing code") },
         text = {
             Column {
                 Text(
-                    text = "Paste a remagnet://connect or remagnet://pair link, or the JSON from a code.",
+                    text = "Paste a remagnet://pair link from your Remagnet Proxy. " +
+                        "A remagnet://connect link or JSON with the proxy URL and token " +
+                        "also works.",
                     color = RemagnetPalette.Muted,
                     fontSize = 12.sp,
                     lineHeight = 17.sp,
@@ -512,7 +433,7 @@ private fun PasteCodeDialog(
             TextButton(
                 onClick = { onImport(code) },
                 enabled = code.isNotBlank(),
-            ) { Text("Import") }
+            ) { Text("Connect") }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("Cancel") }

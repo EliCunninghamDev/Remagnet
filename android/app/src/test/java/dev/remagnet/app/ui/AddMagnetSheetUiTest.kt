@@ -29,7 +29,6 @@ class AddMagnetSheetUiTest {
     val compose = createComposeRule()
 
     private val settings = RemagnetSettings(
-        qbitApiKey = "test-key",
         proxyBaseUrl = "https://proxy.example",
         proxyToken = "test-token-12345",
     )
@@ -162,7 +161,8 @@ class AddMagnetSheetUiTest {
             onDismiss = { dismissed = true },
         )
 
-        compose.onNodeWithText("qBittorrent accepted the magnet.").assertIsDisplayed()
+        compose.onNodeWithText("Remagnet Proxy sent the magnet to qBittorrent.")
+            .assertIsDisplayed()
         compose.onNodeWithText("Done").performClick()
 
         assertEquals(true, dismissed)
