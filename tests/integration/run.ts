@@ -310,7 +310,8 @@ async function waitForBackendReady(kind: ClientKind) {
             body: "username=admin&password=adminadmin",
           });
           const body = (await res.text()).trim();
-          if (res.ok && body.toLowerCase() === "ok.") return true;
+          // qBittorrent 4.x answers "Ok."; 5.3 returns 204 with no body.
+          if (res.ok && (body === "" || body.toLowerCase() === "ok.")) return true;
           lastFailure = `HTTP ${res.status}: ${body || "(empty body)"}`;
           return null;
         } catch (error) {
