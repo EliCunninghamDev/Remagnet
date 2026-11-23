@@ -27,8 +27,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -73,17 +73,35 @@ fun SettingsScreen(
     proxyStatus: ProxyStatus?,
     checkingProxy: Boolean,
     onTestConnection: () -> Unit,
+    signIn: SignInState = SignInState.Idle,
+    onSignIn: (String, String, String, String, String) -> Unit = { _, _, _, _, _ -> },
+    onClearSignIn: () -> Unit = {},
+    onDisconnect: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var draft by remember(saved) { mutableStateOf(saved) }
     var errors by remember(saved) { mutableStateOf(emptyList<SettingsError>()) }
     var message by remember { mutableStateOf<FormMessage?>(null) }
+    var signInMessage by remember { mutableStateOf<FormMessage?>(null) }
     var saving by remember { mutableStateOf(false) }
     var showPaste by remember { mutableStateOf(false) }
+    var manualOpen by rememberSaveable { mutableStateOf(false) }
     var confirmDiscard by remember { mutableStateOf(false) }
+    var signInUrl by rememberSaveable { mutableStateOf(saved.proxyBaseUrl) }
+    var username by rememberSaveable { mutableStateOf("") }
+    var password by rememberSaveable { mutableStateOf("") }
+    var totpCode by rememberSaveable { mutableStateOf("") }
+    var deviceName by rememberSaveable { mutableStateOf("") }
     val scope = rememberCoroutineScope()
 
     val dirty = draft.normalized() != saved.normalized()
+    val needsTotp = signIn is SignInState.TotpRequired
+    val signingIn = signIn is SignInState.SigningIn
+    val canSignIn = !signingIn &&
+        signInUrl.isNotBlank() &&
+        username.isNotBlank() &&
+        password.isNotBlank() &&
+        (!needsTotp || totpCode.isNotBlank())
 
     fun applyImport(text: String) {
         when (val result = parseOnboarding(text)) {
@@ -126,6 +144,10 @@ fun SettingsScreen(
         }
     }
 
+    LaunchedEffect(saved.proxyBaseUrl) {
+        signInUrl = saved.proxyBaseUrl
+    }
+
     LaunchedEffect(pairing) {
         when (val current = pairing) {
             PairingState.Idle -> Unit
@@ -148,6 +170,35 @@ fun SettingsScreen(
                     StatusTone.Ok,
                 )
                 onPairingConsumed()
+            }
+        }
+    }
+
+    LaunchedEffect(signIn) {
+        when (val current = signIn) {
+            SignInState.Idle -> Unit
+            SignInState.SigningIn -> {
+                signInMessage = FormMessage("Signing in…", StatusTone.Neutral)
+            }
+
+            is SignInState.TotpRequired -> {
+                signInMessage = FormMessage(current.message, StatusTone.Warn)
+            }
+
+            is SignInState.Failed -> {
+                signInMessage = FormMessage(current.message, StatusTone.Error)
+            }
+
+            is SignInState.SignedIn -> {
+                // The password and second factor are never persisted, so drop
+                // them as soon as the proxy has minted the device token.
+                password = ""
+                totpCode = ""
+                signInMessage = FormMessage(
+                    "Signed in to Remagnet Proxy as ${current.deviceName}.",
+                    StatusTone.Ok,
+                )
+                onClearSignIn()
             }
         }
     }
@@ -178,7 +229,8 @@ fun SettingsScreen(
                 )
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    text = "Pair this phone with your Remagnet Proxy. " +
+                    text = "Pair this phone with your Remagnet Proxy, sign in with " +
+                        "your proxy account, or paste a device token. " +
                         "qBittorrent credentials stay on the proxy.",
                     color = RemagnetPalette.Muted,
                     style = MaterialTheme.typography.bodyMedium,
@@ -198,7 +250,8 @@ fun SettingsScreen(
                 )
                 Text(
                     text = "Scan the code shown by your proxy, or paste a " +
-                        "remagnet://pair link. Pairing saves the URL and token for you.",
+                        "remagnet://pair link. Pairing connects this phone without a " +
+                        "password or two-factor code.",
                     color = RemagnetPalette.Muted,
                     fontSize = 12.sp,
                     lineHeight = 17.sp,
@@ -220,27 +273,206 @@ fun SettingsScreen(
 
         item {
             Panel {
-                SectionLabel("Manual connection")
+                SectionLabel("Account")
+                Text(
+                    text = "Sign in to Remagnet Proxy",
+                    color = RemagnetPalette.Text,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = "Use the username and password for this proxy. " +
+                        "A two-factor code is requested only when your account " +
+                        "requires one.",
+                    color = RemagnetPalette.Muted,
+                    fontSize = 12.sp,
+                    lineHeight = 17.sp,
+                )
                 Field(
-                    label = "Remagnet Proxy URL",
-                    value = draft.proxyBaseUrl,
+                    label = "Proxy URL",
+                    value = signInUrl,
                     onValueChange = {
-                        edit(draft.copy(proxyBaseUrl = it))
+                        signInUrl = it
+                        signInMessage = null
                     },
                     placeholder = "https://remagnet.example.com",
-                    error = errors.messageFor(SettingsField.ProxyUrl),
                     keyboardOptions = KeyboardOptions(
                         keyboardType = KeyboardType.Uri,
                         imeAction = ImeAction.Next,
                     ),
                 )
-                SecretField(
-                    label = "Remagnet Proxy token",
-                    value = draft.proxyToken,
-                    onValueChange = { edit(draft.copy(proxyToken = it)) },
-                    error = errors.messageFor(SettingsField.ProxyToken),
-                    help = "Shown by the proxy when you create a token.",
+                Field(
+                    label = "Username",
+                    value = username,
+                    onValueChange = {
+                        username = it
+                        signInMessage = null
+                    },
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Text,
+                        imeAction = ImeAction.Next,
+                    ),
                 )
+                SecretField(
+                    label = "Password",
+                    value = password,
+                    onValueChange = {
+                        password = it
+                        signInMessage = null
+                    },
+                )
+                Field(
+                    label = "Device name (optional)",
+                    value = deviceName,
+                    onValueChange = { deviceName = it },
+                    placeholder = "Pixel 9",
+                    help = "Shown in the proxy's device list. Leave blank to use this phone's name.",
+                )
+                if (needsTotp) {
+                    Field(
+                        label = "Two-factor code",
+                        value = totpCode,
+                        onValueChange = { totpCode = it },
+                        placeholder = "123456 or recovery code",
+                        help = "Enter the current code from your authenticator, or a recovery code.",
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Text,
+                            imeAction = ImeAction.Done,
+                        ),
+                    )
+                }
+                signInMessage?.let { current ->
+                    StatusNote(text = current.text, tone = current.tone)
+                }
+                PrimaryButton(
+                    text = if (signingIn) "Signing in…" else "Sign in",
+                    onClick = {
+                        onSignIn(
+                            signInUrl,
+                            username.trim(),
+                            password,
+                            totpCode.trim(),
+                            deviceName.trim(),
+                        )
+                    },
+                    enabled = canSignIn,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
+
+        if (saved.proxyConfigured) {
+            item { SectionLabel("Connection status") }
+            item {
+                ProxyPanel(
+                    settings = saved,
+                    status = proxyStatus,
+                    checking = checkingProxy,
+                    onTest = onTestConnection,
+                )
+            }
+            item {
+                Panel {
+                    Text(
+                        text = "Disconnect removes this device's token from the phone. " +
+                            "You can pair again or sign in with your proxy account.",
+                        color = RemagnetPalette.Muted,
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp,
+                    )
+                    SecondaryButton(
+                        text = "Disconnect",
+                        onClick = {
+                            password = ""
+                            totpCode = ""
+                            signInMessage = FormMessage(
+                                "Disconnected. Pair again or sign in with your proxy account.",
+                                StatusTone.Neutral,
+                            )
+                            onDisconnect()
+                        },
+                        danger = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+        }
+
+        item {
+            Panel {
+                SectionLabel("Advanced")
+                Text(
+                    text = "Manual device token",
+                    color = RemagnetPalette.Text,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = "If you created a token on the proxy, enter it here. " +
+                        "Pairing and sign-in do this for you.",
+                    color = RemagnetPalette.Muted,
+                    fontSize = 12.sp,
+                    lineHeight = 17.sp,
+                )
+                SecondaryButton(
+                    text = if (manualOpen) "Hide manual entry" else "Enter a device token",
+                    onClick = { manualOpen = !manualOpen },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (manualOpen) {
+                    Field(
+                        label = "Remagnet Proxy URL",
+                        value = draft.proxyBaseUrl,
+                        onValueChange = {
+                            edit(draft.copy(proxyBaseUrl = it))
+                        },
+                        placeholder = "https://remagnet.example.com",
+                        error = errors.messageFor(SettingsField.ProxyUrl),
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Uri,
+                            imeAction = ImeAction.Next,
+                        ),
+                    )
+                    SecretField(
+                        label = "Device token",
+                        value = draft.proxyToken,
+                        onValueChange = { edit(draft.copy(proxyToken = it)) },
+                        placeholder = "rmg_…",
+                        error = errors.messageFor(SettingsField.ProxyToken),
+                        help = "Starts with rmg_.",
+                    )
+                    PrimaryButton(
+                        text = if (saving) "Saving…" else "Save settings",
+                        onClick = {
+                            scope.launch {
+                                saving = true
+                                message = null
+                                when (val result = onSave(draft)) {
+                                    is SaveResult.Saved -> {
+                                        draft = result.settings
+                                        errors = emptyList()
+                                        message = FormMessage(
+                                            "Settings saved.",
+                                            StatusTone.Ok,
+                                        )
+                                    }
+
+                                    is SaveResult.Invalid -> {
+                                        errors = result.errors
+                                        message = null
+                                    }
+
+                                    is SaveResult.Failed -> {
+                                        message = FormMessage(result.message, StatusTone.Error)
+                                    }
+                                }
+                                saving = false
+                            }
+                        },
+                        enabled = !saving,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
             }
         }
 
@@ -259,51 +491,8 @@ fun SettingsScreen(
         }
 
         item {
-            PrimaryButton(
-                text = if (saving) "Saving…" else "Save settings",
-                onClick = {
-                    scope.launch {
-                        saving = true
-                        message = null
-                        when (val result = onSave(draft)) {
-                            is SaveResult.Saved -> {
-                                draft = result.settings
-                                errors = emptyList()
-                                message = FormMessage("Settings saved.", StatusTone.Ok)
-                            }
-
-                            is SaveResult.Invalid -> {
-                                errors = result.errors
-                                message = null
-                            }
-
-                            is SaveResult.Failed -> {
-                                message = FormMessage(result.message, StatusTone.Error)
-                            }
-                        }
-                        saving = false
-                    }
-                },
-                enabled = !saving,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-
-        if (!dirty && saved.proxyConfigured) {
-            item { SectionLabel("Connection status") }
-            item {
-                ProxyPanel(
-                    settings = saved,
-                    status = proxyStatus,
-                    checking = checkingProxy,
-                    onTest = onTestConnection,
-                )
-            }
-        }
-
-        item {
             Text(
-                text = "The Remagnet Proxy token is encrypted with a key held by " +
+                text = "The device token is encrypted with a key held by " +
                     "the Android Keystore.",
                 color = RemagnetPalette.Muted,
                 fontFamily = GeistMono,
@@ -348,7 +537,8 @@ private fun SecretField(
     label: String,
     value: String,
     onValueChange: (String) -> Unit,
-    error: String?,
+    error: String? = null,
+    placeholder: String? = null,
     help: String? = null,
 ) {
     var revealed by remember { mutableStateOf(false) }
@@ -356,6 +546,7 @@ private fun SecretField(
         label = label,
         value = value,
         onValueChange = onValueChange,
+        placeholder = placeholder,
         error = error,
         help = help,
         visualTransformation = if (revealed) {

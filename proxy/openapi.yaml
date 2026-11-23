@@ -10,13 +10,19 @@ info:
     and Android app. qBittorrent credentials never leave the server, including
     during pairing.
 
-    Every `/api/*` and `/archive/*` request needs the proxy token, sent either as
-    `Authorization: Bearer <BRIDGE_TOKEN>` (preferred) or as `?token=<BRIDGE_TOKEN>`
-    for browser download APIs that cannot attach headers. The one exception is
-    `POST /api/pair/claim`, which a device calls before it has any credentials;
-    the short-lived pairing proof in the body authorizes it instead. The same
-    token can be supplied through either scheme; errors use a JSON body with an
-    `error` field.
+    Client endpoints (`/api/health`, `/api/torrents*`, the archive ticket and the
+    archive download) accept a per-device token, sent as
+    `Authorization: Bearer rmg_…`. Administrative endpoints (`/api/config`,
+    `/api/pair*`, `/api/devices*` and the `/api/auth/*` account routes) require
+    the browser session cookie `remagnet_session`; a device token is rejected
+    with `403` there. `GET /archive/{hash}` also accepts a single-use 60-second
+    `?ticket=` minted by `POST /api/archive/{hash}/ticket`, so browsers and
+    download managers never carry a long-lived token in a URL.
+
+    `GET /api/auth/status`, `POST /api/auth/setup`, `POST /api/auth/login`,
+    `POST /api/auth/device` and `POST /api/pair/claim` are public: they are how
+    a client bootstraps credentials. Errors use a JSON body with an `error`
+    field, plus an optional machine-readable `code`.
 
     qBittorrent credentials are optional at boot. Until they are saved through
     `PUT /api/config`, the qBittorrent-backed endpoints return `503` with a
@@ -31,15 +37,16 @@ tags:
     description: Unauthenticated liveness and the configuration page.
   - name: Configuration
     description: Read and update the qBittorrent connection and magnet defaults.
+  - name: Auth
+    description: Administrator setup, sign-in, two-factor and device token login.
+  - name: Devices
+    description: List and revoke the per-device tokens that reach the client API.
   - name: Torrents
     description: Client-neutral torrent endpoints backed by qBittorrent.
   - name: Pairing
     description: Short-lived codes for onboarding the extension and Android app.
   - name: Archives
     description: Stream completed torrents as ZIP archives.
-security:
-  - bearerAuth: []
-  - tokenQuery: []
 paths:
   /:
     get:
@@ -96,8 +103,9 @@ paths:
         magnet defaults. Used by the extension's connection test, the Android
         app and the configuration page.
       tags: [Configuration]
-      parameters:
-        - $ref: "#/components/parameters/TokenQuery"
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
       responses:
         "200":
           description: qBittorrent answered with its versions.
@@ -130,8 +138,8 @@ paths:
         Secret values are never returned, and this endpoint does not contact
         qBittorrent.
       tags: [Configuration]
-      parameters:
-        - $ref: "#/components/parameters/TokenQuery"
+      security:
+        - sessionCookie: []
       responses:
         "200":
           description: Current public configuration.
@@ -170,8 +178,8 @@ paths:
         filter. When both the category and tags are empty, every torrent in
         qBittorrent is exposed.
       tags: [Configuration]
-      parameters:
-        - $ref: "#/components/parameters/TokenQuery"
+      security:
+        - sessionCookie: []
       requestBody:
         required: true
         content:
@@ -220,8 +228,9 @@ paths:
         (case-insensitively) or any of its tags equals a configured tag. When both
         defaults are empty, every torrent matches.
       tags: [Torrents]
-      parameters:
-        - $ref: "#/components/parameters/TokenQuery"
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
       responses:
         "200":
           description: The filtered torrent list.
@@ -249,8 +258,9 @@ paths:
         rejecting the torrent (for example because it already exists) returns
         `400` with an explanatory message.
       tags: [Torrents]
-      parameters:
-        - $ref: "#/components/parameters/TokenQuery"
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
       requestBody:
         required: true
         content:
@@ -291,9 +301,11 @@ paths:
         for duplicate checks, so an existing torrent anywhere in qBittorrent is
         reported even when Remagnet does not own it.
       tags: [Torrents]
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
       parameters:
         - $ref: "#/components/parameters/Hash"
-        - $ref: "#/components/parameters/TokenQuery"
       responses:
         "200":
           description: The torrent in the neutral shape.
@@ -320,6 +332,9 @@ paths:
         is not owned by Remagnet, returns `404` so clients cannot remove
         unrelated torrents from a shared qBittorrent instance.
       tags: [Torrents]
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
       parameters:
         - $ref: "#/components/parameters/Hash"
         - name: deleteFiles
@@ -329,7 +344,6 @@ paths:
           schema:
             type: boolean
             default: false
-        - $ref: "#/components/parameters/TokenQuery"
       responses:
         "204":
           description: The torrent was deleted.
@@ -354,13 +368,13 @@ paths:
         claims it from Settings. The code is single-use and is never stored on
         disk; restarting the proxy invalidates outstanding sessions.
 
-        Minting requires the proxy token. Claiming the code does not, because the
-        device or extension claiming it has not been configured yet. Pairing
-        carries the proxy token, so the origin must use HTTPS unless it is
-        loopback or the Android emulator host (`10.0.2.2`).
+        Minting requires an administrator session. Claiming the code does not,
+        because the device or extension claiming it has not been configured yet.
+        Pairing carries a newly minted device token, so the origin must use
+        HTTPS unless it is loopback or the Android emulator host (`10.0.2.2`).
       tags: [Pairing]
-      parameters:
-        - $ref: "#/components/parameters/TokenQuery"
+      security:
+        - sessionCookie: []
       requestBody:
         required: false
         description: |
@@ -402,13 +416,14 @@ paths:
         Called when the proxy page hides or rotates the QR code. Revoking an
         unknown or expired id is not an error, so a retry is safe.
       tags: [Pairing]
+      security:
+        - sessionCookie: []
       parameters:
         - name: id
           in: path
           required: true
           schema:
             type: string
-        - $ref: "#/components/parameters/TokenQuery"
       responses:
         "204":
           description: The session is gone.
@@ -421,10 +436,16 @@ paths:
       description: |
         The Android app, or the extension's pairing field, sends the session id
         and `SHA-256(code)`, not the code itself. On success the proxy consumes
-        the session and returns `{ version: 2, proxyToken }` encrypted with
-        AES-256-GCM. Both sides derive the key from the scanned code and the
-        session id, so a logged request or response is useless without the code.
-        qBittorrent credentials are never included.
+        the session, mints a fresh per-device token and returns
+        `{ version: 2, proxyToken }` encrypted with AES-256-GCM. Both sides
+        derive the key from the scanned code and the session id, so a logged
+        request or response is useless without the code. qBittorrent credentials
+        are never included.
+
+        Pairing is a second enrolment path and never asks for the administrator's
+        second factor: the scanned code is the proof of presence. When
+        `deviceName` is omitted the device is recorded as `Paired device`; it can
+        be listed and revoked through `/api/devices`.
 
         The plaintext is a JSON object described by `PairingPayload`. Invalid,
         expired, or already-claimed codes return `400` and no payload.
@@ -456,6 +477,431 @@ paths:
                 $ref: "#/components/schemas/Error"
               example:
                 error: The pairing code is invalid or expired.
+  /api/auth/status:
+    get:
+      operationId: getAuthStatus
+      summary: Read setup and sign-in state
+      description: |
+        Public bootstrap probe used by the proxy page, the extension and the
+        Android app. Reports whether an administrator account exists, whether the
+        deployment requires a setup code, whether the request already carries a
+        valid session, and whether two-factor authentication is enabled.
+      tags: [Auth]
+      security: []
+      responses:
+        "200":
+          description: Current authentication state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthStatus"
+              example:
+                initialized: true
+                requiresSetupCode: false
+                authenticated: false
+                username: admin
+                totpEnabled: false
+  /api/auth/setup:
+    post:
+      operationId: setupAdmin
+      summary: Create the administrator account
+      description: |
+        First-run enrolment. Fails with `409` once an administrator exists.
+        When the deployment sets a setup code, `setupCode` must match it or the
+        request returns `403`. The username is trimmed and must contain 1 to 64
+        characters; the password must contain at least 12 characters. On success
+        the account is saved, a session cookie is set and the response body is
+        the same `AuthSession` returned by sign-in.
+      tags: [Auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetupAdminRequest"
+      responses:
+        "201":
+          description: The administrator account was created and signed in.
+          headers:
+            Set-Cookie:
+              description: |
+                `remagnet_session=…; HttpOnly; SameSite=Strict; Path=/`.
+                `Secure` is added when the request arrived over HTTPS.
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthSession"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: The proxy is already set up.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: The proxy is already set up. Sign in instead.
+  /api/auth/login:
+    post:
+      operationId: loginAdmin
+      summary: Sign in to the administrator account
+      description: |
+        Verifies the username and password, then the second factor when enabled.
+        When two-factor authentication is enabled and `totpCode` is missing or
+        empty, the response is `401` with `code: "totp_required"` so the client
+        can ask for a code. A supplied code may be a TOTP code or an unused
+        recovery code; recovery codes are consumed once. Repeated failures from
+        one address are throttled with `429`. On success a session cookie is set.
+      tags: [Auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Signed in; the session cookie identifies the browser.
+          headers:
+            Set-Cookie:
+              description: |
+                `remagnet_session=…; HttpOnly; SameSite=Strict; Path=/`.
+                `Secure` is added when the request arrived over HTTPS.
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthSession"
+        "401":
+          description: |
+            Bad credentials, a rejected two-factor code, or a missing code when
+            two-factor authentication is enabled (`code: "totp_required"`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              examples:
+                badCredentials:
+                  value:
+                    error: Authentication required.
+                totpRequired:
+                  value:
+                    error: Two-factor authentication code required.
+                    code: totp_required
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /api/auth/logout:
+    post:
+      operationId: logoutAdmin
+      summary: Sign out the current administrator session
+      description: |
+        Revokes the session cookie and clears it in the response. Requires an
+        administrator session; a device token is not enough.
+      tags: [Auth]
+      security:
+        - sessionCookie: []
+      responses:
+        "204":
+          description: The session was revoked and the cookie cleared.
+          headers:
+            Set-Cookie:
+              description: Expired `remagnet_session` cookie.
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/auth/password:
+    post:
+      operationId: changePassword
+      summary: Change the administrator password
+      description: |
+        Requires the current password and a new password of at least 12
+        characters. Every existing session, including the caller's, is revoked;
+        the response sets a fresh session cookie for the current browser.
+      tags: [Auth]
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChangePasswordRequest"
+      responses:
+        "204":
+          description: The password was changed and a fresh session cookie was set.
+          headers:
+            Set-Cookie:
+              description: New `remagnet_session` cookie.
+              schema:
+                type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: The current password is incorrect.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: The current password is incorrect.
+  /api/auth/2fa/setup:
+    post:
+      operationId: setupTotp
+      summary: Begin two-factor enrolment
+      description: |
+        Generates a new TOTP secret, stores it as pending and returns the secret,
+        its `otpauth://` URI and an inline SVG QR code. The secret does not take
+        effect until `POST /api/auth/2fa/enable` verifies a code.
+      tags: [Auth]
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: A pending secret and its QR code.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TotpSetup"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/auth/2fa/enable:
+    post:
+      operationId: enableTotp
+      summary: Confirm two-factor enrolment
+      description: |
+        Verifies a code against the pending secret, stores the secret on the
+        administrator account and returns eight single-use recovery codes. The
+        codes are shown only in this response. The current TOTP step is consumed,
+        so the same code cannot immediately be used to sign in.
+      tags: [Auth]
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TotpCodeRequest"
+      responses:
+        "200":
+          description: Two-factor authentication is enabled.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TotpEnabled"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/auth/2fa/disable:
+    post:
+      operationId: disableTotp
+      summary: Disable two-factor authentication
+      description: |
+        Requires the administrator password and, when two-factor authentication is
+        enabled, a valid TOTP or recovery code. Clears the secret, the replay
+        marker and every remaining recovery code.
+      tags: [Auth]
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DisableTotpRequest"
+      responses:
+        "204":
+          description: Two-factor authentication is disabled.
+        "400":
+          description: Two-factor authentication is enabled and no code was sent.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: Enter a two-factor or recovery code.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: The password is incorrect.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: The password is incorrect.
+  /api/auth/device:
+    post:
+      operationId: loginDevice
+      summary: Exchange credentials for a per-device token
+      description: |
+        Public alternative to pairing for clients that can prompt for the
+        administrator username and password. Mints a `rmg_…` token scoped to the
+        client API and returns it once with the new device record. When two-factor
+        authentication is enabled, `totpCode` is required and a missing code
+        returns `401` with `code: "totp_required"`. Failed attempts are throttled
+        with `429`.
+
+        The token can never reach administrative endpoints.
+      tags: [Auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceLoginRequest"
+      responses:
+        "200":
+          description: A new device token and its public device record.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceLoginResponse"
+        "401":
+          description: |
+            Bad credentials, a rejected two-factor code, or a missing code when
+            two-factor authentication is enabled (`code: "totp_required"`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              examples:
+                badCredentials:
+                  value:
+                    error: Authentication required.
+                totpRequired:
+                  value:
+                    error: Two-factor authentication code required.
+                    code: totp_required
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /api/devices:
+    get:
+      operationId: listDevices
+      summary: List registered devices
+      description: |
+        Returns every device token record. The raw token is never returned; only
+        its id, name and timestamps are available. Requires an administrator
+        session.
+      tags: [Devices]
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Registered devices, oldest first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/devices/{id}:
+    delete:
+      operationId: revokeDevice
+      summary: Revoke a device token
+      description: |
+        Deletes the device record, which immediately invalidates its token.
+        Requires an administrator session. An unknown id returns `404`.
+      tags: [Devices]
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Device id returned by `GET /api/devices`.
+          schema:
+            type: string
+      responses:
+        "204":
+          description: The device token was revoked.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: No device has that id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: Device not found.
+  /api/archive/{hash}/ticket:
+    post:
+      operationId: createArchiveTicket
+      summary: Mint a single-use archive download ticket
+      description: |
+        Issues a 60-second, single-use ticket bound to this info hash. Devices
+        use it instead of putting their long-lived token in a download URL, where
+        it would leak into history and logs. The caller needs a device token or
+        an administrator session; the ticket itself then authorizes exactly one
+        `GET /archive/{hash}`.
+      tags: [Archives]
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/Hash"
+      responses:
+        "200":
+          description: A ticket for one archive download.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArchiveTicket"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
   /archive/{hash}:
     get:
       operationId: downloadArchive
@@ -472,9 +918,13 @@ paths:
         cleanly, so browsers do not save a truncated ZIP as a completed
         download.
       tags: [Archives]
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+        - archiveTicket: []
       parameters:
         - $ref: "#/components/parameters/Hash"
-        - $ref: "#/components/parameters/TokenQuery"
+        - $ref: "#/components/parameters/TicketQuery"
       responses:
         "200":
           description: |
@@ -542,26 +992,37 @@ components:
       type: http
       scheme: bearer
       description: |
-        Send `Authorization: Bearer <BRIDGE_TOKEN>`. Preferred over the query
-        parameter because headers do not appear in proxy access logs.
-    tokenQuery:
+        Per-device token minted by pairing or `POST /api/auth/device`. Send
+        `Authorization: Bearer rmg_…`. Device tokens reach the client endpoints
+        (`/api/health`, `/api/torrents*`, `POST /api/archive/{hash}/ticket` and
+        `GET /archive/{hash}`) and never the administrative surface.
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: remagnet_session
+      description: |
+        Administrator browser session set by `POST /api/auth/setup` or
+        `POST /api/auth/login`. Required by `/api/config`, `/api/pair*`,
+        `/api/devices*`, `/api/auth/logout`, `/api/auth/password` and the
+        `/api/auth/2fa/*` routes.
+    archiveTicket:
       type: apiKey
       in: query
-      name: token
+      name: ticket
       description: |
-        Fallback for browser download APIs that cannot attach headers, for
-        example `GET /archive/<hash>?token=<BRIDGE_TOKEN>`.
+        Single-use ticket bound to one info hash, minted by
+        `POST /api/archive/{hash}/ticket` and valid for 60 seconds.
   parameters:
-    TokenQuery:
-      name: token
+    TicketQuery:
+      name: ticket
       in: query
       required: false
       description: |
-        Proxy token as a query parameter. Alternative to
-        `Authorization: Bearer <token>`; either one is sufficient.
+        Single-use download ticket from `POST /api/archive/{hash}/ticket`.
+        Alternative to a device token or administrator session; the ticket is
+        consumed by the download and expires after 60 seconds.
       schema:
         type: string
-        minLength: 16
     Hash:
       name: hash
       in: path
@@ -575,13 +1036,32 @@ components:
       example: dc555f7a26f1acae38a18edc04e53588ade33051
   responses:
     Unauthorized:
-      description: Missing or invalid proxy token.
+      description: Missing or invalid credentials.
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
           example:
-            error: Missing or invalid bridge token.
+            error: Authentication required.
+    Forbidden:
+      description: |
+        Authenticated, but not allowed to perform this action. Administrative
+        routes return this for a valid device token; setup returns it for a
+        wrong setup code.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: Admin sign-in is required for this action.
+    TooManyRequests:
+      description: Too many sign-in attempts from this address; retry later.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: Too many sign-in attempts. Try again in 60 seconds.
     BadRequest:
       description: The request was rejected, for example an invalid URL, hash or field.
       content:
@@ -625,6 +1105,13 @@ components:
         error:
           type: string
           description: Human-readable message safe to display to the user.
+        code:
+          type: string
+          description: |
+            Optional machine-readable reason. `totp_required` appears on `401`
+            responses from sign-in and device login when a two-factor code is
+            needed.
+          example: totp_required
       additionalProperties: false
     ServiceUnavailable:
       type: object
@@ -984,6 +1471,12 @@ components:
           description: |
             Base64url `SHA-256(code)`. The code itself is not sent, so request
             logs do not contain the key used for the response.
+        deviceName:
+          type: string
+          description: |
+            Optional human-readable name for the device record, up to 64
+            characters. Defaults to `Paired device` when omitted.
+          example: Pixel 9
       additionalProperties: false
     EncryptedPayload:
       type: object
@@ -1013,5 +1506,205 @@ components:
           description: Pairing payload version.
         proxyToken:
           type: string
-          description: The proxy's `BRIDGE_TOKEN`, so the client can call the torrent API.
+          description: |
+            A freshly minted per-device token (`rmg_…`) scoped to the client
+            API, so the client can call the torrent and archive endpoints.
+      additionalProperties: false
+    AuthStatus:
+      type: object
+      description: Public snapshot of the proxy's authentication state.
+      required: [initialized, requiresSetupCode, authenticated, username, totpEnabled]
+      properties:
+        initialized:
+          type: boolean
+          description: Whether an administrator account exists.
+        requiresSetupCode:
+          type: boolean
+          description: Whether first-run setup requires a deployment setup code.
+        authenticated:
+          type: boolean
+          description: Whether the request carries a valid session for `username`.
+        username:
+          type: [string, "null"]
+          description: Administrator username, or null before setup.
+        totpEnabled:
+          type: boolean
+          description: Whether two-factor authentication is enabled.
+      additionalProperties: false
+    SetupAdminRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: Administrator username; surrounding whitespace is trimmed.
+        password:
+          type: string
+          minLength: 12
+          description: Password, at least 12 characters.
+        setupCode:
+          type: string
+          description: |
+            Deployment setup code. Required only when the proxy was started with
+            one configured.
+      additionalProperties: false
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+        totpCode:
+          type: string
+          description: |
+            TOTP code or unused recovery code. Required when two-factor
+            authentication is enabled.
+      additionalProperties: false
+    ChangePasswordRequest:
+      type: object
+      required: [currentPassword, newPassword]
+      properties:
+        currentPassword:
+          type: string
+        newPassword:
+          type: string
+          minLength: 12
+          description: New password, at least 12 characters.
+      additionalProperties: false
+    AuthSession:
+      type: object
+      description: The signed-in administrator. The session travels in a cookie.
+      required: [username, totpEnabled]
+      properties:
+        username:
+          type: string
+        totpEnabled:
+          type: boolean
+          description: Whether two-factor authentication is enabled for the account.
+      additionalProperties: false
+    TotpSetup:
+      type: object
+      required: [secret, otpauthUri, svg]
+      properties:
+        secret:
+          type: string
+          description: Base32 TOTP secret for manual entry into an authenticator.
+        otpauthUri:
+          type: string
+          description: "`otpauth://totp/...` URI for authenticator apps."
+        svg:
+          type: string
+          description: Inline SVG QR code for `otpauthUri`.
+      additionalProperties: false
+    TotpCodeRequest:
+      type: object
+      required: [code]
+      properties:
+        code:
+          type: string
+          description: TOTP code from the authenticator app.
+      additionalProperties: false
+    TotpEnabled:
+      type: object
+      required: [recoveryCodes]
+      properties:
+        recoveryCodes:
+          type: array
+          minItems: 8
+          maxItems: 8
+          items:
+            type: string
+          description: |
+            Eight single-use recovery codes. Shown only once; each replaces a
+            TOTP code at sign-in and is then consumed.
+      additionalProperties: false
+    DisableTotpRequest:
+      type: object
+      required: [password]
+      properties:
+        password:
+          type: string
+          description: Current administrator password.
+        code:
+          type: string
+          description: |
+            TOTP or recovery code. Required when two-factor authentication is
+            currently enabled.
+      additionalProperties: false
+    PublicDevice:
+      type: object
+      description: A device token record without the token itself.
+      required: [id, name, createdAt, lastUsedAt]
+      properties:
+        id:
+          type: string
+          description: Stable device id used to revoke the token.
+        name:
+          type: string
+          description: Human-readable device name.
+          example: Pixel 9
+        createdAt:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Unix timestamp in seconds when the token was minted.
+        lastUsedAt:
+          type: [integer, "null"]
+          format: int64
+          minimum: 0
+          description: Unix timestamp in seconds of the last authenticated request.
+      additionalProperties: false
+    DeviceList:
+      type: object
+      required: [devices]
+      properties:
+        devices:
+          type: array
+          items:
+            $ref: "#/components/schemas/PublicDevice"
+      additionalProperties: false
+    DeviceLoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+        totpCode:
+          type: string
+          description: TOTP or recovery code when two-factor authentication is enabled.
+        deviceName:
+          type: string
+          description: Optional name for the new device record.
+          example: Pixel 9
+      additionalProperties: false
+    DeviceLoginResponse:
+      type: object
+      required: [token, device]
+      properties:
+        token:
+          type: string
+          description: |
+            New per-device token (`rmg_…`). Shown only once; store it securely.
+          example: rmg_7Q2r…
+        device:
+          $ref: "#/components/schemas/PublicDevice"
+      additionalProperties: false
+    ArchiveTicket:
+      type: object
+      required: [ticket, expiresIn]
+      properties:
+        ticket:
+          type: string
+          description: Single-use ticket for `GET /archive/{hash}?ticket=…`.
+        expiresIn:
+          type: integer
+          minimum: 0
+          description: Seconds until the ticket expires.
+          example: 60
       additionalProperties: false

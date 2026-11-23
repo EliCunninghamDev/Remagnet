@@ -1,4 +1,4 @@
-import { archiveDownloadUrl } from "@remagnet/proxy-client";
+import { archiveDownloadUrl, createProxyClient, proxyErrorMessage } from "@remagnet/proxy-client";
 import { browser } from "wxt/browser";
 import { defineBackground } from "wxt/utils/define-background";
 import { archiveFilename } from "../lib/archive";
@@ -16,7 +16,12 @@ import {
   type TorrentListResult,
   type TorrentLookupResult,
 } from "../lib/messages";
-import { getSettings, requireProxySettings, restrictSettingsStorageAccess } from "../lib/settings";
+import {
+  getSettings,
+  type ProxySettings,
+  requireProxySettings,
+  restrictSettingsStorageAccess,
+} from "../lib/settings";
 import {
   addTorrents,
   getTorrent,
@@ -95,9 +100,12 @@ async function handleRequest(request: BackgroundRequest): Promise<BackgroundResp
 /**
  * Ask the browser to download a completed torrent's ZIP.
  *
- * Firefox supports an Authorization header on downloads; other browsers get
- * the token as a query parameter instead. The proxy enforces completion, and
- * this checks it first so the popup can report a useful error immediately.
+ * The device token never goes in a URL. Firefox can attach it as an
+ * Authorization header; Chrome cannot pass headers through `downloads.download`,
+ * so it mints a single-use, short-lived ticket instead. If a Firefox build
+ * rejects the custom header, the same ticket path is the fallback. The proxy
+ * enforces completion, and this checks it first so the popup can report a
+ * useful error immediately.
  */
 async function downloadArchive(hash: string, name?: string): Promise<ArchiveDownloadResult> {
   const proxy = requireProxySettings(await getSettings());
@@ -109,28 +117,38 @@ async function downloadArchive(hash: string, name?: string): Promise<ArchiveDown
   }
 
   const filename = archiveFilename(name?.trim() || torrent.name);
-  const firefox = Boolean(import.meta.env.FIREFOX);
-
-  const startDownload = (useHeader: boolean) =>
+  const startDownload = (url: string, headers?: { name: string; value: string }[]) =>
     browser.downloads.download({
-      url: archiveDownloadUrl(proxy.baseUrl, hash, proxy.token, useHeader),
+      url,
       filename,
       conflictAction: "uniquify",
       saveAs: false,
-      ...(useHeader
-        ? { headers: [{ name: "Authorization", value: `Bearer ${proxy.token}` }] }
-        : {}),
+      ...(headers ? { headers } : {}),
     });
 
-  let downloadId: number;
-  try {
-    downloadId = await startDownload(firefox);
-  } catch (error) {
-    if (!firefox) throw error;
-    // If this Firefox build rejects custom headers, retry with the query-token
-    // fallback the bridge also accepts.
-    downloadId = await startDownload(false);
+  if (import.meta.env.FIREFOX) {
+    try {
+      const downloadId = await startDownload(archiveDownloadUrl(proxy.baseUrl, hash), [
+        { name: "Authorization", value: `Bearer ${proxy.token}` },
+      ]);
+      return { downloadId, filename };
+    } catch {
+      // Some Firefox builds reject custom download headers. Fall through to a
+      // single-use ticket rather than putting the device token in the URL.
+    }
   }
 
+  const ticket = await mintArchiveTicket(proxy, hash);
+  const downloadId = await startDownload(archiveDownloadUrl(proxy.baseUrl, hash, ticket));
   return { downloadId, filename };
+}
+
+/** Exchange the device token for an archive URL that is safe to log. */
+async function mintArchiveTicket(proxy: ProxySettings, hash: string): Promise<string> {
+  const { data, error, response } = await createProxyClient(proxy).POST(
+    "/api/archive/{hash}/ticket",
+    { params: { path: { hash } } },
+  );
+  if (error || !data?.ticket) throw new Error(proxyErrorMessage(response, error));
+  return data.ticket;
 }

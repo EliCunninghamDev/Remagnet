@@ -82,6 +82,40 @@ describe("claimPairing", () => {
     });
   });
 
+  test("forwards the browser device name", async () => {
+    let seenBody = "";
+    const encrypted = await encrypt(
+      JSON.stringify({ version: 2, proxyToken: "0123456789abcdef" }),
+      ID,
+      CODE,
+    );
+    globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+      seenBody = String(init?.body);
+      return Response.json(encrypted);
+    }) as unknown as typeof fetch;
+
+    await claimPairing(parsePairingLink(link()), "Firefox");
+
+    expect(JSON.parse(seenBody)).toMatchObject({ id: ID, deviceName: "Firefox" });
+  });
+
+  test("omits a blank device name", async () => {
+    let seenBody = "";
+    const encrypted = await encrypt(
+      JSON.stringify({ version: 2, proxyToken: "0123456789abcdef" }),
+      ID,
+      CODE,
+    );
+    globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+      seenBody = String(init?.body);
+      return Response.json(encrypted);
+    }) as unknown as typeof fetch;
+
+    await claimPairing(parsePairingLink(link()), "   ");
+
+    expect(JSON.parse(seenBody)).not.toHaveProperty("deviceName");
+  });
+
   test("surfaces the proxy's rejection message", async () => {
     globalThis.fetch = (async () =>
       Response.json(

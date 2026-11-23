@@ -138,6 +138,18 @@ fun RemagnetApp(viewModel: RemagnetViewModel = viewModel()) {
             proxyStatus = state.proxyStatus,
             checkingProxy = state.checkingProxy,
             onTestConnection = viewModel::testConnection,
+            signIn = state.signIn,
+            onSignIn = { proxyBaseUrl, username, password, totpCode, deviceName ->
+                viewModel.signIn(
+                    proxyBaseUrl = proxyBaseUrl,
+                    username = username,
+                    password = password,
+                    totpCode = totpCode,
+                    deviceName = deviceName,
+                )
+            },
+            onClearSignIn = viewModel::clearSignInState,
+            onDisconnect = viewModel::disconnect,
         )
     }
 

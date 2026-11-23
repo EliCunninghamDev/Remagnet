@@ -40,9 +40,50 @@ class SettingsRepository(
             errors.joinToString(separator = " ") { it.message }
         }
 
-        store.putString(KEY_SECRETS, cipher.encrypt(encodeSecrets(normalized)))
-        store.putString(KEY_PUBLIC, encodePublic(normalized))
+        write(normalized)
         return normalized
+    }
+
+    /**
+     * Store a snapshot whose token was minted by the proxy itself.
+     *
+     * Pairing and direct sign-in receive an `rmg_…` token that the app never
+     * typed, so the manual-entry minimum length does not apply. The URL and
+     * token must still be present, and the URL still has to be a usable origin.
+     */
+    fun saveMinted(settings: RemagnetSettings): RemagnetSettings {
+        val normalized = settings.normalized()
+        require(parseHttpUrl(normalized.proxyBaseUrl) != null) {
+            "The Remagnet Proxy URL must use http:// or https://."
+        }
+        require(normalized.proxyToken.isNotBlank()) {
+            "The Remagnet Proxy token is required."
+        }
+
+        write(normalized)
+        return normalized
+    }
+
+    /**
+     * Keep the proxy URL but remove the device token.
+     *
+     * Disconnecting deliberately writes a snapshot that fails validation: the
+     * form can still show which proxy was in use, while every request stays
+     * blocked until the user signs in or pairs again.
+     */
+    fun saveDisconnected(proxyBaseUrl: String): RemagnetSettings {
+        val normalized = RemagnetSettings(
+            proxyBaseUrl = proxyBaseUrl,
+            proxyToken = "",
+        ).normalized()
+
+        write(normalized)
+        return normalized
+    }
+
+    private fun write(settings: RemagnetSettings) {
+        store.putString(KEY_SECRETS, cipher.encrypt(encodeSecrets(settings)))
+        store.putString(KEY_PUBLIC, encodePublic(settings))
     }
 
     private fun readPublic(): PublicSettings? {

@@ -30,8 +30,12 @@ sealed interface PairingClaim {
 class PairingClient(
     private val http: OkHttpClient = OkHttpClient(),
     private val gson: Gson = Gson(),
+    private val deviceName: String = androidDeviceName(),
 ) {
-    suspend fun claim(link: PairingLink): PairingClaim = withContext(Dispatchers.IO) {
+    suspend fun claim(
+        link: PairingLink,
+        deviceName: String? = null,
+    ): PairingClaim = withContext(Dispatchers.IO) {
         val proof = try {
             PairingCrypto.proof(link.code)
         } catch (_: Exception) {
@@ -40,8 +44,14 @@ class PairingClient(
             )
         }
 
-        val body = gson.toJson(mapOf("id" to link.id, "proof" to proof))
-            .toRequestBody(JSON)
+        val resolvedName = deviceName?.takeIf { it.isNotBlank() } ?: this@PairingClient.deviceName
+        val body = gson.toJson(
+            mapOf(
+                "id" to link.id,
+                "proof" to proof,
+                "deviceName" to resolvedName,
+            ),
+        ).toRequestBody(JSON)
         val request = Request.Builder()
             .url("${link.proxyBaseUrl.trimEnd('/')}/api/pair/claim")
             .header("Accept", "application/json")

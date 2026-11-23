@@ -11,16 +11,24 @@ CI and release signing; this README covers what is implemented today.
 
 ## Current status
 
-Phases 1-4 are complete:
+Phases 1-5 are complete:
 
-- A single connection screen for the Remagnet Proxy URL and token.
+- Direct sign-in from **Settings → Remagnet Proxy** with the proxy URL,
+  administrator username and password, plus a 6-digit authenticator or recovery
+  code only when the account has TOTP 2FA enabled. The proxy mints a revocable
+  per-device token; the app never stores the password or second factor.
+- A single connection screen for the Remagnet Proxy URL and device token.
 - Settings validation, with the same URL and token checks as the browser
   extension, before anything is saved.
 - Encrypted proxy-token storage using the Android Keystore; the URL stays
   readable so settings can render.
 - One-step `remagnet://pair` v2 onboarding: scan the rotating code, claim it from
-  the proxy, decrypt the payload, and save the proxy URL and token. A paste
-  fallback covers devices without a camera.
+  the proxy, decrypt the payload, and save the proxy URL and token. Pairing never
+  asks for the administrator password or a 2FA code. A paste fallback covers
+  devices without a camera.
+- A **Disconnect** action that clears this device's token, leaving the URL ready
+  for a fresh sign-in or pairing. Revoking the same device from the proxy page
+  invalidates the token immediately.
 - QR import for `remagnet://connect` links and JSON codes carrying a proxy URL
   and token, with a review step before saving.
 - `ProxyTorrentClient`, a generated-Retrofit adapter for the proxy's neutral
@@ -65,17 +73,36 @@ android/
 
 ## Settings
 
-The settings screen accepts only the proxy connection:
+The settings screen accepts only the proxy connection. It offers three ways to
+get one, in order of convenience:
 
-| Setting              | Notes                                                          |
-| -------------------- | -------------------------------------------------------------- |
-| Remagnet Proxy URL   | `http://` or `https://`, no credentials, query or fragment     |
-| Remagnet Proxy token | At least 16 characters; encrypted before it is written to disk |
+- **Sign in directly.** Enter the proxy URL, administrator username, password
+  and an optional device name. When the proxy account has 2FA enabled, the app
+  asks for a 6-digit authenticator code or a recovery code. The proxy returns a
+  per-device token, which is saved; the password and second factor are dropped
+  from memory.
+- **Pair with a link or QR.** Scan the code from the proxy page, or paste the
+  `remagnet://pair` link. Pairing needs no password or 2FA code and saves the
+  URL and a freshly minted device token immediately.
+- **Manual device token.** Under **Advanced**, paste the proxy URL and an
+  existing `rmg_…` token, then save.
 
-Both fields are required. There is no qBittorrent URL, API key, password,
-category or tags on the device: those are configured on the proxy, which applies
-its category/tag defaults to every add and uses them to filter list and remove
-requests.
+| Field                | Notes                                                        |
+| -------------------- | ------------------------------------------------------------ |
+| Remagnet Proxy URL   | `http://` or `https://`, no credentials, query or fragment   |
+| Username / password  | Used for direct sign-in only; never stored                   |
+| Two-factor code      | Shown only when the account requires it; never stored        |
+| Device name          | Optional label in the proxy's device list                    |
+| Remagnet Proxy token | Minted by sign-in or pairing; encrypted before it is written |
+
+There is no qBittorrent URL, API key, password, category or tags on the device:
+those are configured on the proxy, which applies its category/tag defaults to
+every add and uses them to filter list and remove requests.
+
+**Disconnect** removes this device's token from the phone, so the next launch
+shows the connection form with the URL still filled in. To revoke a lost phone
+without it, open the proxy page's **Devices** list and delete that device; its
+token stops working immediately.
 
 Inside the emulator, use `http://10.0.2.2:8080` to reach a proxy on the host. A
 deployed instance normally uses an HTTPS URL. Saving validates the whole form,
@@ -171,8 +198,10 @@ configured category/tags.
 
 Completed rows get an always-enabled **Download** action, because the proxy is
 the app's only connection. The archive is streamed from `GET /archive/<hash>` by
-a foreground service, which keeps the bearer token in a header and reports bytes
-and speed. The in-app row and the notification both track the same state:
+a foreground service, which keeps the bearer device token in a header — Android
+can attach headers, so it does not need the single-use ticket that Chrome uses.
+The proxy still accepts `?ticket=…` for browsers. The in-app row and the
+notification both track the same state:
 
 - Progress is determinate against the torrent size and smoothed over recent
   samples. The Remagnet Proxy streams ZIPs without `Content-Length`, so an
@@ -194,20 +223,28 @@ app is uninstalled. On Android 13 and newer the app asks for notification
 permission the first time a download starts; a download still runs if the user
 declines, but progress is only visible inside the app.
 
-## QR onboarding
+## Sign-in and QR onboarding
 
-The primary code is minted by the Remagnet Proxy page's **Pair a device** panel
-as a `remagnet://pair` code. The code rotates every minute, works once, and
+Direct sign-in is the quickest path when the phone can type credentials: enter
+the proxy URL, administrator username and password. When TOTP is enabled, a
+second field asks for the current 6-digit code or an unused recovery code. The
+proxy returns a per-device token and the app saves only that token; the password
+and 2FA code are cleared from the form and never persisted.
+
+The alternative is the code minted by the Remagnet Proxy page's **Pair a device**
+panel as a `remagnet://pair` code. The code rotates every minute, works once, and
 carries only the proxy URL and a short-lived secret. When the app scans it, it
 claims the session and receives a pairing v2 payload encrypted with a key
 derived from the scanned code. The decrypted payload is `{ version: 2,
-proxyToken }`: the phone gets the proxy URL and token, while qBittorrent
-credentials and category/tags stay on the proxy. Pairing requires an HTTPS proxy
-origin.
+proxyToken }`: the phone gets the proxy URL and a newly minted device token,
+while qBittorrent credentials and category/tags stay on the proxy. Pairing never
+asks for the administrator password or a second factor; possession of the QR is
+the proof of presence. Pairing requires an HTTPS proxy origin.
 
 The same link can configure the extension instead: paste it into the extension's
-**Remagnet Proxy → Pairing code** field. A code is single-use, so copy a fresh one
-for each device.
+**Pair with a link** field. A code is single-use, so copy a fresh one for each
+device. Every device that signs in or pairs appears in the proxy page's
+**Devices** list, where it can be revoked without disturbing the others.
 
 A `remagnet://connect` code remains available for manually generated codes and
 for the paste box. It can carry the proxy URL, token, or both:
@@ -248,9 +285,17 @@ also the path used in emulator tests.
 
 ## Security
 
-The proxy token is encrypted with an AES-256-GCM key generated inside the
-Android Keystore. The key is non-exportable and is not tied to biometrics or a
-PIN, so background health checks work without an unlock prompt.
+The per-device proxy token is encrypted with an AES-256-GCM key generated inside
+the Android Keystore. The key is non-exportable and is not tied to biometrics or
+a PIN, so background health checks work without an unlock prompt. Direct
+sign-in sends the administrator password over the configured URL (use HTTPS) and
+keeps it only in memory until the token arrives; neither the password nor a
+two-factor code is written to storage.
+
+Signing in or pairing mints a token scoped to the client API. The proxy stores
+only its SHA-256 hash and never accepts it on administrative routes. Revoking the
+device from the proxy page, or pressing **Disconnect**, makes the token useless;
+you do not need to change the administrator password unless it may have leaked.
 
 The proxy URL stays readable in SharedPreferences so the settings screen can
 render without decrypting anything. The Remagnet Proxy token is stored only as
@@ -334,11 +379,12 @@ bun run android:test
 ```
 
 Unit tests cover settings validation, encrypted storage round-trips, corrupt
-ciphertext recovery, QR parsing, settings merging, pairing decryption, proxy
-error mapping, and `ProxyTorrentClient` against an in-process HTTP server. That
-server exercises bearer auth, health, list and lookup, add, remove, rejected
-magnets and malformed responses. Magnet tests cover hex and base32 hashes, web
-seeds, wrapped shared text, `VIEW` and `SEND` intake, duplicate-state mapping,
+ciphertext recovery, QR parsing, settings merging, direct device sign-in
+including the TOTP-required response, pairing decryption, proxy error mapping,
+and `ProxyTorrentClient` against an in-process HTTP server. That server
+exercises bearer auth, health, list and lookup, add, remove, rejected magnets
+and malformed responses. Magnet tests cover hex and base32 hashes, web seeds,
+wrapped shared text, `VIEW` and `SEND` intake, duplicate-state mapping,
 add-request defaults and byte formatting. Phase 4 adds tests for the shared
 tile-bar geometry and counter, archive file naming and unique suffixes,
 `Content-Disposition` parsing, proxy error messages, smoothed download speed,

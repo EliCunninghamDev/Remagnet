@@ -20,9 +20,9 @@ fn default_tags() -> Vec<String> {
 
 /// Settings persisted in `DATA_DIR/config.json`.
 ///
-/// The bridge token is intentionally not stored here: it comes from the
-/// `BRIDGE_TOKEN` environment variable so it can live in a server-only `.env`
-/// and never be returned by the config API.
+/// Administrator credentials and per-device token hashes live in `auth.json`
+/// instead, so this file holds only the qBittorrent connection and the magnet
+/// defaults returned by the config API.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Config {

@@ -17,7 +17,8 @@ use tokio_util::io::ReaderStream;
 use tower_http::trace::TraceLayer;
 
 use crate::{
-    auth::is_authorized,
+    auth,
+    auth_routes::{require_admin, require_archive_auth, require_device_or_admin},
     config::{save, ConfigUpdate, PublicConfig},
     error::AppError,
     qbit::{
@@ -51,7 +52,9 @@ pub fn router(state: Arc<AppState>) -> Router {
             "/api/torrents/{hash}",
             get(get_torrent).delete(delete_torrent),
         )
+        .route("/api/archive/{hash}/ticket", post(create_archive_ticket))
         .route("/archive/{hash}", get(archive))
+        .merge(crate::auth_routes::router())
         .layer(TraceLayer::new_for_http())
         .with_state(state)
 }
@@ -104,9 +107,8 @@ async fn healthz() -> Json<serde_json::Value> {
 async fn api_health(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    Query(query): Query<QueryMap>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    require_auth(&state, &headers, &query)?;
+    require_device_or_admin(&state, &headers).await?;
     let qbit = require_qbit(&state).await?;
     let (default_category, default_tags) = magnet_defaults(&state).await;
     let (app_version, web_api_version) = qbit.test_connection().await?;
@@ -125,9 +127,8 @@ async fn api_health(
 async fn get_config(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    Query(query): Query<QueryMap>,
 ) -> Result<Json<PublicConfig>, AppError> {
-    require_auth(&state, &headers, &query)?;
+    require_admin(&state, &headers).await?;
     let config = state.config.read().await;
     Ok(Json(PublicConfig::from(&*config)))
 }
@@ -135,10 +136,9 @@ async fn get_config(
 async fn put_config(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    Query(query): Query<QueryMap>,
     Json(update): Json<ConfigUpdate>,
 ) -> Result<Json<PublicConfig>, AppError> {
-    require_auth(&state, &headers, &query)?;
+    require_admin(&state, &headers).await?;
 
     let mut candidate = state.config.read().await.clone();
     candidate
@@ -190,10 +190,9 @@ struct CreatePairingRequest {
 async fn create_pairing(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    Query(query): Query<QueryMap>,
     body: Option<Json<CreatePairingRequest>>,
 ) -> Result<impl IntoResponse, AppError> {
-    require_auth(&state, &headers, &query)?;
+    require_admin(&state, &headers).await?;
 
     let origin = body
         .and_then(|Json(request)| request.url)
@@ -250,9 +249,12 @@ fn origin_from_headers(headers: &HeaderMap) -> Option<String> {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct ClaimPairing {
     id: String,
     proof: String,
+    #[serde(default)]
+    device_name: Option<String>,
 }
 
 /// The decrypted payload sent to a device that scanned a valid code.
@@ -285,9 +287,20 @@ async fn claim_pairing(
         })?
     };
 
+    // Pairing is a second enrolment path: it mints a fresh device token and
+    // never needs the administrator's second factor. The token is only shown
+    // once, inside the encrypted payload.
+    let (token, record) = auth::mint_device(claim.device_name.as_deref().or(Some("Paired device")))
+        .map_err(AppError::internal)?;
+    {
+        let mut data = state.auth.write().await;
+        data.devices.push(record);
+        auth::save(&state.auth_path, &data).map_err(AppError::internal)?;
+    }
+
     let payload = PairingPayload {
         version: 2,
-        proxy_token: &state.token,
+        proxy_token: &token,
     };
 
     let plaintext = serde_json::to_vec(&payload).map_err(AppError::internal)?;
@@ -301,9 +314,8 @@ async fn revoke_pairing(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
     headers: HeaderMap,
-    Query(query): Query<QueryMap>,
 ) -> Result<StatusCode, AppError> {
-    require_auth(&state, &headers, &query)?;
+    require_admin(&state, &headers).await?;
 
     let mut store = state
         .pairings
@@ -317,9 +329,8 @@ async fn revoke_pairing(
 async fn list_torrents(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    Query(query): Query<QueryMap>,
 ) -> Result<Json<TorrentList>, AppError> {
-    require_auth(&state, &headers, &query)?;
+    require_device_or_admin(&state, &headers).await?;
     let (default_category, default_tags) = magnet_defaults(&state).await;
     let qbit = require_qbit(&state).await?;
 
@@ -327,9 +338,7 @@ async fn list_torrents(
         .list_torrents()
         .await?
         .into_iter()
-        .filter(|torrent| {
-            matches_torrent_filter(torrent, &default_category, &default_tags)
-        })
+        .filter(|torrent| matches_torrent_filter(torrent, &default_category, &default_tags))
         .collect();
 
     Ok(Json(TorrentList { torrents }))
@@ -339,9 +348,8 @@ async fn get_torrent(
     State(state): State<Arc<AppState>>,
     Path(hash): Path<String>,
     headers: HeaderMap,
-    Query(query): Query<QueryMap>,
 ) -> Result<Json<TorrentSummary>, AppError> {
-    require_auth(&state, &headers, &query)?;
+    require_device_or_admin(&state, &headers).await?;
     validate_hash(&hash)?;
     let qbit = require_qbit(&state).await?;
 
@@ -356,10 +364,9 @@ async fn get_torrent(
 async fn add_torrent(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    Query(query): Query<QueryMap>,
     Json(request): Json<AddTorrentRequest>,
 ) -> Result<Json<AddTorrentResult>, AppError> {
-    require_auth(&state, &headers, &query)?;
+    require_device_or_admin(&state, &headers).await?;
     let (default_category, default_tags) = magnet_defaults(&state).await;
     let qbit = require_qbit(&state).await?;
 
@@ -383,7 +390,7 @@ async fn delete_torrent(
     headers: HeaderMap,
     Query(query): Query<QueryMap>,
 ) -> Result<StatusCode, AppError> {
-    require_auth(&state, &headers, &query)?;
+    require_device_or_admin(&state, &headers).await?;
     validate_hash(&hash)?;
     let delete_files = parse_delete_files(&query)?;
     let (default_category, default_tags) = magnet_defaults(&state).await;
@@ -394,9 +401,7 @@ async fn delete_torrent(
     let allowed = qbit
         .get_torrent(&hash)
         .await?
-        .is_some_and(|torrent| {
-            matches_torrent_filter(&torrent, &default_category, &default_tags)
-        });
+        .is_some_and(|torrent| matches_torrent_filter(&torrent, &default_category, &default_tags));
     if !allowed {
         return Err(AppError::NotFound("Torrent not found.".to_string()));
     }
@@ -419,13 +424,38 @@ fn parse_delete_files(query: &QueryMap) -> Result<bool, AppError> {
     }
 }
 
+/// Mint a short-lived, single-use ticket for one archive download.
+///
+/// Devices use this instead of putting their long-lived token in a download
+/// URL, where it would leak into history and logs.
+async fn create_archive_ticket(
+    State(state): State<Arc<AppState>>,
+    Path(hash): Path<String>,
+    headers: HeaderMap,
+) -> Result<impl IntoResponse, AppError> {
+    require_device_or_admin(&state, &headers).await?;
+    validate_hash(&hash)?;
+
+    let (ticket, expires_in) = state
+        .archive_tickets
+        .lock()
+        .map_err(|_| AppError::internal("archive ticket state is unavailable"))?
+        .create(&hash)
+        .map_err(AppError::internal)?;
+
+    Ok((
+        [(header::CACHE_CONTROL, "no-store")],
+        Json(json!({ "ticket": ticket, "expiresIn": expires_in })),
+    ))
+}
+
 async fn archive(
     State(state): State<Arc<AppState>>,
     Path(hash): Path<String>,
     headers: HeaderMap,
     Query(query): Query<QueryMap>,
 ) -> Result<Response, AppError> {
-    require_auth(&state, &headers, &query)?;
+    require_archive_auth(&state, &headers, &query, &hash).await?;
     validate_hash(&hash)?;
 
     let qbit = require_qbit(&state).await?;
@@ -488,14 +518,6 @@ async fn archive(
         .map_err(AppError::internal)
 }
 
-fn require_auth(state: &AppState, headers: &HeaderMap, query: &QueryMap) -> Result<(), AppError> {
-    if is_authorized(headers, query, &state.token) {
-        Ok(())
-    } else {
-        Err(AppError::Unauthorized)
-    }
-}
-
 async fn require_qbit(state: &AppState) -> Result<QbitClient, AppError> {
     state
         .qbit
@@ -507,10 +529,7 @@ async fn require_qbit(state: &AppState) -> Result<QbitClient, AppError> {
 
 async fn magnet_defaults(state: &AppState) -> (String, Vec<String>) {
     let config = state.config.read().await;
-    (
-        config.default_category.clone(),
-        config.default_tags.clone(),
-    )
+    (config.default_category.clone(), config.default_tags.clone())
 }
 
 #[cfg(test)]
@@ -518,7 +537,10 @@ mod tests {
     use std::{
         io::{Cursor, Read},
         path::PathBuf,
-        sync::atomic::{AtomicU64, Ordering},
+        sync::{
+            atomic::{AtomicU64, Ordering},
+            Arc, Mutex, OnceLock,
+        },
     };
 
     use axum::{
@@ -533,9 +555,15 @@ mod tests {
     use tower::ServiceExt;
 
     use super::*;
-    use crate::{config::Config, qbit::QbitClient};
+    use crate::{
+        auth::{self, AdminAccount, AuthData},
+        config::Config,
+        pairing::PairingStore,
+        qbit::QbitClient,
+    };
 
-    const TOKEN: &str = "test-token-1234567890";
+    const ADMIN_USER: &str = "admin";
+    const ADMIN_PASSWORD: &str = "correct horse battery staple";
     const HASH: &str = "dc555f7a26f1acae38a18edc04e53588ade33051";
     const OTHER_HASH: &str = "1111111111111111111111111111111111111111";
 
@@ -547,6 +575,81 @@ mod tests {
             std::process::id(),
             NEXT_CONFIG.fetch_add(1, Ordering::Relaxed)
         ))
+    }
+
+    fn password_hash() -> &'static str {
+        static HASH: OnceLock<String> = OnceLock::new();
+        HASH.get_or_init(|| auth::hash_password(ADMIN_PASSWORD).unwrap())
+    }
+
+    struct TestApp {
+        router: Router,
+        state: Arc<AppState>,
+        device_token: String,
+        admin_cookie: String,
+        _directory: tempfile::TempDir,
+    }
+
+    impl TestApp {
+        fn admin_request(&self, uri: &str) -> Request<Body> {
+            Request::builder()
+                .uri(uri)
+                .header(
+                    header::COOKIE,
+                    format!("remagnet_session={}", self.admin_cookie),
+                )
+                .body(Body::empty())
+                .unwrap()
+        }
+
+        fn device_request(&self, uri: &str) -> Request<Body> {
+            Request::builder()
+                .uri(uri)
+                .header(
+                    header::AUTHORIZATION,
+                    format!("Bearer {}", self.device_token),
+                )
+                .body(Body::empty())
+                .unwrap()
+        }
+
+        fn admin_json(&self, method: &str, uri: &str, body: serde_json::Value) -> Request<Body> {
+            Request::builder()
+                .method(method)
+                .uri(uri)
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(
+                    header::COOKIE,
+                    format!("remagnet_session={}", self.admin_cookie),
+                )
+                .body(Body::from(body.to_string()))
+                .unwrap()
+        }
+
+        fn device_json(&self, method: &str, uri: &str, body: serde_json::Value) -> Request<Body> {
+            Request::builder()
+                .method(method)
+                .uri(uri)
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(
+                    header::AUTHORIZATION,
+                    format!("Bearer {}", self.device_token),
+                )
+                .body(Body::from(body.to_string()))
+                .unwrap()
+        }
+
+        fn admin_delete(&self, uri: &str) -> Request<Body> {
+            Request::builder()
+                .method("DELETE")
+                .uri(uri)
+                .header(
+                    header::COOKIE,
+                    format!("remagnet_session={}", self.admin_cookie),
+                )
+                .body(Body::empty())
+                .unwrap()
+        }
     }
 
     #[derive(Clone)]
@@ -592,11 +695,9 @@ mod tests {
             ("GET", "/api/v2/torrents/info") => {
                 let Query(query) = Query::<QueryMap>::try_from_uri(request.uri()).unwrap();
                 let torrents = match query.get("hashes") {
-                    Some(hashes) if hashes.eq_ignore_ascii_case(HASH) => vec![torrent_json(
-                        HASH,
-                        "Test Torrent",
-                        state.completed,
-                    )],
+                    Some(hashes) if hashes.eq_ignore_ascii_case(HASH) => {
+                        vec![torrent_json(HASH, "Test Torrent", state.completed)]
+                    }
                     Some(hashes) if hashes.eq_ignore_ascii_case(OTHER_HASH) => {
                         vec![torrent_json(OTHER_HASH, "Other Torrent", false)]
                     }
@@ -667,23 +768,50 @@ mod tests {
         }
     }
 
-    fn app_from_config(config: Config, with_client: bool, config_path: PathBuf) -> Router {
+    fn app_from_config(config: Config, with_client: bool, _config_path: PathBuf) -> TestApp {
+        let directory = tempfile::tempdir().unwrap();
+        let config_path = directory.path().join("config.json");
+        let auth_path = directory.path().join("auth.json");
         let qbit = if with_client {
             Some(QbitClient::new(&config).unwrap())
         } else {
             None
         };
+        let (device_token, record) = auth::mint_device(Some("Test device")).unwrap();
+        let data = AuthData {
+            admin: Some(AdminAccount {
+                username: ADMIN_USER.to_string(),
+                password_hash: password_hash().to_string(),
+                totp_secret: None,
+                totp_last_step: None,
+                recovery_code_hashes: Vec::new(),
+            }),
+            devices: vec![record],
+        };
         let state = Arc::new(AppState {
             config_path,
             config: RwLock::new(config),
             qbit: RwLock::new(qbit),
-            token: TOKEN.to_string(),
-            pairings: std::sync::Mutex::new(crate::pairing::PairingStore::default()),
+            auth_path,
+            auth: RwLock::new(data),
+            setup_code: None,
+            sessions: Mutex::new(auth::SessionStore::default()),
+            pending_totp: Mutex::new(auth::PendingTotpStore::default()),
+            archive_tickets: Mutex::new(auth::ArchiveTicketStore::default()),
+            rate_limiter: Mutex::new(auth::LoginRateLimiter::default()),
+            pairings: Mutex::new(PairingStore::default()),
         });
-        router(state)
+        let admin_cookie = state.sessions.lock().unwrap().create(ADMIN_USER);
+        TestApp {
+            router: router(Arc::clone(&state)),
+            state,
+            device_token,
+            admin_cookie,
+            _directory: directory,
+        }
     }
 
-    async fn app_with_filter(completed: bool, category: &str, tags: &[&str]) -> Router {
+    async fn app_with_filter(completed: bool, category: &str, tags: &[&str]) -> TestApp {
         let base_url = start_fake(completed).await;
         let mut config = config_for(&base_url);
         config.default_category = category.to_string();
@@ -691,16 +819,8 @@ mod tests {
         app_from_config(config, true, test_config_path())
     }
 
-    async fn app(completed: bool) -> Router {
+    async fn app(completed: bool) -> TestApp {
         app_with_filter(completed, "remagnet", &["remagnet"]).await
-    }
-
-    fn request(uri: &str) -> Request<Body> {
-        Request::builder()
-            .uri(uri)
-            .header(header::AUTHORIZATION, format!("Bearer {TOKEN}"))
-            .body(Body::empty())
-            .unwrap()
     }
 
     #[tokio::test]
@@ -708,6 +828,8 @@ mod tests {
         let app = app(true).await;
 
         let response = app
+            .router
+            .clone()
             .oneshot(
                 Request::builder()
                     .uri("/assets/departure-mono.woff2")
@@ -728,6 +850,8 @@ mod tests {
         let app = app(true).await;
 
         let response = app
+            .router
+            .clone()
             .oneshot(
                 Request::builder()
                     .uri("/icon.svg")
@@ -744,10 +868,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn health_is_public_but_api_requires_the_token() {
+    async fn health_is_public_but_api_accepts_a_device_or_admin() {
         let app = app(true).await;
 
         let response = app
+            .router
             .clone()
             .oneshot(
                 Request::builder()
@@ -760,6 +885,7 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
 
         let response = app
+            .router
             .clone()
             .oneshot(
                 Request::builder()
@@ -771,7 +897,12 @@ mod tests {
             .unwrap();
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 
-        let response = app.oneshot(request("/api/health")).await.unwrap();
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.device_request("/api/health"))
+            .await
+            .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
         let body = response.into_body().collect().await.unwrap().to_bytes();
         let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
@@ -780,6 +911,14 @@ mod tests {
         assert_eq!(body["capabilities"]["pauseOnAdd"], true);
         assert_eq!(body["defaultCategory"], "remagnet");
         assert_eq!(body["defaultTags"], json!(["remagnet"]));
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.admin_request("/api/health"))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
     }
 
     #[tokio::test]
@@ -790,8 +929,9 @@ mod tests {
         let app = app_from_config(config, false, test_config_path());
 
         let response = app
+            .router
             .clone()
-            .oneshot(request("/api/health"))
+            .oneshot(app.device_request("/api/health"))
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
@@ -799,15 +939,22 @@ mod tests {
         let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(body["error"], NOT_CONFIGURED);
 
-        let response = app.oneshot(request("/api/torrents")).await.unwrap();
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.device_request("/api/torrents"))
+            .await
+            .unwrap();
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
     }
 
     #[tokio::test]
     async fn streams_a_zip_with_the_torrent_files() {
-        let response = app(true)
-            .await
-            .oneshot(request(&format!("/archive/{HASH}")))
+        let app = app(true).await;
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.admin_request(&format!("/archive/{HASH}")))
             .await
             .unwrap();
 
@@ -839,17 +986,86 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rejects_incomplete_torrents_and_bad_hashes() {
-        let response = app(false)
+    async fn archive_tickets_are_single_use_and_bound_to_their_hash() {
+        let app = app(true).await;
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.device_json("POST", &format!("/api/archive/{HASH}/ticket"), json!({})))
             .await
-            .oneshot(request(&format!("/archive/{HASH}")))
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["expiresIn"], 60);
+        let ticket = body["ticket"].as_str().unwrap().to_string();
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/archive/{OTHER_HASH}?ticket={ticket}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/archive/{HASH}?ticket={ticket}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let replay = app
+            .router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/archive/{HASH}?ticket={ticket}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(replay.status(), StatusCode::UNAUTHORIZED);
+
+        let invalid = app
+            .router
+            .clone()
+            .oneshot(app.device_json("POST", "/api/archive/not-a-hash/ticket", json!({})))
+            .await
+            .unwrap();
+        assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn rejects_incomplete_torrents_and_bad_hashes() {
+        let incomplete = app(false).await;
+        let response = incomplete
+            .router
+            .clone()
+            .oneshot(incomplete.admin_request(&format!("/archive/{HASH}")))
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::CONFLICT);
 
-        let response = app(true)
-            .await
-            .oneshot(request("/archive/not-a-hash"))
+        let complete = app(true).await;
+        let response = complete
+            .router
+            .clone()
+            .oneshot(complete.admin_request("/archive/not-a-hash"))
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
@@ -857,9 +1073,11 @@ mod tests {
 
     #[tokio::test]
     async fn config_api_never_returns_secrets_and_includes_magnet_defaults() {
-        let response = app(true)
-            .await
-            .oneshot(request("/api/config"))
+        let app = app(true).await;
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.admin_request("/api/config"))
             .await
             .unwrap();
         let body = response.into_body().collect().await.unwrap().to_bytes();
@@ -871,39 +1089,61 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn saving_credentials_activates_the_client() {
-        let base_url = start_fake(true).await;
-        let config_path = test_config_path();
-        let mut config = config_for(&base_url);
-        config.qbit_api_key.clear();
-        let app = app_from_config(config, false, config_path.clone());
+    async fn device_tokens_cannot_reach_admin_routes() {
+        let app = app(true).await;
 
         let response = app
+            .router
             .clone()
-            .oneshot(request("/api/health"))
+            .oneshot(app.device_request("/api/config"))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["error"], "Admin sign-in is required for this action.");
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.device_json(
+                "PUT",
+                "/api/config",
+                json!({ "qbitBaseUrl": "http://127.0.0.1:1" }),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn saving_credentials_activates_the_client() {
+        let base_url = start_fake(true).await;
+        let mut config = config_for(&base_url);
+        config.qbit_api_key.clear();
+        let app = app_from_config(config, false, test_config_path());
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.admin_request("/api/health"))
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
 
         let response = app
+            .router
             .clone()
-            .oneshot(
-                Request::builder()
-                    .method("PUT")
-                    .uri("/api/config")
-                    .header(header::CONTENT_TYPE, "application/json")
-                    .header(header::AUTHORIZATION, format!("Bearer {TOKEN}"))
-                    .body(Body::from(
-                        json!({
-                            "qbitBaseUrl": base_url,
-                            "qbitApiKey": "qbt_test",
-                            "defaultCategory": "remagnet",
-                            "defaultTags": ["remagnet"],
-                        })
-                        .to_string(),
-                    ))
-                    .unwrap(),
-            )
+            .oneshot(app.admin_json(
+                "PUT",
+                "/api/config",
+                json!({
+                    "qbitBaseUrl": base_url,
+                    "qbitApiKey": "qbt_test",
+                    "defaultCategory": "remagnet",
+                    "defaultTags": ["remagnet"],
+                }),
+            ))
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
@@ -911,17 +1151,22 @@ mod tests {
         let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(body["hasApiKey"], true);
 
-        let response = app.oneshot(request("/api/health")).await.unwrap();
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.admin_request("/api/health"))
+            .await
+            .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
-
-        let _ = std::fs::remove_file(config_path);
     }
 
     #[tokio::test]
     async fn lists_only_relevant_torrents() {
-        let response = app(true)
-            .await
-            .oneshot(request("/api/torrents"))
+        let app = app(true).await;
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.device_request("/api/torrents"))
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
@@ -939,9 +1184,11 @@ mod tests {
 
     #[tokio::test]
     async fn empty_magnet_defaults_list_every_torrent() {
-        let response = app_with_filter(true, "", &[])
-            .await
-            .oneshot(request("/api/torrents"))
+        let app = app_with_filter(true, "", &[]).await;
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.admin_request("/api/torrents"))
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
@@ -956,8 +1203,9 @@ mod tests {
         let app = app(true).await;
 
         let response = app
+            .router
             .clone()
-            .oneshot(request(&format!("/api/torrents/{OTHER_HASH}")))
+            .oneshot(app.device_request(&format!("/api/torrents/{OTHER_HASH}")))
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
@@ -967,27 +1215,20 @@ mod tests {
         assert_eq!(body["category"], "films");
 
         let response = app
+            .router
             .clone()
-            .oneshot(request("/api/torrents/not-a-hash"))
+            .oneshot(app.device_request("/api/torrents/not-a-hash"))
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 
         let response = app
-            .oneshot(request("/api/torrents/2222222222222222222222222222222222222222"))
+            .router
+            .clone()
+            .oneshot(app.device_request("/api/torrents/2222222222222222222222222222222222222222"))
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
-    }
-
-    fn post_json(uri: &str, body: serde_json::Value) -> Request<Body> {
-        Request::builder()
-            .method("POST")
-            .uri(uri)
-            .header(header::CONTENT_TYPE, "application/json")
-            .header(header::AUTHORIZATION, format!("Bearer {TOKEN}"))
-            .body(Body::from(body.to_string()))
-            .unwrap()
     }
 
     #[tokio::test]
@@ -996,7 +1237,10 @@ mod tests {
         let magnet = format!("magnet:?xt=urn:btih:{HASH}&dn=Example");
 
         let response = app
-            .oneshot(post_json(
+            .router
+            .clone()
+            .oneshot(app.device_json(
+                "POST",
                 "/api/torrents",
                 json!({ "urls": [magnet], "paused": true }),
             ))
@@ -1014,21 +1258,14 @@ mod tests {
 
     #[tokio::test]
     async fn adding_without_urls_is_rejected() {
-        let response = app(true)
-            .await
-            .oneshot(post_json("/api/torrents", json!({ "urls": [] })))
+        let app = app(true).await;
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.admin_json("POST", "/api/torrents", json!({ "urls": [] })))
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-    }
-
-    fn delete_request(uri: &str) -> Request<Body> {
-        Request::builder()
-            .method("DELETE")
-            .uri(uri)
-            .header(header::AUTHORIZATION, format!("Bearer {TOKEN}"))
-            .body(Body::empty())
-            .unwrap()
     }
 
     #[tokio::test]
@@ -1036,41 +1273,45 @@ mod tests {
         let app = app(true).await;
 
         let response = app
+            .router
             .clone()
-            .oneshot(delete_request(&format!("/api/torrents/{OTHER_HASH}")))
+            .oneshot(app.admin_delete(&format!("/api/torrents/{OTHER_HASH}")))
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
 
         let response = app
+            .router
             .clone()
-            .oneshot(delete_request(&format!(
-                "/api/torrents/{HASH}?deleteFiles=true"
-            )))
+            .oneshot(app.admin_delete(&format!("/api/torrents/{HASH}?deleteFiles=true")))
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::NO_CONTENT);
 
         let response = app
-            .oneshot(delete_request(&format!(
-                "/api/torrents/{HASH}?deleteFiles=maybe"
-            )))
+            .router
+            .clone()
+            .oneshot(app.admin_delete(&format!("/api/torrents/{HASH}?deleteFiles=maybe")))
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]
-    async fn pairing_mints_only_with_the_bridge_token() {
+    async fn pairing_needs_an_administrator_not_a_device_token() {
         let app = app(true).await;
 
         let response = app
+            .router
             .clone()
             .oneshot(
                 Request::builder()
                     .method("POST")
                     .uri("/api/pair")
-                    .body(Body::empty())
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        json!({ "url": "http://127.0.0.1:8080" }).to_string(),
+                    ))
                     .unwrap(),
             )
             .await
@@ -1078,17 +1319,25 @@ mod tests {
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 
         let response = app
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/api/pair")
-                    .header(header::AUTHORIZATION, format!("Bearer {TOKEN}"))
-                    .header(header::CONTENT_TYPE, "application/json")
-                    .body(Body::from(
-                        json!({ "url": "http://127.0.0.1:8080" }).to_string(),
-                    ))
-                    .unwrap(),
-            )
+            .router
+            .clone()
+            .oneshot(app.device_json(
+                "POST",
+                "/api/pair",
+                json!({ "url": "http://127.0.0.1:8080" }),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.admin_json(
+                "POST",
+                "/api/pair",
+                json!({ "url": "http://127.0.0.1:8080" }),
+            ))
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
@@ -1109,9 +1358,12 @@ mod tests {
 
     #[tokio::test]
     async fn pairing_rejects_plain_http_for_remote_origins() {
-        let response = app(true)
-            .await
-            .oneshot(post_json(
+        let app = app(true).await;
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.admin_json(
+                "POST",
                 "/api/pair",
                 json!({ "url": "http://proxy.example.com" }),
             ))
@@ -1130,7 +1382,7 @@ mod tests {
         payload: serde_json::Value,
     }
 
-    async fn claim_pairing(app: &Router) -> ClaimedPairing {
+    async fn claim_pairing(app: &TestApp, device_name: &str) -> ClaimedPairing {
         use aes_gcm::{
             aead::{Aead, KeyInit},
             Aes256Gcm, Nonce,
@@ -1138,13 +1390,16 @@ mod tests {
         use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 
         let response = app
+            .router
             .clone()
-            .oneshot(post_json(
+            .oneshot(app.admin_json(
+                "POST",
                 "/api/pair",
                 json!({ "url": "http://127.0.0.1:8080" }),
             ))
             .await
             .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
         let body = response.into_body().collect().await.unwrap().to_bytes();
         let created: serde_json::Value = serde_json::from_slice(&body).unwrap();
         let id = created["id"].as_str().unwrap().to_string();
@@ -1157,11 +1412,18 @@ mod tests {
 
         let proof = crate::pairing::proof(&secret);
         let response = app
+            .router
             .clone()
-            .oneshot(post_json(
-                "/api/pair/claim",
-                json!({ "id": id, "proof": proof }),
-            ))
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/pair/claim")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        json!({ "id": id, "proof": proof, "deviceName": device_name }).to_string(),
+                    ))
+                    .unwrap(),
+            )
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
@@ -1185,36 +1447,131 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn pairing_claim_returns_only_the_proxy_token_once() {
+    async fn pairing_claim_mints_a_usable_device_token_once() {
         let app = app(true).await;
-        let claimed = claim_pairing(&app).await;
+        let claimed = claim_pairing(&app, "Pixel 9").await;
 
         assert_eq!(claimed.payload["version"], 2);
-        assert_eq!(claimed.payload["proxyToken"], TOKEN);
+        let token = claimed.payload["proxyToken"].as_str().unwrap();
+        assert!(token.starts_with("rmg_"));
+        assert_ne!(token, app.device_token);
         assert!(claimed.payload.get("qbitBaseUrl").is_none());
         assert!(claimed.payload.get("authMode").is_none());
         assert!(claimed.payload.get("apiKey").is_none());
         assert!(claimed.payload.get("username").is_none());
         assert!(claimed.payload.get("password").is_none());
 
+        let device = app
+            .state
+            .auth
+            .read()
+            .await
+            .devices
+            .iter()
+            .find(|device| device.name == "Pixel 9")
+            .map(|device| device.id.clone());
+        assert!(device.is_some());
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/health")
+                    .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
         let replay = app
-            .oneshot(post_json(
-                "/api/pair/claim",
-                json!({ "id": claimed.id, "proof": claimed.proof }),
-            ))
+            .router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/pair/claim")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        json!({ "id": claimed.id, "proof": claimed.proof }).to_string(),
+                    ))
+                    .unwrap(),
+            )
             .await
             .unwrap();
         assert_eq!(replay.status(), StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]
+    async fn pairing_claim_never_requires_two_factor() {
+        let app = app(true).await;
+        {
+            let mut data = app.state.auth.write().await;
+            let admin = data.admin.as_mut().unwrap();
+            admin.totp_secret = Some("JBSWY3DPEHPK3PXP".to_string());
+            admin.totp_last_step = Some(1);
+        }
+
+        let claimed = claim_pairing(&app, "Paired phone").await;
+        let token = claimed.payload["proxyToken"].as_str().unwrap();
+        assert!(token.starts_with("rmg_"));
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/health")
+                    .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn revoked_devices_stop_working() {
+        let app = app(true).await;
+        let id = app
+            .state
+            .auth
+            .read()
+            .await
+            .devices
+            .first()
+            .unwrap()
+            .id
+            .clone();
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.admin_delete(&format!("/api/devices/{id}")))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.device_request("/api/health"))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
     async fn unknown_hashes_are_not_found() {
         // A syntactically valid hash that qBittorrent does not know.
-        let response = app(true)
-            .await
-            .oneshot(request(
-                "/api/torrents/3333333333333333333333333333333333333333",
-            ))
+        let app = app(true).await;
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.device_request("/api/torrents/3333333333333333333333333333333333333333"))
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
@@ -1223,9 +1580,10 @@ mod tests {
     #[test]
     fn delete_files_parsing_is_strict() {
         assert!(!parse_delete_files(&QueryMap::new()).unwrap());
-        assert!(!parse_delete_files(&HashMap::from([
-            ("deleteFiles".to_string(), "false".to_string())
-        ]))
+        assert!(!parse_delete_files(&HashMap::from([(
+            "deleteFiles".to_string(),
+            "false".to_string()
+        )]))
         .unwrap());
         assert!(parse_delete_files(&HashMap::from([(
             "deleteFiles".to_string(),

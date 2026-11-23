@@ -29,6 +29,7 @@ import com.google.gson.annotations.SerializedName
 /**
  * @param id Session id from the scanned QR code.
  * @param proof Base64url `SHA-256(code)`. The code itself is not sent, so request logs do not contain the key used for the response.
+ * @param deviceName Optional human-readable name for the device record, up to 64 characters. Defaults to `Paired device` when omitted.
  */
 
 
@@ -40,7 +41,11 @@ data class PairingClaim (
 
     /* Base64url `SHA-256(code)`. The code itself is not sent, so request logs do not contain the key used for the response.  */
     @SerializedName("proof")
-    val proof: kotlin.String
+    val proof: kotlin.String,
+
+    /* Optional human-readable name for the device record, up to 64 characters. Defaults to `Paired device` when omitted.  */
+    @SerializedName("deviceName")
+    val deviceName: kotlin.String? = null
 
 ) {
 

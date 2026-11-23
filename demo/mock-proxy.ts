@@ -3,16 +3,20 @@
  * Tiny stand-in for the Remagnet Proxy API.
  *
  * The demo records the real Remagnet extension, which only talks to the proxy.
- * This server keeps everything in memory, accepts the demo bearer token, and
+ * This server keeps everything in memory, accepts the demo device token, and
  * implements the endpoints the extension uses: health, torrent list/lookup/add/
- * remove and the completed-torrent ZIP route. It never contacts qBittorrent, so
- * the recording needs no network access, no torrent client and no real torrent.
+ * remove, single-use archive tickets and the completed-torrent ZIP route. It
+ * never contacts qBittorrent, so the recording needs no network access, no
+ * torrent client and no real torrent.
  */
 
 const PORT = Number(process.env.MOCK_PROXY_PORT ?? 8099);
 const TOKEN = process.env.MOCK_PROXY_TOKEN ?? "remagnet-demo-token";
 const CATEGORY = "remagnet";
 const TAGS = ["remagnet"];
+const TICKET_TTL_MS = 60_000;
+
+const tickets = new Map<string, { hash: string; expiresAt: number }>();
 
 interface MockTorrent {
   hash: string;
@@ -123,11 +127,20 @@ const json = (value: unknown, status = 200) =>
     headers: { ...cors, "content-type": "application/json" },
   });
 
-const authorized = (request: Request, url: URL): boolean => {
+/** Only the bearer device token authenticates the API routes. */
+const authorized = (request: Request): boolean => {
   const header = request.headers.get("authorization") ?? "";
-  if (header.toLowerCase() === `bearer ${TOKEN}`.toLowerCase()) return true;
-  return url.searchParams.get("token") === TOKEN;
+  return header.toLowerCase() === `bearer ${TOKEN}`.toLowerCase();
 };
+
+/** Consume a single-use ticket bound to one info hash. */
+function claimTicket(value: string | null, hash: string): boolean {
+  if (!value) return false;
+  const ticket = tickets.get(value);
+  if (!ticket) return false;
+  tickets.delete(value);
+  return ticket.hash === hash && ticket.expiresAt > Date.now();
+}
 
 Bun.serve({
   port: PORT,
@@ -144,8 +157,56 @@ Bun.serve({
       return json({ ok: true, service: "remagnet-bridge", version: "0.1.0" });
     }
 
-    if (!authorized(request, url)) {
-      return json({ error: "Missing or invalid bridge token." }, 401);
+    // Mint a single-use ticket so the Chrome download URL never carries the
+    // long-lived device token.
+    const ticketPath = pathname.match(/^\/api\/archive\/([^/]+)\/ticket$/);
+    if (ticketPath && request.method === "POST") {
+      if (!authorized(request)) {
+        return json({ error: "Missing or invalid device token." }, 401);
+      }
+      const hash = decodeURIComponent(ticketPath[1]).toLowerCase();
+      if (!/^([0-9a-f]{40}|[0-9a-f]{64})$/.test(hash)) {
+        return json({ error: "Expected a 40 or 64 character hex info hash." }, 400);
+      }
+      const now = Date.now();
+      for (const [value, ticket] of tickets) {
+        if (ticket.expiresAt <= now) tickets.delete(value);
+      }
+      const ticket = crypto.randomUUID().replace(/-/g, "");
+      tickets.set(ticket, { hash, expiresAt: now + TICKET_TTL_MS });
+      return json({ ticket, expiresIn: 60 });
+    }
+
+    // The proxy's ZIP endpoint. The extension checks completion before calling
+    // it, but keep the guard so a bad click cannot download a partial torrent.
+    // Accept either the bearer device token (Firefox) or a single-use ticket
+    // (Chrome); the body is a minimal empty ZIP because only the download
+    // itself is on camera.
+    const archivePath = pathname.match(/^\/archive\/([^/]+)$/);
+    if (archivePath && request.method === "GET") {
+      const hash = decodeURIComponent(archivePath[1]).toLowerCase();
+      const hasTicket = claimTicket(url.searchParams.get("ticket"), hash);
+      if (!hasTicket && !authorized(request)) {
+        return json({ error: "Authentication required." }, 401);
+      }
+      const torrent = torrents.get(hash);
+      if (!torrent) return json({ error: "Torrent not found in qBittorrent." }, 404);
+      if (torrent.progress < 1) {
+        return json({ error: `${torrent.name} is not complete yet.` }, 409);
+      }
+
+      return new Response(new Uint8Array([0x50, 0x4b, 0x05, 0x06, ...Array(18).fill(0)]), {
+        headers: {
+          ...cors,
+          "content-type": "application/zip",
+          "content-disposition": `attachment; filename="${torrent.name}.zip"`,
+          "cache-control": "no-store",
+        },
+      });
+    }
+
+    if (!authorized(request)) {
+      return json({ error: "Missing or invalid device token." }, 401);
     }
 
     if (pathname === "/api/health") {
@@ -220,27 +281,6 @@ Bun.serve({
       }
     }
 
-    // The proxy's ZIP endpoint. The extension checks completion before calling
-    // it, but keep the guard so a bad click cannot download a partial torrent.
-    // The body is a minimal empty ZIP; only the download itself is on camera.
-    if (pathname.startsWith("/archive/")) {
-      const hash = decodeURIComponent(pathname.slice("/archive/".length)).toLowerCase();
-      const torrent = torrents.get(hash);
-      if (!torrent) return json({ error: "Torrent not found in qBittorrent." }, 404);
-      if (torrent.progress < 1) {
-        return json({ error: `${torrent.name} is not complete yet.` }, 409);
-      }
-
-      return new Response(new Uint8Array([0x50, 0x4b, 0x05, 0x06, ...Array(18).fill(0)]), {
-        headers: {
-          ...cors,
-          "content-type": "application/zip",
-          "content-disposition": `attachment; filename="${torrent.name}.zip"`,
-          "cache-control": "no-store",
-        },
-      });
-    }
-
     return json({ error: "Not found." }, 404);
   },
 });
@@ -262,4 +302,4 @@ setInterval(() => {
   }
 }, 300);
 
-console.log(`mock Remagnet Proxy: http://127.0.0.1:${PORT} (token ${TOKEN})`);
+console.log(`mock Remagnet Proxy: http://127.0.0.1:${PORT} (device token ${TOKEN})`);

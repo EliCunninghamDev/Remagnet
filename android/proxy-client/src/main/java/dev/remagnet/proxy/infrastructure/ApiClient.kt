@@ -72,7 +72,9 @@ class ApiClient(
             val auth: Interceptor? = when (authName) {
                 "bearerAuth" -> HttpBearerAuth("bearer")
 
-                "tokenQuery" -> ApiKeyAuth("query", "token")
+                "sessionCookie" -> ApiKeyAuth("cookie", "remagnet_session")
+
+                "archiveTicket" -> ApiKeyAuth("query", "ticket")
 
                 else -> throw RuntimeException("auth name $authName not found in available auth names")
             }

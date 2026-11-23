@@ -5,6 +5,8 @@ import android.app.NotificationManager
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
+import dev.remagnet.app.client.DeviceLoginClient
+import dev.remagnet.app.client.DeviceLoginResult
 import dev.remagnet.app.client.PairingClaim
 import dev.remagnet.app.client.PairingClient
 import dev.remagnet.app.client.ProxyHealthClient
@@ -58,6 +60,7 @@ data class RemagnetUiState(
     val addSheet: AddSheetState = AddSheetState.Closed,
     val notice: String? = null,
     val pairing: PairingState = PairingState.Idle,
+    val signIn: SignInState = SignInState.Idle,
 )
 
 sealed interface SaveResult {
@@ -80,6 +83,21 @@ sealed interface PairingState {
     data class Paired(val settings: RemagnetSettings) : PairingState
 }
 
+/** Progress while the proxy username and password are exchanged for a token. */
+sealed interface SignInState {
+    data object Idle : SignInState
+
+    data object SigningIn : SignInState
+
+    /** The account needs a TOTP or recovery code before a token is minted. */
+    data class TotpRequired(val message: String) : SignInState
+
+    /** The token was minted and persisted. Carries no password or code. */
+    data class SignedIn(val proxyBaseUrl: String, val deviceName: String) : SignInState
+
+    data class Failed(val message: String) : SignInState
+}
+
 class RemagnetViewModel(
     application: Application,
     private val repository: SettingsRepository,
@@ -87,6 +105,7 @@ class RemagnetViewModel(
     private val clientFactory: (RemagnetSettings) -> TorrentClient,
     private val savedState: SavedStateHandle,
     private val pairingClient: PairingClient = PairingClient(),
+    private val deviceLoginClient: DeviceLoginClient = DeviceLoginClient(),
 ) : AndroidViewModel(application) {
     /**
      * The default factory in [androidx.lifecycle.SavedStateViewModelFactory]
@@ -156,9 +175,29 @@ class RemagnetViewModel(
         val errors = validateSettings(normalized)
         if (errors.isNotEmpty()) return SaveResult.Invalid(errors)
 
+        return persist(normalized) { repository.save(normalized) }
+    }
+
+    /**
+     * Persist connection settings whose token came from the proxy itself, so
+     * the manual-entry minimum length is not applied to an `rmg_…` token.
+     */
+    private suspend fun saveMinted(settings: RemagnetSettings): SaveResult {
+        val normalized = settings.normalized()
+        if (normalized.proxyBaseUrl.isBlank() || normalized.proxyToken.isBlank()) {
+            return SaveResult.Invalid(validateSettings(normalized))
+        }
+
+        return persist(normalized) { repository.saveMinted(normalized) }
+    }
+
+    private suspend fun persist(
+        normalized: RemagnetSettings,
+        write: () -> RemagnetSettings,
+    ): SaveResult {
         val result = withContext(Dispatchers.IO) {
             try {
-                SaveResult.Saved(repository.save(normalized))
+                SaveResult.Saved(write())
             } catch (error: Exception) {
                 SaveResult.Failed(error.message ?: "The settings could not be saved.")
             }
@@ -210,7 +249,7 @@ class RemagnetViewModel(
                         proxyToken = result.settings.proxyToken,
                     ).normalized()
 
-                    when (val saved = save(paired)) {
+                    when (val saved = saveMinted(paired)) {
                         is SaveResult.Saved -> _state.update {
                             it.copy(pairing = PairingState.Paired(saved.settings))
                         }
@@ -234,6 +273,127 @@ class RemagnetViewModel(
 
     fun clearPairing() {
         _state.update { it.copy(pairing = PairingState.Idle) }
+    }
+
+    // ---- Direct proxy sign-in ---------------------------------------------
+
+    /**
+     * Exchange the administrator username and password for a per-device token.
+     *
+     * Only the returned `rmg_…` token is persisted; the password and any TOTP
+     * code stay in the form and are cleared by the screen when this succeeds.
+     */
+    fun signIn(
+        proxyBaseUrl: String,
+        username: String,
+        password: String,
+        totpCode: String? = null,
+        deviceName: String? = null,
+    ) {
+        if (_state.value.signIn == SignInState.SigningIn) return
+        _state.update { it.copy(signIn = SignInState.SigningIn) }
+
+        viewModelScope.launch {
+            when (
+                val result = deviceLoginClient.signIn(
+                    proxyBaseUrl = proxyBaseUrl,
+                    username = username,
+                    password = password,
+                    totpCode = totpCode,
+                    deviceName = deviceName,
+                )
+            ) {
+                is DeviceLoginResult.TotpRequired -> _state.update {
+                    it.copy(signIn = SignInState.TotpRequired(result.message))
+                }
+
+                is DeviceLoginResult.Failed -> _state.update {
+                    it.copy(signIn = SignInState.Failed(result.message))
+                }
+
+                is DeviceLoginResult.SignedIn -> {
+                    val settings = RemagnetSettings(
+                        proxyBaseUrl = result.proxyBaseUrl,
+                        proxyToken = result.token,
+                    )
+                    when (val saved = saveMinted(settings)) {
+                        is SaveResult.Saved -> _state.update {
+                            it.copy(
+                                signIn = SignInState.SignedIn(
+                                    proxyBaseUrl = saved.settings.proxyBaseUrl,
+                                    deviceName = result.deviceName,
+                                ),
+                            )
+                        }
+
+                        is SaveResult.Invalid -> _state.update {
+                            it.copy(
+                                signIn = SignInState.Failed(
+                                    saved.errors.joinToString(" ") { error -> error.message },
+                                ),
+                            )
+                        }
+
+                        is SaveResult.Failed -> _state.update {
+                            it.copy(signIn = SignInState.Failed(saved.message))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fun clearSignInState() {
+        _state.update { it.copy(signIn = SignInState.Idle) }
+    }
+
+    /**
+     * Forget the device token and stop every request. The proxy URL stays so
+     * the sign-in form is already pointed at the right server.
+     */
+    fun disconnect() {
+        val current = _state.value
+        stopPolling()
+        proxyCheckId += 1
+        listRequestId += 1
+
+        val disconnected = RemagnetSettings(
+            proxyBaseUrl = current.settings.proxyBaseUrl,
+            proxyToken = "",
+        ).normalized()
+
+        _state.update {
+            it.copy(
+                settings = disconnected,
+                proxyStatus = null,
+                checkingProxy = false,
+                torrents = emptyList(),
+                torrentsLoading = false,
+                torrentsError = null,
+                confirmingHash = null,
+                removingHash = null,
+                actionError = null,
+                pairing = PairingState.Idle,
+                signIn = SignInState.Idle,
+                notice = "Disconnected from the Remagnet Proxy.",
+            )
+        }
+
+        viewModelScope.launch {
+            val error = withContext(Dispatchers.IO) {
+                try {
+                    repository.saveDisconnected(disconnected.proxyBaseUrl)
+                    null
+                } catch (error: Exception) {
+                    error.message ?: "The disconnect could not be saved."
+                }
+            }
+            if (error != null) {
+                _state.update {
+                    it.copy(notice = "Disconnected, but the change could not be saved: $error")
+                }
+            }
+        }
     }
 
     // ---- Torrent list -----------------------------------------------------

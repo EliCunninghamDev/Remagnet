@@ -53,18 +53,30 @@ export function parsePairingLink(text: string): PairingLink {
  * The proxy receives only `SHA-256(code)`, and the response is encrypted with a
  * key derived from the code and session id. A proxy access log therefore cannot
  * recover the qBittorrent credentials or the Remagnet Proxy token.
+ *
+ * `deviceName` labels the new device record (for example `Firefox`). Pairing
+ * never asks for the administrator's second factor: possession of the link is
+ * the proof of presence.
  */
-export async function claimPairing(link: PairingLink): Promise<PairedSettings> {
+export async function claimPairing(
+  link: PairingLink,
+  deviceName?: string,
+): Promise<PairedSettings> {
   const secret = decode(link.code);
   if (secret.length !== 32) {
     throw new Error("The pairing code is malformed. Show a new code and copy it again.");
   }
 
+  const trimmedDeviceName = deviceName?.trim();
   const proof = encode(new Uint8Array(await crypto.subtle.digest("SHA-256", buffer(secret))));
   const response = await fetch(`${link.baseUrl}/api/pair/claim`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id: link.id, proof }),
+    body: JSON.stringify({
+      id: link.id,
+      proof,
+      ...(trimmedDeviceName ? { deviceName: trimmedDeviceName } : {}),
+    }),
     cache: "no-store",
     signal: AbortSignal.timeout(15_000),
   });

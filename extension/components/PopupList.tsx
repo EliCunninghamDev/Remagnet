@@ -112,8 +112,8 @@ export default function PopupList(props: PopupListProps) {
             <h2>Get started</h2>
             <p class="muted">
               Remagnet connects through your Remagnet Proxy, which talks to your torrent client for
-              you. Pair this extension with a link from your proxy page, or enter the proxy URL and
-              token in settings.
+              you. Sign in with your proxy username and password, or paste a pairing link from your
+              proxy page, in settings. Pairing links connect without a password or 2FA code.
             </p>
             <div class="actions">
               <button type="button" onClick={props.onOpenSettings}>

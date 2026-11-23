@@ -195,10 +195,10 @@ export interface paths {
          *     claims it from Settings. The code is single-use and is never stored on
          *     disk; restarting the proxy invalidates outstanding sessions.
          *
-         *     Minting requires the proxy token. Claiming the code does not, because the
-         *     device or extension claiming it has not been configured yet. Pairing
-         *     carries the proxy token, so the origin must use HTTPS unless it is
-         *     loopback or the Android emulator host (`10.0.2.2`).
+         *     Minting requires an administrator session. Claiming the code does not,
+         *     because the device or extension claiming it has not been configured yet.
+         *     Pairing carries a newly minted device token, so the origin must use
+         *     HTTPS unless it is loopback or the Android emulator host (`10.0.2.2`).
          */
         post: operations["createPairing"];
         delete?: never;
@@ -241,15 +241,298 @@ export interface paths {
          * Claim a pairing code and receive the encrypted proxy token
          * @description The Android app, or the extension's pairing field, sends the session id
          *     and `SHA-256(code)`, not the code itself. On success the proxy consumes
-         *     the session and returns `{ version: 2, proxyToken }` encrypted with
-         *     AES-256-GCM. Both sides derive the key from the scanned code and the
-         *     session id, so a logged request or response is useless without the code.
-         *     qBittorrent credentials are never included.
+         *     the session, mints a fresh per-device token and returns
+         *     `{ version: 2, proxyToken }` encrypted with AES-256-GCM. Both sides
+         *     derive the key from the scanned code and the session id, so a logged
+         *     request or response is useless without the code. qBittorrent credentials
+         *     are never included.
+         *
+         *     Pairing is a second enrolment path and never asks for the administrator's
+         *     second factor: the scanned code is the proof of presence. When
+         *     `deviceName` is omitted the device is recorded as `Paired device`; it can
+         *     be listed and revoked through `/api/devices`.
          *
          *     The plaintext is a JSON object described by `PairingPayload`. Invalid,
          *     expired, or already-claimed codes return `400` and no payload.
          */
         post: operations["claimPairing"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read setup and sign-in state
+         * @description Public bootstrap probe used by the proxy page, the extension and the
+         *     Android app. Reports whether an administrator account exists, whether the
+         *     deployment requires a setup code, whether the request already carries a
+         *     valid session, and whether two-factor authentication is enabled.
+         */
+        get: operations["getAuthStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/setup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create the administrator account
+         * @description First-run enrolment. Fails with `409` once an administrator exists.
+         *     When the deployment sets a setup code, `setupCode` must match it or the
+         *     request returns `403`. The username is trimmed and must contain 1 to 64
+         *     characters; the password must contain at least 12 characters. On success
+         *     the account is saved, a session cookie is set and the response body is
+         *     the same `AuthSession` returned by sign-in.
+         */
+        post: operations["setupAdmin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sign in to the administrator account
+         * @description Verifies the username and password, then the second factor when enabled.
+         *     When two-factor authentication is enabled and `totpCode` is missing or
+         *     empty, the response is `401` with `code: "totp_required"` so the client
+         *     can ask for a code. A supplied code may be a TOTP code or an unused
+         *     recovery code; recovery codes are consumed once. Repeated failures from
+         *     one address are throttled with `429`. On success a session cookie is set.
+         */
+        post: operations["loginAdmin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sign out the current administrator session
+         * @description Revokes the session cookie and clears it in the response. Requires an
+         *     administrator session; a device token is not enough.
+         */
+        post: operations["logoutAdmin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Change the administrator password
+         * @description Requires the current password and a new password of at least 12
+         *     characters. Every existing session, including the caller's, is revoked;
+         *     the response sets a fresh session cookie for the current browser.
+         */
+        post: operations["changePassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/2fa/setup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Begin two-factor enrolment
+         * @description Generates a new TOTP secret, stores it as pending and returns the secret,
+         *     its `otpauth://` URI and an inline SVG QR code. The secret does not take
+         *     effect until `POST /api/auth/2fa/enable` verifies a code.
+         */
+        post: operations["setupTotp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/2fa/enable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm two-factor enrolment
+         * @description Verifies a code against the pending secret, stores the secret on the
+         *     administrator account and returns eight single-use recovery codes. The
+         *     codes are shown only in this response. The current TOTP step is consumed,
+         *     so the same code cannot immediately be used to sign in.
+         */
+        post: operations["enableTotp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/2fa/disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Disable two-factor authentication
+         * @description Requires the administrator password and, when two-factor authentication is
+         *     enabled, a valid TOTP or recovery code. Clears the secret, the replay
+         *     marker and every remaining recovery code.
+         */
+        post: operations["disableTotp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/device": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Exchange credentials for a per-device token
+         * @description Public alternative to pairing for clients that can prompt for the
+         *     administrator username and password. Mints a `rmg_…` token scoped to the
+         *     client API and returns it once with the new device record. When two-factor
+         *     authentication is enabled, `totpCode` is required and a missing code
+         *     returns `401` with `code: "totp_required"`. Failed attempts are throttled
+         *     with `429`.
+         *
+         *     The token can never reach administrative endpoints.
+         */
+        post: operations["loginDevice"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/devices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List registered devices
+         * @description Returns every device token record. The raw token is never returned; only
+         *     its id, name and timestamps are available. Requires an administrator
+         *     session.
+         */
+        get: operations["listDevices"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/devices/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke a device token
+         * @description Deletes the device record, which immediately invalidates its token.
+         *     Requires an administrator session. An unknown id returns `404`.
+         */
+        delete: operations["revokeDevice"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/archive/{hash}/ticket": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mint a single-use archive download ticket
+         * @description Issues a 60-second, single-use ticket bound to this info hash. Devices
+         *     use it instead of putting their long-lived token in a download URL, where
+         *     it would leak into history and logs. The caller needs a device token or
+         *     an administrator session; the ticket itself then authorizes exactly one
+         *     `GET /archive/{hash}`.
+         */
+        post: operations["createArchiveTicket"];
         delete?: never;
         options?: never;
         head?: never;
@@ -293,6 +576,13 @@ export interface components {
         Error: {
             /** @description Human-readable message safe to display to the user. */
             error: string;
+            /**
+             * @description Optional machine-readable reason. `totp_required` appears on `401`
+             *     responses from sign-in and device login when a two-factor code is
+             *     needed.
+             * @example totp_required
+             */
+            code?: string;
         };
         /**
          * @description Returned by qBittorrent-backed endpoints before the proxy has credentials.
@@ -579,6 +869,12 @@ export interface components {
              *     logs do not contain the key used for the response.
              */
             proof: string;
+            /**
+             * @description Optional human-readable name for the device record, up to 64
+             *     characters. Defaults to `Paired device` when omitted.
+             * @example Pixel 9
+             */
+            deviceName?: string;
         };
         /**
          * @description AES-256-GCM output. The key is
@@ -601,12 +897,138 @@ export interface components {
              * @constant
              */
             version: 2;
-            /** @description The proxy's `BRIDGE_TOKEN`, so the client can call the torrent API. */
+            /**
+             * @description A freshly minted per-device token (`rmg_…`) scoped to the client
+             *     API, so the client can call the torrent and archive endpoints.
+             */
             proxyToken: string;
+        };
+        /** @description Public snapshot of the proxy's authentication state. */
+        AuthStatus: {
+            /** @description Whether an administrator account exists. */
+            initialized: boolean;
+            /** @description Whether first-run setup requires a deployment setup code. */
+            requiresSetupCode: boolean;
+            /** @description Whether the request carries a valid session for `username`. */
+            authenticated: boolean;
+            /** @description Administrator username, or null before setup. */
+            username: string | null;
+            /** @description Whether two-factor authentication is enabled. */
+            totpEnabled: boolean;
+        };
+        SetupAdminRequest: {
+            /** @description Administrator username; surrounding whitespace is trimmed. */
+            username: string;
+            /** @description Password, at least 12 characters. */
+            password: string;
+            /**
+             * @description Deployment setup code. Required only when the proxy was started with
+             *     one configured.
+             */
+            setupCode?: string;
+        };
+        LoginRequest: {
+            username: string;
+            password: string;
+            /**
+             * @description TOTP code or unused recovery code. Required when two-factor
+             *     authentication is enabled.
+             */
+            totpCode?: string;
+        };
+        ChangePasswordRequest: {
+            currentPassword: string;
+            /** @description New password, at least 12 characters. */
+            newPassword: string;
+        };
+        /** @description The signed-in administrator. The session travels in a cookie. */
+        AuthSession: {
+            username: string;
+            /** @description Whether two-factor authentication is enabled for the account. */
+            totpEnabled: boolean;
+        };
+        TotpSetup: {
+            /** @description Base32 TOTP secret for manual entry into an authenticator. */
+            secret: string;
+            /** @description `otpauth://totp/...` URI for authenticator apps. */
+            otpauthUri: string;
+            /** @description Inline SVG QR code for `otpauthUri`. */
+            svg: string;
+        };
+        TotpCodeRequest: {
+            /** @description TOTP code from the authenticator app. */
+            code: string;
+        };
+        TotpEnabled: {
+            /**
+             * @description Eight single-use recovery codes. Shown only once; each replaces a
+             *     TOTP code at sign-in and is then consumed.
+             */
+            recoveryCodes: string[];
+        };
+        DisableTotpRequest: {
+            /** @description Current administrator password. */
+            password: string;
+            /**
+             * @description TOTP or recovery code. Required when two-factor authentication is
+             *     currently enabled.
+             */
+            code?: string;
+        };
+        /** @description A device token record without the token itself. */
+        PublicDevice: {
+            /** @description Stable device id used to revoke the token. */
+            id: string;
+            /**
+             * @description Human-readable device name.
+             * @example Pixel 9
+             */
+            name: string;
+            /**
+             * Format: int64
+             * @description Unix timestamp in seconds when the token was minted.
+             */
+            createdAt: number;
+            /**
+             * Format: int64
+             * @description Unix timestamp in seconds of the last authenticated request.
+             */
+            lastUsedAt: number | null;
+        };
+        DeviceList: {
+            devices: components["schemas"]["PublicDevice"][];
+        };
+        DeviceLoginRequest: {
+            username: string;
+            password: string;
+            /** @description TOTP or recovery code when two-factor authentication is enabled. */
+            totpCode?: string;
+            /**
+             * @description Optional name for the new device record.
+             * @example Pixel 9
+             */
+            deviceName?: string;
+        };
+        DeviceLoginResponse: {
+            /**
+             * @description New per-device token (`rmg_…`). Shown only once; store it securely.
+             * @example rmg_7Q2r…
+             */
+            token: string;
+            device: components["schemas"]["PublicDevice"];
+        };
+        ArchiveTicket: {
+            /** @description Single-use ticket for `GET /archive/{hash}?ticket=…`. */
+            ticket: string;
+            /**
+             * @description Seconds until the ticket expires.
+             * @example 60
+             */
+            expiresIn: number;
         };
     };
     responses: {
-        /** @description Missing or invalid proxy token. */
+        /** @description Missing or invalid credentials. */
         Unauthorized: {
             headers: {
                 [name: string]: unknown;
@@ -614,7 +1036,39 @@ export interface components {
             content: {
                 /**
                  * @example {
-                 *       "error": "Missing or invalid bridge token."
+                 *       "error": "Authentication required."
+                 *     }
+                 */
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /**
+         * @description Authenticated, but not allowed to perform this action. Administrative
+         *     routes return this for a valid device token; setup returns it for a
+         *     wrong setup code.
+         */
+        Forbidden: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "error": "Admin sign-in is required for this action."
+                 *     }
+                 */
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description Too many sign-in attempts from this address; retry later. */
+        TooManyRequests: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "error": "Too many sign-in attempts. Try again in 60 seconds."
                  *     }
                  */
                 "application/json": components["schemas"]["Error"];
@@ -678,10 +1132,11 @@ export interface components {
     };
     parameters: {
         /**
-         * @description Proxy token as a query parameter. Alternative to
-         *     `Authorization: Bearer <token>`; either one is sufficient.
+         * @description Single-use download ticket from `POST /api/archive/{hash}/ticket`.
+         *     Alternative to a device token or administrator session; the ticket is
+         *     consumed by the download and expires after 60 seconds.
          */
-        TokenQuery: string;
+        TicketQuery: string;
         /**
          * @description Torrent info hash. Accepts a 40-character BitTorrent v1 hash or a
          *     64-character v2 hash, case-insensitively.
@@ -746,13 +1201,7 @@ export interface operations {
     };
     checkQbitConnection: {
         parameters: {
-            query?: {
-                /**
-                 * @description Proxy token as a query parameter. Alternative to
-                 *     `Authorization: Bearer <token>`; either one is sufficient.
-                 */
-                token?: components["parameters"]["TokenQuery"];
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: never;
@@ -790,13 +1239,7 @@ export interface operations {
     };
     getConfig: {
         parameters: {
-            query?: {
-                /**
-                 * @description Proxy token as a query parameter. Alternative to
-                 *     `Authorization: Bearer <token>`; either one is sufficient.
-                 */
-                token?: components["parameters"]["TokenQuery"];
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: never;
@@ -829,13 +1272,7 @@ export interface operations {
     };
     updateConfig: {
         parameters: {
-            query?: {
-                /**
-                 * @description Proxy token as a query parameter. Alternative to
-                 *     `Authorization: Bearer <token>`; either one is sufficient.
-                 */
-                token?: components["parameters"]["TokenQuery"];
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: never;
@@ -862,13 +1299,7 @@ export interface operations {
     };
     listTorrents: {
         parameters: {
-            query?: {
-                /**
-                 * @description Proxy token as a query parameter. Alternative to
-                 *     `Authorization: Bearer <token>`; either one is sufficient.
-                 */
-                token?: components["parameters"]["TokenQuery"];
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: never;
@@ -891,13 +1322,7 @@ export interface operations {
     };
     addTorrents: {
         parameters: {
-            query?: {
-                /**
-                 * @description Proxy token as a query parameter. Alternative to
-                 *     `Authorization: Bearer <token>`; either one is sufficient.
-                 */
-                token?: components["parameters"]["TokenQuery"];
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: never;
@@ -946,13 +1371,7 @@ export interface operations {
     };
     getTorrent: {
         parameters: {
-            query?: {
-                /**
-                 * @description Proxy token as a query parameter. Alternative to
-                 *     `Authorization: Bearer <token>`; either one is sufficient.
-                 */
-                token?: components["parameters"]["TokenQuery"];
-            };
+            query?: never;
             header?: never;
             path: {
                 /**
@@ -987,11 +1406,6 @@ export interface operations {
             query?: {
                 /** @description Also delete the downloaded files. */
                 deleteFiles?: boolean;
-                /**
-                 * @description Proxy token as a query parameter. Alternative to
-                 *     `Authorization: Bearer <token>`; either one is sufficient.
-                 */
-                token?: components["parameters"]["TokenQuery"];
             };
             header?: never;
             path: {
@@ -1022,13 +1436,7 @@ export interface operations {
     };
     createPairing: {
         parameters: {
-            query?: {
-                /**
-                 * @description Proxy token as a query parameter. Alternative to
-                 *     `Authorization: Bearer <token>`; either one is sufficient.
-                 */
-                token?: components["parameters"]["TokenQuery"];
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: never;
@@ -1074,13 +1482,7 @@ export interface operations {
     };
     revokePairing: {
         parameters: {
-            query?: {
-                /**
-                 * @description Proxy token as a query parameter. Alternative to
-                 *     `Authorization: Bearer <token>`; either one is sufficient.
-                 */
-                token?: components["parameters"]["TokenQuery"];
-            };
+            query?: never;
             header?: never;
             path: {
                 id: string;
@@ -1138,14 +1540,424 @@ export interface operations {
             };
         };
     };
+    getAuthStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current authentication state. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "initialized": true,
+                     *       "requiresSetupCode": false,
+                     *       "authenticated": false,
+                     *       "username": "admin",
+                     *       "totpEnabled": false
+                     *     }
+                     */
+                    "application/json": components["schemas"]["AuthStatus"];
+                };
+            };
+        };
+    };
+    setupAdmin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetupAdminRequest"];
+            };
+        };
+        responses: {
+            /** @description The administrator account was created and signed in. */
+            201: {
+                headers: {
+                    /**
+                     * @description `remagnet_session=…; HttpOnly; SameSite=Strict; Path=/`.
+                     *     `Secure` is added when the request arrived over HTTPS.
+                     */
+                    "Set-Cookie"?: string;
+                    "Cache-Control"?: "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthSession"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            403: components["responses"]["Forbidden"];
+            /** @description The proxy is already set up. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "The proxy is already set up. Sign in instead."
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    loginAdmin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoginRequest"];
+            };
+        };
+        responses: {
+            /** @description Signed in; the session cookie identifies the browser. */
+            200: {
+                headers: {
+                    /**
+                     * @description `remagnet_session=…; HttpOnly; SameSite=Strict; Path=/`.
+                     *     `Secure` is added when the request arrived over HTTPS.
+                     */
+                    "Set-Cookie"?: string;
+                    "Cache-Control"?: "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthSession"];
+                };
+            };
+            /**
+             * @description Bad credentials, a rejected two-factor code, or a missing code when
+             *     two-factor authentication is enabled (`code: "totp_required"`).
+             */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    logoutAdmin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The session was revoked and the cookie cleared. */
+            204: {
+                headers: {
+                    /** @description Expired `remagnet_session` cookie. */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    changePassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangePasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description The password was changed and a fresh session cookie was set. */
+            204: {
+                headers: {
+                    /** @description New `remagnet_session` cookie. */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            /** @description The current password is incorrect. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "The current password is incorrect."
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    setupTotp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A pending secret and its QR code. */
+            200: {
+                headers: {
+                    "Cache-Control"?: "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TotpSetup"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    enableTotp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TotpCodeRequest"];
+            };
+        };
+        responses: {
+            /** @description Two-factor authentication is enabled. */
+            200: {
+                headers: {
+                    "Cache-Control"?: "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TotpEnabled"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    disableTotp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DisableTotpRequest"];
+            };
+        };
+        responses: {
+            /** @description Two-factor authentication is disabled. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Two-factor authentication is enabled and no code was sent. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Enter a two-factor or recovery code."
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description The password is incorrect. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "The password is incorrect."
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    loginDevice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeviceLoginRequest"];
+            };
+        };
+        responses: {
+            /** @description A new device token and its public device record. */
+            200: {
+                headers: {
+                    "Cache-Control"?: "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceLoginResponse"];
+                };
+            };
+            /**
+             * @description Bad credentials, a rejected two-factor code, or a missing code when
+             *     two-factor authentication is enabled (`code: "totp_required"`).
+             */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    listDevices: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Registered devices, oldest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceList"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    revokeDevice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Device id returned by `GET /api/devices`. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The device token was revoked. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description No device has that id. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Device not found."
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    createArchiveTicket: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description Torrent info hash. Accepts a 40-character BitTorrent v1 hash or a
+                 *     64-character v2 hash, case-insensitively.
+                 * @example dc555f7a26f1acae38a18edc04e53588ade33051
+                 */
+                hash: components["parameters"]["Hash"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A ticket for one archive download. */
+            200: {
+                headers: {
+                    "Cache-Control"?: "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArchiveTicket"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+        };
+    };
     downloadArchive: {
         parameters: {
             query?: {
                 /**
-                 * @description Proxy token as a query parameter. Alternative to
-                 *     `Authorization: Bearer <token>`; either one is sufficient.
+                 * @description Single-use download ticket from `POST /api/archive/{hash}/ticket`.
+                 *     Alternative to a device token or administrator session; the ticket is
+                 *     consumed by the download and expires after 60 seconds.
                  */
-                token?: components["parameters"]["TokenQuery"];
+                ticket?: components["parameters"]["TicketQuery"];
             };
             header?: never;
             path: {

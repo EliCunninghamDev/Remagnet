@@ -5,35 +5,82 @@ Android client and qBittorrent. It adds, lists, filters and removes torrents
 through qBittorrent's Web API and turns completed torrents into ZIP streams. It
 talks to qBittorrent over the Docker network and streams each file from the Web
 API, so it does not need the downloads volume mounted and does not store
-archives. Clients only ever hold the proxy URL and token; qBittorrent
-credentials stay on this service.
+archives. Clients only ever hold a per-device proxy token; qBittorrent
+credentials and the administrator password stay on this service.
 
 The directory was formerly `services/archive-bridge`. The crate, binary, Docker
-image, container and `BRIDGE_TOKEN` environment variable keep the historical
-`remagnet-bridge` name so existing deployments and Caddy upstreams continue to
-work unchanged.
+image and container keep the historical `remagnet-bridge` name so existing
+deployments and Caddy upstreams continue to work unchanged.
+
+## Authentication
+
+The proxy has one administrator account and any number of device tokens.
+
+- **Administrator session.** First boot asks for an administrator username and
+  password; the password is hashed with Argon2id. Sign-in sets
+  `remagnet_session`, an `HttpOnly; SameSite=Strict` cookie that is `Secure`
+  when the request arrived over HTTPS. Sessions live in memory for seven days
+  and are revoked on sign-out or password change. Administrative routes
+  (`/api/config`, `/api/pair*`, `/api/devices*` and the account routes) accept
+  only this session. Repeated sign-in failures are rate limited.
+- **Two-factor authentication (optional).** The proxy page can enrol a TOTP
+  authenticator and shows eight single-use recovery codes exactly once. Sign-in
+  asks for a 6-digit code or a recovery code only when 2FA is enabled.
+- **Per-device tokens.** Direct sign-in from the extension or Android app
+  (`POST /api/auth/device` with the admin username/password and, when enabled, a
+  TOTP or recovery code) and pairing both mint an `rmg_…` token. Only its
+  SHA-256 hash is stored, alongside a device name and timestamps; the raw token
+  is shown once. Device tokens reach the client endpoints (`/api/health`,
+  `/api/torrents*`, the archive ticket and the archive download) and cannot
+  reach administrative routes. Revoking a device in the proxy page deletes its
+  record and immediately invalidates the token.
+- **Pairing without 2FA.** `POST /api/pair` requires an administrator session
+  and returns a 60-second, single-use `remagnet://pair` link and QR code.
+  Claiming it needs no password or second factor: possession of the code is the
+  proof of presence. The response carries a newly minted device token encrypted
+  with AES-256-GCM under a key derived from the code and session id, so request
+  logs are not enough to recover it. qBittorrent credentials are never part of
+  the payload.
+- **Archive tickets.** `POST /api/archive/{hash}/ticket` issues a 60-second,
+  single-use ticket bound to one info hash. Browsers that cannot attach an
+  `Authorization` header use `GET /archive/{hash}?ticket=…`; the ticket is
+  consumed by the download, so the long-lived device token never appears in a
+  URL, history entry or download log.
 
 ## Endpoints
 
-| Endpoint                           | Auth   | Purpose                                                     |
-| ---------------------------------- | ------ | ----------------------------------------------------------- |
-| `GET /`                            | none   | Minimal config page (the page itself is static)             |
-| `GET /assets/departure-mono.woff2` | none   | Wordmark font used by the config page                       |
-| `GET /healthz`                     | none   | Liveness probe                                              |
-| `GET /api/health`                  | bearer | Proxy capabilities, defaults and qBittorrent versions       |
-| `GET /api/config`                  | bearer | Read non-secret settings                                    |
-| `PUT /api/config`                  | bearer | Update the qBittorrent URL, credentials and magnet defaults |
-| `GET /api/torrents`                | bearer | List torrents owned by Remagnet                             |
-| `POST /api/torrents`               | bearer | Add magnets with the configured category/tags               |
-| `GET /api/torrents/:hash`          | bearer | Read one torrent, unfiltered                                |
-| `DELETE /api/torrents/:hash`       | bearer | Remove a torrent owned by Remagnet                          |
-| `POST /api/pair`                   | bearer | Mint a short-lived mobile pairing code                      |
-| `DELETE /api/pair/:id`             | bearer | Revoke a pairing code                                       |
-| `POST /api/pair/claim`             | none   | Claim a code; returns encrypted settings                    |
-| `GET /archive/:hash`               | bearer | Stream a completed torrent as a ZIP                         |
+| Endpoint                           | Auth             | Purpose                                                     |
+| ---------------------------------- | ---------------- | ----------------------------------------------------------- |
+| `GET /`                            | none             | Proxy page: setup, sign-in, settings, pairing and devices   |
+| `GET /assets/departure-mono.woff2` | none             | Wordmark font used by the proxy page                        |
+| `GET /healthz`                     | none             | Liveness probe                                              |
+| `GET /api/auth/status`             | none             | Setup and sign-in state                                     |
+| `POST /api/auth/setup`             | none             | Create the administrator account                            |
+| `POST /api/auth/login`             | none             | Sign in (password plus optional TOTP/recovery code)         |
+| `POST /api/auth/logout`            | session          | Revoke the current administrator session                    |
+| `POST /api/auth/password`          | session          | Change the administrator password                           |
+| `POST /api/auth/2fa/setup`         | session          | Start TOTP enrolment                                        |
+| `POST /api/auth/2fa/enable`        | session          | Confirm TOTP and return recovery codes                      |
+| `POST /api/auth/2fa/disable`       | session          | Disable TOTP                                                |
+| `POST /api/auth/device`            | none             | Exchange credentials for a per-device token                 |
+| `GET /api/devices`                 | session          | List device records                                         |
+| `DELETE /api/devices/:id`          | session          | Revoke a device token                                       |
+| `GET /api/health`                  | device           | Proxy capabilities, defaults and qBittorrent versions       |
+| `GET /api/config`                  | session          | Read non-secret settings                                    |
+| `PUT /api/config`                  | session          | Update the qBittorrent URL, credentials and magnet defaults |
+| `GET /api/torrents`                | device           | List torrents owned by Remagnet                             |
+| `POST /api/torrents`               | device           | Add magnets with the configured category/tags               |
+| `GET /api/torrents/:hash`          | device           | Read one torrent, unfiltered                                |
+| `DELETE /api/torrents/:hash`       | device           | Remove a torrent owned by Remagnet                          |
+| `POST /api/pair`                   | session          | Mint a short-lived pairing code and QR                      |
+| `DELETE /api/pair/:id`             | session          | Revoke a pairing code                                       |
+| `POST /api/pair/claim`             | none             | Claim a code; returns an encrypted device token             |
+| `POST /api/archive/:hash/ticket`   | device           | Mint a single-use archive download ticket                   |
+| `GET /archive/:hash`               | device or ticket | Stream a completed torrent as a ZIP                         |
 
-`Authorization: Bearer <BRIDGE_TOKEN>` is preferred. `?token=` is accepted as a
-fallback for browsers whose download API cannot attach headers.
+`Authorization: Bearer rmg_…` is the normal device credential. The archive
+route additionally accepts `?ticket=…`, and an administrator session cookie is
+accepted anywhere a device token is, including the archive download.
 
 The proxy is the only component that talks to qBittorrent. It owns the Web UI
 credentials and the category/tags applied to Remagnet magnets, exposes neutral
@@ -42,19 +89,7 @@ Android client. `GET /api/torrents` filters by the configured category/tags;
 `POST /api/torrents` always applies them and ignores any client-supplied values;
 `DELETE /api/torrents/:hash` refuses torrents outside that filter.
 
-Pairing (v2) is how the proxy hands a device the proxy URL and token without
-embedding them in a QR image. `POST /api/pair` requires the bridge token and
-returns an id, a 32-byte code, the `remagnet://pair` link, and an inline SVG QR
-code. The code lives in memory for 60 seconds and is single-use. The Android app
-sends the session id and `SHA-256(code)`; the extension can paste the same link
-into its **Remagnet Proxy → Pairing code** field. The proxy returns
-`{ version: 2, proxyToken }` encrypted with AES-256-GCM under a key derived from
-the code and id, so a logged request or response cannot be decrypted without the
-code. qBittorrent credentials and magnet defaults are never part of the pairing
-payload: the device uses the proxy token against `/api/torrents` for everything
-else.
-
-The config page's **Pair a device** panel mints and rotates the code, renders the
+The proxy page's **Pair a device** panel mints and rotates the code, renders the
 QR, and revokes it when hidden. Minting also accepts the origin to encode:
 
 ```json
@@ -79,8 +114,10 @@ contract, regenerate both and commit the result:
 bun run api:generate
 ```
 
-The config page never receives saved secrets back. Leave an API key or password
-field blank to keep the saved value; use the matching checkbox to clear it.
+The proxy page never receives saved secrets back. Leave an API key or password
+field blank to keep the saved value; use the matching checkbox to clear it. The
+same page creates the administrator account, manages TOTP and recovery codes,
+lists and revokes devices, and shows the pairing QR and link.
 
 The page uses the same Remagnet wordmark as the extension. Departure Mono is
 bundled at `src/departure-mono.woff2` under the SIL OFL 1.1
@@ -93,33 +130,41 @@ Environment variables:
 
 | Variable                          | Default               | Notes                                                           |
 | --------------------------------- | --------------------- | --------------------------------------------------------------- |
-| `BRIDGE_TOKEN`                    | required              | At least 16 characters. Generate with `openssl rand -hex 32`.   |
+| `SETUP_CODE`                      | empty                 | Optional one-time code required to create the admin account.    |
 | `QBIT_BASE_URL`                   | `http://gluetun:8080` | Bootstrap value for the first boot.                             |
 | `QBIT_API_KEY`                    | empty                 | qBittorrent 5.2+ API key.                                       |
 | `QBIT_USERNAME` / `QBIT_PASSWORD` | empty                 | Fallback cookie login.                                          |
 | `REMAGNET_CATEGORY`               | `remagnet`            | Category applied to added magnets and used for listing.         |
 | `REMAGNET_TAGS`                   | `remagnet`            | Comma-separated tags applied to magnets and used for filtering. |
-| `DATA_DIR`                        | `/data`               | `config.json` lives here.                                       |
+| `DATA_DIR`                        | `/data`               | `config.json` and `auth.json` live here.                        |
 | `BIND_ADDR`                       | `0.0.0.0:8080`        | HTTP listen address.                                            |
 
+Set `SETUP_CODE` only while the first boot is reachable from an untrusted
+network: it prevents a stranger from claiming the administrator account. Remove
+it once the account exists; it is ignored after that.
+
 The first boot writes `config.json` (mode `0600`) from the environment.
-Subsequent changes come from the config page and survive restarts. `BRIDGE_TOKEN`
-stays in the environment and is never written to `config.json`. qBittorrent
+Subsequent changes come from the proxy page and survive restarts. Account data
+goes to `auth.json` (also mode `0600`) when the administrator account or the
+first device is created: an Argon2id password hash, an optional TOTP secret and
+recovery-code hashes, and SHA-256 hashes of device tokens. Raw passwords, TOTP
+codes, recovery codes and device tokens are never written there. qBittorrent
 credentials are optional at boot: the proxy starts with an unconfigured client
 and answers `/api/health`, `/api/torrents*` and `/archive/*` with `503` until
-credentials are saved. Pressing **Save** on the config page activates the
+credentials are saved. Pressing **Save** on the proxy page activates the
 qBittorrent client without a restart.
 
 ## Local development
 
 ```bash
 cp .env.example .env
-# edit .env
+# edit .env, optionally setting SETUP_CODE and qBittorrent bootstrap values
 set -a && . ./.env && set +a
 cargo run
 ```
 
-Open <http://127.0.0.1:8080/>, paste `BRIDGE_TOKEN`, and test the connection.
+Open <http://127.0.0.1:8080/>, create the administrator account, and test the
+qBittorrent connection. Leave `SETUP_CODE` empty on a local-only machine.
 
 ## Docker
 
@@ -160,9 +205,10 @@ handle @remagnet {
 }
 ```
 
-Pair the extension from the config page's **Pair a device** panel, or enter
-`https://remagnet.example.com` and the same token under **Settings → Remagnet
-Proxy**.
+Pair the extension from the proxy page's **Pair a device** panel, or sign in with
+your administrator username and password under **Settings → Remagnet Proxy**.
+Pairing works without a 2FA code; direct sign-in asks for one only when
+two-factor authentication is enabled.
 
 ## How archiving works
 

@@ -30,7 +30,7 @@ import com.google.gson.annotations.SerializedName
  * Plaintext inside `EncryptedPayload.data` after decryption. qBittorrent credentials are never part of this payload.
  *
  * @param version Pairing payload version.
- * @param proxyToken The proxy's `BRIDGE_TOKEN`, so the client can call the torrent API.
+ * @param proxyToken A freshly minted per-device token (`rmg_…`) scoped to the client API, so the client can call the torrent and archive endpoints.
  */
 
 
@@ -40,7 +40,7 @@ data class PairingPayload (
     @SerializedName("version")
     val version: PairingPayload.Version,
 
-    /* The proxy's `BRIDGE_TOKEN`, so the client can call the torrent API. */
+    /* A freshly minted per-device token (`rmg_…`) scoped to the client API, so the client can call the torrent and archive endpoints.  */
     @SerializedName("proxyToken")
     val proxyToken: kotlin.String
 

@@ -142,6 +142,39 @@ class SettingsRepositoryTest {
     }
 
     @Test
+    fun saveMintedTrustsATokenFromTheProxy() {
+        val store = FakeStore()
+        val repository = SettingsRepository(store, FakeCipher())
+
+        repository.saveMinted(
+            RemagnetSettings(proxyBaseUrl = "https://proxy.example.com", proxyToken = "rmg_x"),
+        )
+
+        val loaded = repository.load()
+        assertEquals("rmg_x", loaded.proxyToken)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun saveMintedStillRejectsAnInvalidUrl() {
+        SettingsRepository(FakeStore(), FakeCipher()).saveMinted(
+            RemagnetSettings(proxyBaseUrl = "not-a-url", proxyToken = "rmg_x"),
+        )
+    }
+
+    @Test
+    fun saveDisconnectedKeepsTheUrlAndClearsTheToken() {
+        val repository = SettingsRepository(FakeStore(), FakeCipher())
+        repository.save(valid())
+
+        repository.saveDisconnected("https://proxy.example.com")
+
+        val loaded = repository.load()
+        assertEquals("https://proxy.example.com", loaded.proxyBaseUrl)
+        assertEquals("", loaded.proxyToken)
+        assertFalse(loaded.proxyConfigured)
+    }
+
+    @Test
     fun defaultsFillMissingPublicFields() {
         val store = FakeStore()
         store.putString(

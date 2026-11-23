@@ -137,8 +137,8 @@ fun HomeScreen(
                             fontWeight = FontWeight.SemiBold,
                         )
                         Text(
-                            text = "Scan the pairing code shown by your Remagnet Proxy, " +
-                                "or open Settings and enter its URL and token. Your " +
+                            text = "Scan the pairing QR code from your Remagnet Proxy, " +
+                                "or open Settings to sign in with your proxy account. Your " +
                                 "qBittorrent credentials stay on the proxy.",
                             color = RemagnetPalette.Muted,
                             fontSize = 12.sp,

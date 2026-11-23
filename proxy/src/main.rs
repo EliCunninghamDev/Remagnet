@@ -1,9 +1,11 @@
 mod auth;
+mod auth_routes;
 mod config;
 mod error;
 mod pairing;
 mod qbit;
 mod routes;
+mod totp;
 mod zipstream;
 
 use std::{
@@ -12,7 +14,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use tokio::sync::RwLock;
 use tracing_subscriber::EnvFilter;
 
@@ -28,7 +30,13 @@ pub struct AppState {
     pub config_path: PathBuf,
     pub config: RwLock<Config>,
     pub qbit: RwLock<Option<QbitClient>>,
-    pub token: String,
+    pub auth_path: PathBuf,
+    pub auth: RwLock<auth::AuthData>,
+    pub setup_code: Option<String>,
+    pub sessions: Mutex<auth::SessionStore>,
+    pub pending_totp: Mutex<auth::PendingTotpStore>,
+    pub archive_tickets: Mutex<auth::ArchiveTicketStore>,
+    pub rate_limiter: Mutex<auth::LoginRateLimiter>,
     pub pairings: Mutex<pairing::PairingStore>,
 }
 
@@ -40,13 +48,10 @@ async fn main() -> Result<()> {
         )
         .init();
 
-    let token = env::var("BRIDGE_TOKEN")
-        .unwrap_or_default()
-        .trim()
-        .to_string();
-    if token.len() < 16 {
-        bail!("BRIDGE_TOKEN must be set to at least 16 characters.");
-    }
+    let setup_code = env::var("SETUP_CODE")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
 
     let data_dir = env::var("DATA_DIR").unwrap_or_else(|_| "/data".to_string());
     let config_path = Path::new(&data_dir).join("config.json");
@@ -57,6 +62,9 @@ async fn main() -> Result<()> {
     } else {
         None
     };
+
+    let auth_path = Path::new(&data_dir).join("auth.json");
+    let auth = auth::load(&auth_path).context("could not load the bridge authentication")?;
 
     if created {
         tracing::info!(
@@ -75,7 +83,13 @@ async fn main() -> Result<()> {
         config_path,
         config: RwLock::new(config),
         qbit: RwLock::new(qbit),
-        token,
+        auth_path,
+        auth: RwLock::new(auth),
+        setup_code,
+        sessions: Mutex::new(auth::SessionStore::default()),
+        pending_totp: Mutex::new(auth::PendingTotpStore::default()),
+        archive_tickets: Mutex::new(auth::ArchiveTicketStore::default()),
+        rate_limiter: Mutex::new(auth::LoginRateLimiter::default()),
         pairings: Mutex::new(pairing::PairingStore::default()),
     });
 
@@ -86,6 +100,7 @@ async fn main() -> Result<()> {
     tracing::info!(
         addr = %bind,
         config = %state.config_path.display(),
+        auth = %state.auth_path.display(),
         "remagnet-bridge listening"
     );
 

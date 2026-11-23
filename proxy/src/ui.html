@@ -50,6 +50,7 @@
         font: 14px/1.5 var(--font-ui);
       }
       h2 { margin: 0; font-size: 17px; line-height: 1.2; }
+      h3 { margin: 0; font-size: 15px; line-height: 1.3; }
       input {
         width: 100%;
         padding: 8px 10px;
@@ -92,7 +93,32 @@
         flex-direction: column;
         gap: 20px;
       }
+      .boot { margin: auto; color: var(--muted); font-size: 13px; }
+      .auth {
+        width: 100%;
+        max-width: 440px;
+        margin: 0 auto;
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+      }
       .options-header { display: flex; flex-direction: column; gap: 8px; }
+      .masthead {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 16px;
+        flex-wrap: wrap;
+      }
+      .account-bar {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .account-bar strong { color: var(--text); font-weight: 600; }
       .wordmark {
         display: inline-flex;
         align-items: baseline;
@@ -140,8 +166,9 @@
       .field-inline { display: flex; align-items: stretch; gap: 8px; }
       .actions { display: flex; gap: 8px; flex-wrap: wrap; }
       .check { display: flex; align-items: center; gap: 8px; font-weight: 400; }
-      .hint { color: var(--muted); font-size: 12px; }
+      .hint { margin: 0; color: var(--muted); font-size: 12px; }
       .status { min-height: 1.5em; margin: 0; font-size: 13px; }
+      .status:empty { min-height: 0; }
 
       .field > span { font-weight: 600; padding: 0; }
       .field small { color: var(--muted); font-size: 12px; }
@@ -151,6 +178,8 @@
       .hint code { display: inline; padding: 0 4px; background: transparent; border: 0; }
       details .stack { margin-top: 12px; }
       input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+      button:focus-visible,
+      summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
       button:disabled { opacity: .55; cursor: default; }
       button.ghost {
         background: transparent;
@@ -162,6 +191,26 @@
       .status.ok { color: var(--ok); }
       .status.error { color: var(--error); }
       .status.muted { color: var(--muted); }
+
+      .panel-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .subsection { border-top: 1px solid var(--line); padding-top: 16px; }
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 1px 7px;
+        border: 1px solid var(--line);
+        color: var(--ok);
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+      }
 
       .qr-pair {
         display: flex;
@@ -179,6 +228,67 @@
       }
       .qr-code svg { display: block; width: 100%; height: auto; }
 
+      .totp-setup {
+        display: grid;
+        grid-template-columns: 232px minmax(0, 1fr);
+        gap: 16px;
+        align-items: start;
+      }
+      .totp-setup .qr-code { max-width: none; }
+      .recovery {
+        padding: 14px;
+        border: 1px solid var(--line);
+        background: var(--bg);
+      }
+      .recovery-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 6px;
+      }
+      .recovery-code {
+        padding: 7px 9px;
+        border: 1px solid var(--line);
+        background: var(--panel);
+        font: 13px/1.2 var(--font-ui);
+        letter-spacing: .06em;
+        text-align: center;
+        user-select: all;
+      }
+
+      .device-list {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        border-top: 1px solid var(--line);
+      }
+      .device-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 12px 0;
+        border-bottom: 1px solid var(--line);
+      }
+      .device-info {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
+      }
+      .device-name { font-weight: 600; overflow-wrap: anywhere; }
+      .device-meta { color: var(--muted); font-size: 12px; }
+      .device-row button { flex: none; }
+
+      @media (max-width: 560px) {
+        .totp-setup { grid-template-columns: minmax(0, 1fr); }
+        .totp-setup .qr-code { max-width: 232px; }
+      }
+      @media (max-width: 420px) {
+        .recovery-grid { grid-template-columns: minmax(0, 1fr); }
+      }
+
       /* Keep the source order after the flex/grid rules so it wins without
          `!important`; the attribute selector has the same specificity. */
       [hidden] { display: none; }
@@ -188,353 +298,618 @@
   </head>
   <body>
     <main>
-      <header class="options-header">
-        <p class="wordmark">
-          <span class="wordmark-lockup">
-            <img class="wordmark-icon" src="/icon.svg" alt="" />
-            <span>Remagnet</span>
-          </span>
-          <span class="wordmark-surface">Proxy</span>
-        </p>
-        <p class="lede">
-          Connects to qBittorrent on behalf of the Remagnet extension and Android app, applies the
-          category and tags below to new magnets, and streams completed torrents as ZIP files.
-          Torrent files are never stored on this server.
-        </p>
-      </header>
+      <p id="booting" class="boot" role="status" aria-live="polite">Loading…</p>
 
-      <section class="panel stack">
-        <h2>Access</h2>
-        <label class="field">
-          <span>Token</span>
-          <div class="field-inline">
-            <input id="token" type="password" autocomplete="off" spellcheck="false"
-              placeholder="Paste BRIDGE_TOKEN" />
-            <button id="load" type="button" class="ghost">Load</button>
+      <!-- First run: create the administrator account. -->
+      <div id="setupView" class="auth" hidden>
+        <header class="options-header">
+          <p class="wordmark">
+            <span class="wordmark-lockup">
+              <img class="wordmark-icon" src="/icon.svg" alt="" />
+              <span>Remagnet</span>
+            </span>
+            <span class="wordmark-surface">Proxy</span>
+          </p>
+          <p class="lede">Set up the administrator account for this proxy.</p>
+        </header>
+
+        <form id="setupForm" class="panel stack">
+          <h2>Create admin account</h2>
+          <p class="hint">
+            This account manages qBittorrent access and paired devices. Your password is never
+            stored in the clear.
+          </p>
+
+          <label class="field">
+            <span>Username</span>
+            <input id="setupUsername" name="username" type="text" autocomplete="username"
+              spellcheck="false" required maxlength="64" />
+          </label>
+
+          <label class="field">
+            <span>Password</span>
+            <input id="setupPassword" name="password" type="password" autocomplete="new-password"
+              required minlength="12" />
+            <small>At least 12 characters.</small>
+          </label>
+
+          <label class="field">
+            <span>Confirm password</span>
+            <input id="setupConfirm" name="confirmPassword" type="password"
+              autocomplete="new-password" required minlength="12" />
+          </label>
+
+          <label id="setupCodeField" class="field" hidden>
+            <span>Setup code</span>
+            <input id="setupCode" name="setupCode" type="text" autocomplete="off"
+              spellcheck="false" />
+            <small>The <code>SETUP_CODE</code> value configured on this server.</small>
+          </label>
+
+          <div class="actions">
+            <button id="setupSubmit" type="submit">Create admin account</button>
           </div>
-          <small>
-            The <code>BRIDGE_TOKEN</code> from your Compose <code>.env</code>. It unlocks this page
-            and is the same token you enter in Remagnet. Kept in this tab only.
-          </small>
-        </label>
-      </section>
+          <p id="setupStatus" class="status muted" role="status" aria-live="polite"></p>
+        </form>
+      </div>
 
-      <form id="config" class="panel stack">
-        <h2>qBittorrent</h2>
+      <!-- Returning administrator. -->
+      <div id="signinView" class="auth" hidden>
+        <header class="options-header">
+          <p class="wordmark">
+            <span class="wordmark-lockup">
+              <img class="wordmark-icon" src="/icon.svg" alt="" />
+              <span>Remagnet</span>
+            </span>
+            <span class="wordmark-surface">Proxy</span>
+          </p>
+          <p class="lede">Sign in to manage the proxy, paired devices, and account security.</p>
+        </header>
 
-        <label class="field">
-          <span>Web UI URL</span>
-          <input id="url" type="url" required spellcheck="false" placeholder="http://gluetun:8080" />
-          <small>Where Remagnet Proxy reaches qBittorrent. The default is the container network name.</small>
-        </label>
+        <form id="signinForm" class="panel stack">
+          <h2>Sign in</h2>
 
-        <label class="field">
-          <span>API key</span>
-          <input id="apiKey" type="password" autocomplete="off" spellcheck="false" placeholder="qbt_…" />
-          <small id="apiKeyHint">A saved key is never sent back to this page.</small>
-        </label>
-        <label class="check">
-          <input id="clearApiKey" type="checkbox" />
-          Remove the saved API key
-        </label>
+          <label class="field">
+            <span>Username</span>
+            <input id="loginUsername" name="username" type="text" autocomplete="username"
+              spellcheck="false" required />
+          </label>
 
-        <details>
-          <summary>Username and password fallback</summary>
-          <div class="stack">
-            <label class="field">
-              <span>Username</span>
-              <input id="username" type="text" autocomplete="username" spellcheck="false" />
-            </label>
-            <label class="field">
-              <span>Password</span>
-              <input id="password" type="password" autocomplete="current-password" />
-              <small>Leave blank to keep the saved password.</small>
-            </label>
-            <label class="check">
-              <input id="clearPassword" type="checkbox" />
-              Remove the saved password
-            </label>
+          <label class="field">
+            <span>Password</span>
+            <input id="loginPassword" name="password" type="password"
+              autocomplete="current-password" required />
+          </label>
+
+          <label id="loginTotpField" class="field" hidden>
+            <span>Two-factor code</span>
+            <input id="loginTotp" name="totp" type="text" autocomplete="one-time-code"
+              spellcheck="false" autocapitalize="off"
+              placeholder="6-digit code or recovery code" />
+            <small>Use the code from your authenticator app, or a saved recovery code.</small>
+          </label>
+
+          <div class="actions">
+            <button id="loginSubmit" type="submit">Sign in</button>
           </div>
-        </details>
+          <p id="loginStatus" class="status muted" role="status" aria-live="polite"></p>
+        </form>
+      </div>
 
-        <h2>Magnet defaults</h2>
-        <label class="field">
-          <span>Category</span>
-          <input id="category" type="text" spellcheck="false" placeholder="remagnet" />
-          <small>
-            Applied to every magnet added through the proxy. Leave blank to skip categorizing.
-          </small>
-        </label>
-        <label class="field">
-          <span>Tags</span>
-          <input id="tags" type="text" spellcheck="false" placeholder="remagnet" />
-          <small>
-            Comma-separated. The proxy uses these tags, and the category above, to decide which
-            torrents belong to Remagnet. Leave both blank to expose every torrent.
-          </small>
-        </label>
+      <!-- Authenticated dashboard. -->
+      <div id="dashboard" class="stack" hidden>
+        <header class="options-header">
+          <div class="masthead">
+            <p class="wordmark">
+              <span class="wordmark-lockup">
+                <img class="wordmark-icon" src="/icon.svg" alt="" />
+                <span>Remagnet</span>
+              </span>
+              <span class="wordmark-surface">Proxy</span>
+            </p>
+            <div class="account-bar">
+              <span>Signed in as <strong id="currentUser"></strong></span>
+              <button id="signoutBtn" type="button" class="ghost">Sign out</button>
+            </div>
+          </div>
+          <p class="lede">
+            Connects to qBittorrent on behalf of the Remagnet extension and Android app, applies the
+            category and tags below to new magnets, and streams completed torrents as ZIP files.
+            Torrent files are never stored on this server.
+          </p>
+        </header>
 
-        <div class="actions">
-          <button id="save" type="submit">Save</button>
-          <button id="test" type="button" class="ghost">Test connection</button>
-        </div>
-        <p id="status" class="status muted" role="status" aria-live="polite">
-          Enter the Remagnet Proxy token to load the current settings.
-        </p>
-      </form>
+        <form id="config" class="panel stack">
+          <h2>qBittorrent</h2>
 
-      <section class="panel stack">
-        <h2>Connect Remagnet</h2>
-        <code id="proxyUrl">http://127.0.0.1:8080</code>
-        <p class="hint">
-          Use this origin as the Remagnet Proxy URL in the extension or Android settings, with the
-          same token. The proxy applies the magnet defaults above and only lists torrents it owns.
-          Downloads only work for completed torrents.
-        </p>
-      </section>
+          <label class="field">
+            <span>Web UI URL</span>
+            <input id="url" type="url" required spellcheck="false" placeholder="http://gluetun:8080" />
+            <small>Where Remagnet Proxy reaches qBittorrent. The default is the container network name.</small>
+          </label>
 
-      <section class="panel stack">
-        <h2>Pair a device</h2>
-        <p class="hint">
-          Show a one-time code for the Remagnet Android app or the extension. Pairing sends only
-          this proxy URL and token; your qBittorrent credentials stay on this server. The code
-          rotates every minute, works once, and is revoked when you hide it.
-        </p>
-        <div class="actions">
-          <button id="pairStart" type="button" class="ghost">Show QR code</button>
-          <button id="pairCopy" type="button" class="ghost" hidden>Copy link</button>
-        </div>
-        <p id="pairStatus" class="status muted" role="status" aria-live="polite"></p>
-        <div id="pairPanel" class="qr-pair" hidden>
-          <div id="pairSvg" class="qr-code" role="img"
-            aria-label="QR code for pairing a Remagnet device"></div>
-          <code id="pairLink" hidden></code>
-          <small id="pairCountdown"></small>
-        </div>
-      </section>
+          <label class="field">
+            <span>API key</span>
+            <input id="apiKey" type="password" autocomplete="off" spellcheck="false" placeholder="qbt_…" />
+            <small id="apiKeyHint">A saved key is never sent back to this page.</small>
+          </label>
+          <label class="check">
+            <input id="clearApiKey" type="checkbox" />
+            Remove the saved API key
+          </label>
+
+          <details>
+            <summary>Username and password fallback</summary>
+            <div class="stack">
+              <label class="field">
+                <span>Username</span>
+                <input id="username" type="text" autocomplete="username" spellcheck="false" />
+              </label>
+              <label class="field">
+                <span>Password</span>
+                <input id="password" type="password" autocomplete="current-password" />
+                <small>Leave blank to keep the saved password.</small>
+              </label>
+              <label class="check">
+                <input id="clearPassword" type="checkbox" />
+                Remove the saved password
+              </label>
+            </div>
+          </details>
+
+          <h2>Magnet defaults</h2>
+          <label class="field">
+            <span>Category</span>
+            <input id="category" type="text" spellcheck="false" placeholder="remagnet" />
+            <small>
+              Applied to every magnet added through the proxy. Leave blank to skip categorizing.
+            </small>
+          </label>
+          <label class="field">
+            <span>Tags</span>
+            <input id="tags" type="text" spellcheck="false" placeholder="remagnet" />
+            <small>
+              Comma-separated. The proxy uses these tags, and the category above, to decide which
+              torrents belong to Remagnet. Leave both blank to expose every torrent.
+            </small>
+          </label>
+
+          <div class="actions">
+            <button id="save" type="submit">Save</button>
+            <button id="test" type="button" class="ghost">Test connection</button>
+          </div>
+          <p id="status" class="status muted" role="status" aria-live="polite">
+            Loading saved settings…
+          </p>
+        </form>
+
+        <section class="panel stack">
+          <h2>Pair a device</h2>
+          <p class="hint">
+            Use this origin as the Remagnet Proxy URL in the extension or Android settings:
+          </p>
+          <code id="proxyUrl">http://127.0.0.1:8080</code>
+          <p class="hint">
+            Scan the one-time QR code or copy the link and open it on the device. Pairing links that
+            browser or phone directly and never asks for your two-factor code. You can also sign in
+            directly from the extension or app with your username and password. The code rotates
+            every minute, works once, and is revoked when you hide it.
+          </p>
+          <div class="actions">
+            <button id="pairStart" type="button" class="ghost">Show QR code</button>
+            <button id="pairCopy" type="button" class="ghost" hidden>Copy link</button>
+          </div>
+          <p id="pairStatus" class="status muted" role="status" aria-live="polite"></p>
+          <div id="pairPanel" class="qr-pair" hidden>
+            <div id="pairSvg" class="qr-code" role="img"
+              aria-label="QR code for pairing a Remagnet device"></div>
+            <code id="pairLink" hidden></code>
+            <small id="pairCountdown"></small>
+          </div>
+        </section>
+
+        <section class="panel stack">
+          <div class="panel-head">
+            <h2>Connected devices</h2>
+            <button id="devicesRefresh" type="button" class="ghost">Refresh</button>
+          </div>
+          <p class="hint">
+            Devices that paired with this proxy or signed in for a token. Revoking one signs that
+            device out immediately.
+          </p>
+          <p id="devicesStatus" class="status muted" role="status" aria-live="polite"></p>
+          <ul id="deviceList" class="device-list" hidden></ul>
+          <p id="devicesEmpty" class="hint" hidden>
+            No devices are paired yet. Use the QR code above to connect one.
+          </p>
+        </section>
+
+        <section class="panel stack">
+          <h2>Account &amp; security</h2>
+
+          <section class="subsection stack" aria-labelledby="totpHeading">
+            <div class="panel-head">
+              <h3 id="totpHeading">Two-factor authentication</h3>
+              <span id="totpBadge" class="badge" hidden>Enabled</span>
+            </div>
+            <p id="totpStatus" class="status muted" role="status" aria-live="polite"></p>
+
+            <div id="totpOff" class="stack">
+              <p class="hint">
+                Add a one-time code from an authenticator app when signing in to this admin page.
+              </p>
+              <div class="actions">
+                <button id="totpStart" type="button" class="ghost">Enable 2FA</button>
+              </div>
+            </div>
+
+            <div id="totpSetup" class="stack" hidden>
+              <p class="hint">
+                Scan this code with your authenticator app, then enter the 6-digit code it shows.
+              </p>
+              <div class="totp-setup">
+                <div id="totpQr" class="qr-code" role="img"
+                  aria-label="QR code for two-factor authentication setup"></div>
+                <div class="stack">
+                  <p class="hint">Can't scan? Enter this secret in the app:</p>
+                  <code id="totpSecret"></code>
+                  <form id="totpEnableForm" class="stack">
+                    <label class="field">
+                      <span>Verification code</span>
+                      <input id="totpVerify" name="code" type="text" inputmode="numeric"
+                        autocomplete="one-time-code" spellcheck="false" maxlength="6"
+                        placeholder="123456" />
+                    </label>
+                    <div class="actions">
+                      <button id="totpEnableBtn" type="submit">Verify &amp; enable</button>
+                      <button id="totpCancel" type="button" class="ghost">Cancel</button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            </div>
+
+            <div id="totpRecovery" class="stack recovery" hidden>
+              <h3>Save your recovery codes</h3>
+              <p class="hint">
+                Each code works once if you lose access to your authenticator app. Store them
+                somewhere safe now — they will not be shown again.
+              </p>
+              <div id="recoveryCodes" class="recovery-grid"></div>
+              <div class="actions">
+                <button id="copyRecovery" type="button" class="ghost">Copy recovery codes</button>
+              </div>
+            </div>
+
+            <div id="totpOn" class="stack" hidden>
+              <p class="hint">
+                Two-factor authentication is on. Signing in to this page requires a code; paired
+                devices keep working.
+              </p>
+              <details>
+                <summary>Disable two-factor authentication</summary>
+                <form id="totpDisableForm" class="stack">
+                  <label class="field">
+                    <span>Current password</span>
+                    <input id="disablePassword" name="password" type="password"
+                      autocomplete="current-password" />
+                  </label>
+                  <label class="field">
+                    <span>Two-factor or recovery code</span>
+                    <input id="disableCode" name="code" type="text" autocomplete="one-time-code"
+                      spellcheck="false" autocapitalize="off" />
+                  </label>
+                  <div class="actions">
+                    <button id="totpDisableBtn" type="submit" class="ghost">Disable 2FA</button>
+                  </div>
+                  <p id="totpDisableStatus" class="status muted" role="status"
+                    aria-live="polite"></p>
+                </form>
+              </details>
+            </div>
+          </section>
+
+          <details>
+            <summary>Change password</summary>
+            <form id="passwordForm" class="stack">
+              <label class="field">
+                <span>Current password</span>
+                <input id="currentPassword" name="currentPassword" type="password"
+                  autocomplete="current-password" />
+              </label>
+              <label class="field">
+                <span>New password</span>
+                <input id="newPassword" name="newPassword" type="password"
+                  autocomplete="new-password" minlength="12" />
+                <small>At least 12 characters.</small>
+              </label>
+              <label class="field">
+                <span>Confirm new password</span>
+                <input id="confirmPassword" name="confirmPassword" type="password"
+                  autocomplete="new-password" minlength="12" />
+              </label>
+              <div class="actions">
+                <button id="passwordSave" type="submit">Change password</button>
+              </div>
+              <p id="passwordStatus" class="status muted" role="status" aria-live="polite"></p>
+            </form>
+          </details>
+        </section>
+      </div>
     </main>
 
     <script>
-      const tokenKey = "remagnet-bridge-token";
       const byId = (id) => document.getElementById(id);
-      const tokenInput = byId("token");
-      const status = byId("status");
+      const views = ["booting", "setupView", "signinView", "dashboard"];
+      const state = {
+        status: null,
+        totpRequired: false,
+        recoveryCodes: [],
+        pairing: null,
+        pairingTimer: null,
+        pairingBusy: false,
+      };
 
-      tokenInput.value = sessionStorage.getItem(tokenKey) || "";
-      tokenInput.addEventListener("input", () => {
-        sessionStorage.setItem(tokenKey, tokenInput.value.trim());
-        if (pairing) hidePairing();
-      });
-
-      byId("proxyUrl").textContent = location.origin;
-
-      function currentToken() {
-        return tokenInput.value.trim();
+      function showOnly(view) {
+        for (const id of views) byId(id).hidden = id !== view;
       }
 
-      function setStatus(message, tone = "muted") {
-        status.textContent = message;
-        status.className = `status ${tone}`;
+      function setMessage(element, message, tone = "muted") {
+        element.textContent = message;
+        element.className = `status ${tone}`;
+      }
+
+      // ---- HTTP ------------------------------------------------------------
+
+      async function request(path, options = {}) {
+        const response = await fetch(path, {
+          ...options,
+          credentials: "same-origin",
+          cache: "no-store",
+        });
+        const text = await response.text();
+        let body = null;
+        if (text) {
+          try {
+            body = JSON.parse(text);
+          } catch {
+            body = text;
+          }
+        }
+        return { response, body, text };
       }
 
       async function api(path, options = {}) {
-        const token = currentToken();
-        if (!token) throw new Error("Enter the Remagnet Proxy token first.");
-        const headers = { ...(options.headers || {}), Authorization: `Bearer ${token}` };
-        const response = await fetch(path, { ...options, headers, cache: "no-store" });
-        const text = await response.text();
-        let body = null;
-        try {
-          body = text ? JSON.parse(text) : null;
-        } catch {
-          body = text;
-        }
+        const { response, body, text } = await request(path, options);
         if (!response.ok) {
-          throw new Error(body?.error || text || `${response.status} ${response.statusText}`);
+          const error = new Error(
+            (body && typeof body === "object" && body.error) ||
+              (typeof text === "string" && text ? text : "") ||
+              `${response.status} ${response.statusText}`,
+          );
+          error.status = response.status;
+          error.code = body && typeof body === "object" ? body.code : undefined;
+          throw error;
         }
         return body;
       }
 
-      async function load() {
-        if (!currentToken()) {
-          setStatus("Enter the Remagnet Proxy token to load the current settings.", "muted");
-          return;
-        }
-        setStatus("Loading…");
-        try {
-          const config = await api("/api/config");
-          byId("url").value = config.qbitBaseUrl || "";
-          byId("username").value = config.qbitUsername || "";
-          byId("category").value = config.defaultCategory || "";
-          byId("tags").value = (config.defaultTags || []).join(", ");
-          byId("apiKey").value = "";
-          byId("password").value = "";
-          byId("apiKey").placeholder = config.hasApiKey
-            ? "Saved key — leave blank to keep"
-            : "qbt_…";
-          byId("apiKeyHint").textContent = config.hasApiKey
-            ? "An API key is saved. Leave the field blank to keep it."
-            : "No API key saved. Add one, or use username and password below.";
-          setStatus("Loaded. Saved secrets are never sent back to this page.", "ok");
-        } catch (error) {
-          setStatus(error.message, "error");
-        }
-      }
-
-      // ---- Android pairing -------------------------------------------------
-
-      const pairStart = byId("pairStart");
-      const pairCopy = byId("pairCopy");
-      const pairStatus = byId("pairStatus");
-      const pairPanel = byId("pairPanel");
-      const pairLink = byId("pairLink");
-      const pairCountdown = byId("pairCountdown");
-
-      let pairing = null;
-      let pairingTimer = null;
-      let pairingBusy = false;
-
-      function setPairStatus(message, tone = "muted") {
-        pairStatus.textContent = message;
-        pairStatus.className = `status ${tone}`;
-      }
-
-      function pairingAllowed() {
-        if (location.protocol === "https:") return true;
-        const host = location.hostname;
-        return host === "127.0.0.1" || host === "localhost" ||
-          host === "[::1]" || host === "10.0.2.2";
-      }
-
-      function stopCountdown() {
-        if (pairingTimer !== null) {
-          clearInterval(pairingTimer);
-          pairingTimer = null;
-        }
-      }
-
-      function startCountdown() {
-        stopCountdown();
-        const tick = () => {
-          if (!pairing) return;
-          const seconds = Math.max(
-            0,
-            Math.ceil((pairing.expiresAt - Date.now()) / 1000),
-          );
-          pairCountdown.textContent = `New code in ${seconds}s. Single use — scan it only on ` +
-            "your own device.";
-          if (seconds <= 5) void rotatePairing();
-        };
-        tick();
-        pairingTimer = setInterval(tick, 1000);
-      }
-
-      function showPairing(created) {
-        pairing = {
-          id: created.id,
-          uri: created.uri,
-          expiresAt: Date.now() + created.expiresIn * 1000,
-          token: currentToken(),
-        };
-        byId("pairSvg").innerHTML = created.svg;
-        pairLink.textContent = created.uri;
-        pairLink.hidden = true;
-        pairPanel.hidden = false;
-        pairStart.textContent = "Hide QR code";
-        pairCopy.hidden = false;
-        pairCopy.textContent = "Copy link";
-        setPairStatus("");
-        startCountdown();
-      }
-
-      function revokePairing(id, token) {
-        if (!token) return Promise.resolve();
-        return fetch(`/api/pair/${encodeURIComponent(id)}`, {
-          method: "DELETE",
-          headers: { Authorization: `Bearer ${token}` },
-          cache: "no-store",
-          keepalive: true,
-        }).catch(() => {});
-      }
-
-      function hidePairing() {
-        const current = pairing;
-        pairing = null;
-        stopCountdown();
-        if (current) void revokePairing(current.id, current.token);
-        pairPanel.hidden = true;
-        pairCopy.hidden = true;
-        pairLink.hidden = true;
-        pairStart.textContent = "Show QR code";
-        setPairStatus("");
-      }
-
-      async function mintPairing() {
-        return api("/api/pair", {
-          method: "POST",
+      function jsonRequest(method, body) {
+        return {
+          method,
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url: location.origin }),
-        });
+          body: JSON.stringify(body),
+        };
       }
 
-      async function startPairing() {
-        if (pairingBusy) return;
-        if (!pairingAllowed()) {
-          setPairStatus(
-            "Pairing needs an HTTPS Remagnet Proxy URL. Put this page behind HTTPS " +
-              "and try again.",
-            "error",
-          );
+      // Administrative calls share a cookie session. A 401 usually means it
+      // expired, but some endpoints also use 401 for a wrong second factor, so
+      // ask the status endpoint before throwing the user back to sign in.
+      async function adminApi(path, options = {}) {
+        try {
+          return await api(path, options);
+        } catch (error) {
+          if (error.status !== 401) throw error;
+          let stillSignedIn = false;
+          try {
+            const status = await api("/api/auth/status");
+            stillSignedIn = Boolean(status.authenticated);
+            state.status = status;
+          } catch {
+            stillSignedIn = false;
+          }
+          if (!stillSignedIn) {
+            showSignIn("Your session ended. Sign in again to continue.");
+            const expired = new Error("Your session ended. Sign in again.");
+            expired.expired = true;
+            throw expired;
+          }
+          throw error;
+        }
+      }
+
+      // ---- Views -----------------------------------------------------------
+
+      function showSetup(status) {
+        showOnly("setupView");
+        byId("setupCodeField").hidden = !status.requiresSetupCode;
+        byId("setupCode").required = Boolean(status.requiresSetupCode);
+        if (!status.requiresSetupCode) byId("setupCode").value = "";
+        setMessage(byId("setupStatus"), "");
+        byId("setupUsername").focus();
+      }
+
+      function showSignIn(message = "") {
+        showOnly("signinView");
+        state.totpRequired = false;
+        byId("loginTotpField").hidden = true;
+        byId("loginTotp").value = "";
+        byId("loginPassword").value = "";
+        byId("loginUsername").value = state.status?.username || byId("loginUsername").value || "";
+        resetPairing(false);
+        setMessage(byId("loginStatus"), message);
+        byId("loginUsername").focus();
+      }
+
+      function clearRecovery() {
+        state.recoveryCodes = [];
+        byId("recoveryCodes").textContent = "";
+        byId("totpRecovery").hidden = true;
+      }
+
+      function syncTotpUi() {
+        const enabled = Boolean(state.status?.totpEnabled);
+        byId("totpBadge").hidden = !enabled;
+        byId("totpOff").hidden = enabled;
+        byId("totpOn").hidden = !enabled;
+        byId("totpSetup").hidden = true;
+        byId("totpVerify").value = "";
+        if (!enabled) {
+          byId("totpSecret").textContent = "";
+          byId("totpQr").innerHTML = "";
+          clearRecovery();
+        }
+      }
+
+      function showDashboard(status) {
+        state.status = status;
+        showOnly("dashboard");
+        byId("currentUser").textContent = status.username || "";
+        clearRecovery();
+        syncTotpUi();
+        void loadConfig();
+        void loadDevices();
+      }
+
+      // ---- Setup -----------------------------------------------------------
+
+      byId("setupForm").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const username = byId("setupUsername").value.trim();
+        const password = byId("setupPassword").value;
+        if (password !== byId("setupConfirm").value) {
+          setMessage(byId("setupStatus"), "The passwords do not match.", "error");
+          byId("setupConfirm").focus();
           return;
         }
 
-        pairingBusy = true;
-        setPairStatus("Creating a one-time code…");
+        const button = byId("setupSubmit");
+        button.disabled = true;
+        setMessage(byId("setupStatus"), "Creating your account…");
         try {
-          showPairing(await mintPairing());
+          const body = await api(
+            "/api/auth/setup",
+            jsonRequest("POST", {
+              username,
+              password,
+              ...(state.status?.requiresSetupCode
+                ? { setupCode: byId("setupCode").value.trim() }
+                : {}),
+            }),
+          );
+          state.status = {
+            initialized: true,
+            requiresSetupCode: false,
+            authenticated: true,
+            username: body.username,
+            totpEnabled: body.totpEnabled,
+          };
+          byId("setupPassword").value = "";
+          byId("setupConfirm").value = "";
+          byId("setupCode").value = "";
+          setMessage(byId("setupStatus"), "");
+          showDashboard(state.status);
         } catch (error) {
-          setPairStatus(error.message, "error");
+          if (error.status === 409) {
+            void boot();
+            return;
+          }
+          setMessage(byId("setupStatus"), error.message, "error");
         } finally {
-          pairingBusy = false;
+          button.disabled = false;
         }
-      }
-
-      async function rotatePairing() {
-        if (!pairing || pairingBusy) return;
-        pairingBusy = true;
-        const previous = pairing;
-        try {
-          const created = await mintPairing();
-          showPairing(created);
-          void revokePairing(previous.id, previous.token);
-        } catch (error) {
-          hidePairing();
-          setPairStatus(error.message, "error");
-        } finally {
-          pairingBusy = false;
-        }
-      }
-
-      pairStart.addEventListener("click", () => {
-        if (pairing) hidePairing();
-        else void startPairing();
       });
 
-      pairCopy.addEventListener("click", async () => {
-        if (!pairing) return;
+      // ---- Sign in ---------------------------------------------------------
+
+      byId("signinForm").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const username = byId("loginUsername").value.trim();
+        const password = byId("loginPassword").value;
+        const totp = byId("loginTotp").value.trim();
+
+        if (state.totpRequired && !totp) {
+          setMessage(byId("loginStatus"), "Enter your two-factor code to continue.", "error");
+          byId("loginTotp").focus();
+          return;
+        }
+
+        const button = byId("loginSubmit");
+        button.disabled = true;
+        setMessage(byId("loginStatus"), "Signing in…");
         try {
-          await navigator.clipboard.writeText(pairing.uri);
-          pairCopy.textContent = "Copied";
-          pairLink.hidden = true;
+          const body = await api(
+            "/api/auth/login",
+            jsonRequest("POST", {
+              username,
+              password,
+              ...(totp ? { totpCode: totp } : {}),
+            }),
+          );
+          state.status = {
+            initialized: true,
+            requiresSetupCode: false,
+            authenticated: true,
+            username: body.username,
+            totpEnabled: body.totpEnabled,
+          };
+          state.totpRequired = false;
+          byId("loginPassword").value = "";
+          byId("loginTotp").value = "";
+          byId("loginTotpField").hidden = true;
+          setMessage(byId("loginStatus"), "");
+          showDashboard(state.status);
+        } catch (error) {
+          if (error.status === 401 && error.code === "totp_required") {
+            state.totpRequired = true;
+            byId("loginTotpField").hidden = false;
+            setMessage(
+              byId("loginStatus"),
+              "Enter the 6-digit code from your authenticator app, or a saved recovery code.",
+            );
+            byId("loginTotp").focus();
+          } else {
+            setMessage(byId("loginStatus"), error.message, "error");
+            if (error.status === 401 && !state.totpRequired) {
+              byId("loginPassword").value = "";
+              byId("loginPassword").focus();
+            } else if (state.totpRequired) {
+              byId("loginTotp").select();
+            }
+          }
+        } finally {
+          button.disabled = false;
+        }
+      });
+
+      byId("signoutBtn").addEventListener("click", async () => {
+        const button = byId("signoutBtn");
+        button.disabled = true;
+        try {
+          if (state.pairing) await revokePairing(state.pairing.id);
+          await api("/api/auth/logout", { method: "POST" });
         } catch {
-          pairLink.hidden = false;
-          setPairStatus("Could not copy. Select the link below instead.", "error");
+          // The cookie may already be gone; return to sign-in regardless.
+        } finally {
+          state.status = null;
+          state.totpRequired = false;
+          resetPairing(false);
+          button.disabled = false;
+          showSignIn("Signed out.");
         }
       });
 
-      window.addEventListener("pagehide", () => {
-        if (pairing) void revokePairing(pairing.id, pairing.token);
-      });
+      // ---- qBittorrent & magnet defaults ----------------------------------
 
       function splitTags(value) {
         const seen = new Set();
@@ -564,19 +939,40 @@
         return body;
       }
 
-      byId("load").addEventListener("click", () => void load());
+      async function loadConfig() {
+        setMessage(byId("status"), "Loading saved settings…");
+        try {
+          const config = await adminApi("/api/config");
+          byId("url").value = config.qbitBaseUrl || "";
+          byId("username").value = config.qbitUsername || "";
+          byId("category").value = config.defaultCategory || "";
+          byId("tags").value = (config.defaultTags || []).join(", ");
+          byId("apiKey").value = "";
+          byId("password").value = "";
+          byId("clearApiKey").checked = false;
+          byId("clearPassword").checked = false;
+          byId("apiKey").placeholder = config.hasApiKey
+            ? "Saved key — leave blank to keep"
+            : "qbt_…";
+          byId("apiKeyHint").textContent = config.hasApiKey
+            ? "An API key is saved. Leave the field blank to keep it."
+            : "No API key saved. Add one, or use username and password below.";
+          setMessage(byId("status"), "Saved secrets are never sent back to this page.");
+        } catch (error) {
+          if (!error.expired) setMessage(byId("status"), error.message, "error");
+        }
+      }
 
       byId("config").addEventListener("submit", async (event) => {
         event.preventDefault();
         const saveButton = byId("save");
         saveButton.disabled = true;
-        setStatus("Saving…");
+        setMessage(byId("status"), "Saving…");
         try {
-          const saved = await api("/api/config", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload()),
-          });
+          const saved = await adminApi(
+            "/api/config",
+            jsonRequest("PUT", payload()),
+          );
           byId("apiKey").value = "";
           byId("password").value = "";
           byId("category").value = saved.defaultCategory || "";
@@ -586,9 +982,9 @@
           byId("apiKeyHint").textContent = saved.hasApiKey
             ? "An API key is saved. Leave the field blank to keep it."
             : "No API key saved. Add one, or use username and password below.";
-          setStatus("Saved.", "ok");
+          setMessage(byId("status"), "Saved.", "ok");
         } catch (error) {
-          setStatus(error.message, "error");
+          if (!error.expired) setMessage(byId("status"), error.message, "error");
         } finally {
           saveButton.disabled = false;
         }
@@ -597,21 +993,481 @@
       byId("test").addEventListener("click", async () => {
         const button = byId("test");
         button.disabled = true;
-        setStatus("Testing…");
+        setMessage(byId("status"), "Testing…");
         try {
-          const health = await api("/api/health");
-          setStatus(
+          const health = await adminApi("/api/health");
+          setMessage(
+            byId("status"),
             `Connected to qBittorrent ${health.appVersion} (Web API ${health.webApiVersion}).`,
             "ok",
           );
         } catch (error) {
-          setStatus(error.message, "error");
+          if (!error.expired) setMessage(byId("status"), error.message, "error");
         } finally {
           button.disabled = false;
         }
       });
 
-      if (currentToken()) void load();
+      // ---- Pairing ---------------------------------------------------------
+
+      function pairingAllowed() {
+        if (location.protocol === "https:") return true;
+        const host = location.hostname;
+        return (
+          host === "127.0.0.1" ||
+          host === "localhost" ||
+          host === "::1" ||
+          host === "[::1]" ||
+          host === "10.0.2.2"
+        );
+      }
+
+      function stopCountdown() {
+        if (state.pairingTimer !== null) {
+          clearInterval(state.pairingTimer);
+          state.pairingTimer = null;
+        }
+      }
+
+      function startCountdown() {
+        stopCountdown();
+        const tick = () => {
+          if (!state.pairing) return;
+          const seconds = Math.max(
+            0,
+            Math.ceil((state.pairing.expiresAt - Date.now()) / 1000),
+          );
+          byId("pairCountdown").textContent =
+            `New code in ${seconds}s. Single use — scan it only on your own device.`;
+          if (seconds <= 5) void rotatePairing();
+        };
+        tick();
+        state.pairingTimer = setInterval(tick, 1000);
+      }
+
+      function showPairing(created) {
+        state.pairing = {
+          id: created.id,
+          uri: created.uri,
+          expiresAt: Date.now() + created.expiresIn * 1000,
+        };
+        byId("pairSvg").innerHTML = created.svg;
+        byId("pairLink").textContent = created.uri;
+        byId("pairLink").hidden = true;
+        byId("pairPanel").hidden = false;
+        byId("pairStart").textContent = "Hide QR code";
+        byId("pairCopy").hidden = false;
+        byId("pairCopy").textContent = "Copy link";
+        setMessage(byId("pairStatus"), "");
+        startCountdown();
+      }
+
+      function revokePairing(id) {
+        if (!id) return Promise.resolve();
+        return fetch(`/api/pair/${encodeURIComponent(id)}`, {
+          method: "DELETE",
+          credentials: "same-origin",
+          cache: "no-store",
+          keepalive: true,
+        }).catch(() => {});
+      }
+
+      function resetPairing(revoke) {
+        const current = state.pairing;
+        state.pairing = null;
+        stopCountdown();
+        if (revoke && current) void revokePairing(current.id);
+        byId("pairPanel").hidden = true;
+        byId("pairCopy").hidden = true;
+        byId("pairLink").hidden = true;
+        byId("pairLink").textContent = "";
+        byId("pairSvg").innerHTML = "";
+        byId("pairCountdown").textContent = "";
+        byId("pairStart").textContent = "Show QR code";
+        setMessage(byId("pairStatus"), "");
+      }
+
+      async function mintPairing() {
+        return adminApi(
+          "/api/pair",
+          jsonRequest("POST", { url: location.origin }),
+        );
+      }
+
+      async function startPairing() {
+        if (state.pairingBusy) return;
+        if (!pairingAllowed()) {
+          setMessage(
+            byId("pairStatus"),
+            "Pairing needs an HTTPS Remagnet Proxy URL. Put this page behind HTTPS and try again.",
+            "error",
+          );
+          return;
+        }
+
+        state.pairingBusy = true;
+        setMessage(byId("pairStatus"), "Creating a one-time code…");
+        try {
+          showPairing(await mintPairing());
+        } catch (error) {
+          if (!error.expired) setMessage(byId("pairStatus"), error.message, "error");
+        } finally {
+          state.pairingBusy = false;
+        }
+      }
+
+      async function rotatePairing() {
+        if (!state.pairing || state.pairingBusy) return;
+        state.pairingBusy = true;
+        const previous = state.pairing;
+        try {
+          const created = await mintPairing();
+          showPairing(created);
+          void revokePairing(previous.id);
+        } catch (error) {
+          if (error.expired) return;
+          resetPairing(false);
+          setMessage(byId("pairStatus"), error.message, "error");
+        } finally {
+          state.pairingBusy = false;
+        }
+      }
+
+      byId("pairStart").addEventListener("click", () => {
+        if (state.pairing) resetPairing(true);
+        else void startPairing();
+      });
+
+      byId("pairCopy").addEventListener("click", async () => {
+        if (!state.pairing) return;
+        try {
+          await navigator.clipboard.writeText(state.pairing.uri);
+          byId("pairCopy").textContent = "Copied";
+          byId("pairLink").hidden = true;
+        } catch {
+          byId("pairLink").hidden = false;
+          setMessage(
+            byId("pairStatus"),
+            "Could not copy. Select the link below instead.",
+            "error",
+          );
+        }
+      });
+
+      window.addEventListener("pagehide", () => {
+        if (state.pairing) void revokePairing(state.pairing.id);
+      });
+
+      // ---- Connected devices ----------------------------------------------
+
+      function relativeTime(unixSeconds) {
+        const diff = Math.floor(Date.now() / 1000) - Number(unixSeconds);
+        if (!Number.isFinite(diff)) return "unknown";
+        if (diff < 45) return "just now";
+        const units = [
+          [31536000, "year"],
+          [2592000, "month"],
+          [604800, "week"],
+          [86400, "day"],
+          [3600, "hour"],
+          [60, "minute"],
+        ];
+        for (const [seconds, label] of units) {
+          if (diff >= seconds) {
+            const count = Math.floor(diff / seconds);
+            return `${count} ${label}${count === 1 ? "" : "s"} ago`;
+          }
+        }
+        return "just now";
+      }
+
+      function deviceTimestamp(unixSeconds) {
+        const date = new Date(Number(unixSeconds) * 1000);
+        return Number.isNaN(date.valueOf()) ? "unknown" : date.toLocaleString();
+      }
+
+      function renderDevices(devices) {
+        const list = byId("deviceList");
+        list.textContent = "";
+
+        if (!devices.length) {
+          list.hidden = true;
+          byId("devicesEmpty").hidden = false;
+          return;
+        }
+
+        byId("devicesEmpty").hidden = true;
+        list.hidden = false;
+
+        for (const device of devices) {
+          const row = document.createElement("li");
+          row.className = "device-row";
+
+          const info = document.createElement("div");
+          info.className = "device-info";
+
+          const name = document.createElement("span");
+          name.className = "device-name";
+          name.textContent = device.name || "Unnamed device";
+
+          const meta = document.createElement("span");
+          meta.className = "device-meta";
+          meta.textContent =
+            `Added ${relativeTime(device.createdAt)} · Last used ` +
+            (device.lastUsedAt ? relativeTime(device.lastUsedAt) : "never");
+          meta.title =
+            `Added ${deviceTimestamp(device.createdAt)}` +
+            (device.lastUsedAt
+              ? `\nLast used ${deviceTimestamp(device.lastUsedAt)}`
+              : "\nNever used");
+
+          info.append(name, meta);
+
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "ghost";
+          button.textContent = "Revoke";
+          button.setAttribute("aria-label", `Revoke ${device.name || "device"}`);
+          button.addEventListener("click", () => void revokeDevice(device, button));
+
+          row.append(info, button);
+          list.append(row);
+        }
+      }
+
+      async function loadDevices() {
+        setMessage(byId("devicesStatus"), "Loading…");
+        try {
+          const data = await adminApi("/api/devices");
+          renderDevices(Array.isArray(data.devices) ? data.devices : []);
+          setMessage(byId("devicesStatus"), "");
+        } catch (error) {
+          if (!error.expired) setMessage(byId("devicesStatus"), error.message, "error");
+        }
+      }
+
+      async function revokeDevice(device, button) {
+        const label = device.name || "this device";
+        if (!window.confirm(`Revoke ${label}? That device will need to sign in again.`)) {
+          return;
+        }
+        button.disabled = true;
+        setMessage(byId("devicesStatus"), `Revoking ${label}…`);
+        try {
+          await adminApi(`/api/devices/${encodeURIComponent(device.id)}`, {
+            method: "DELETE",
+          });
+          await loadDevices();
+          setMessage(byId("devicesStatus"), `Revoked ${label}.`, "ok");
+        } catch (error) {
+          if (!error.expired) {
+            button.disabled = false;
+            setMessage(byId("devicesStatus"), error.message, "error");
+          }
+        }
+      }
+
+      byId("devicesRefresh").addEventListener("click", () => void loadDevices());
+
+      // ---- Two-factor authentication ---------------------------------------
+
+      function renderRecoveryCodes() {
+        const container = byId("recoveryCodes");
+        container.textContent = "";
+        for (const code of state.recoveryCodes) {
+          const item = document.createElement("span");
+          item.className = "recovery-code";
+          item.textContent = code;
+          container.append(item);
+        }
+      }
+
+      byId("totpStart").addEventListener("click", async () => {
+        const button = byId("totpStart");
+        button.disabled = true;
+        setMessage(byId("totpStatus"), "Preparing two-factor setup…");
+        try {
+          const setup = await adminApi("/api/auth/2fa/setup", { method: "POST" });
+          byId("totpQr").innerHTML = setup.svg;
+          byId("totpSecret").textContent = setup.secret;
+          byId("totpOff").hidden = true;
+          byId("totpSetup").hidden = false;
+          byId("totpVerify").value = "";
+          setMessage(
+            byId("totpStatus"),
+            "Scan the code, then enter the 6-digit code to verify.",
+          );
+          byId("totpVerify").focus();
+        } catch (error) {
+          if (!error.expired) setMessage(byId("totpStatus"), error.message, "error");
+        } finally {
+          button.disabled = false;
+        }
+      });
+
+      byId("totpCancel").addEventListener("click", () => {
+        byId("totpSetup").hidden = true;
+        byId("totpOff").hidden = false;
+        byId("totpQr").innerHTML = "";
+        byId("totpSecret").textContent = "";
+        byId("totpVerify").value = "";
+        setMessage(byId("totpStatus"), "");
+      });
+
+      byId("totpEnableForm").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const code = byId("totpVerify").value.trim();
+        if (!/^\d{6}$/.test(code)) {
+          setMessage(byId("totpStatus"), "Enter the 6-digit code from your authenticator.", "error");
+          byId("totpVerify").focus();
+          return;
+        }
+
+        const button = byId("totpEnableBtn");
+        button.disabled = true;
+        setMessage(byId("totpStatus"), "Verifying…");
+        try {
+          const result = await adminApi(
+            "/api/auth/2fa/enable",
+            jsonRequest("POST", { code }),
+          );
+          state.status = { ...state.status, totpEnabled: true };
+          state.recoveryCodes = Array.isArray(result.recoveryCodes)
+            ? result.recoveryCodes
+            : [];
+          byId("totpQr").innerHTML = "";
+          byId("totpSecret").textContent = "";
+          byId("totpVerify").value = "";
+          syncTotpUi();
+          renderRecoveryCodes();
+          byId("totpRecovery").hidden = false;
+          setMessage(
+            byId("totpStatus"),
+            "Two-factor authentication is enabled. Save your recovery codes now.",
+            "ok",
+          );
+        } catch (error) {
+          if (!error.expired) setMessage(byId("totpStatus"), error.message, "error");
+        } finally {
+          button.disabled = false;
+        }
+      });
+
+      byId("copyRecovery").addEventListener("click", async () => {
+        if (!state.recoveryCodes.length) return;
+        const button = byId("copyRecovery");
+        try {
+          await navigator.clipboard.writeText(state.recoveryCodes.join("\n"));
+          button.textContent = "Copied";
+          setMessage(
+            byId("totpStatus"),
+            "Recovery codes copied to the clipboard.",
+            "ok",
+          );
+          setTimeout(() => {
+            button.textContent = "Copy recovery codes";
+          }, 2000);
+        } catch {
+          setMessage(
+            byId("totpStatus"),
+            "Could not copy automatically. Select the codes to copy them.",
+            "error",
+          );
+        }
+      });
+
+      byId("totpDisableForm").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const password = byId("disablePassword").value;
+        const code = byId("disableCode").value.trim();
+        if (!password) {
+          setMessage(byId("totpDisableStatus"), "Enter your current password.", "error");
+          byId("disablePassword").focus();
+          return;
+        }
+
+        const button = byId("totpDisableBtn");
+        button.disabled = true;
+        setMessage(byId("totpDisableStatus"), "Disabling…");
+        try {
+          await adminApi(
+            "/api/auth/2fa/disable",
+            jsonRequest("POST", { password, ...(code ? { code } : {}) }),
+          );
+          state.status = { ...state.status, totpEnabled: false };
+          byId("disablePassword").value = "";
+          byId("disableCode").value = "";
+          syncTotpUi();
+          setMessage(byId("totpStatus"), "Two-factor authentication is disabled.", "ok");
+          setMessage(byId("totpDisableStatus"), "");
+        } catch (error) {
+          if (!error.expired) {
+            setMessage(
+              byId("totpDisableStatus"),
+              error.status === 401
+                ? "That two-factor or recovery code is not valid."
+                : error.message,
+              "error",
+            );
+          }
+        } finally {
+          button.disabled = false;
+        }
+      });
+
+      // ---- Change password -------------------------------------------------
+
+      byId("passwordForm").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const current = byId("currentPassword").value;
+        const next = byId("newPassword").value;
+        if (next !== byId("confirmPassword").value) {
+          setMessage(byId("passwordStatus"), "The new passwords do not match.", "error");
+          byId("confirmPassword").focus();
+          return;
+        }
+
+        const button = byId("passwordSave");
+        button.disabled = true;
+        setMessage(byId("passwordStatus"), "Changing password…");
+        try {
+          await adminApi(
+            "/api/auth/password",
+            jsonRequest("POST", { currentPassword: current, newPassword: next }),
+          );
+          byId("currentPassword").value = "";
+          byId("newPassword").value = "";
+          byId("confirmPassword").value = "";
+          setMessage(
+            byId("passwordStatus"),
+            "Password changed. Other sessions were signed out.",
+            "ok",
+          );
+        } catch (error) {
+          if (!error.expired) setMessage(byId("passwordStatus"), error.message, "error");
+        } finally {
+          button.disabled = false;
+        }
+      });
+
+      // ---- Boot ------------------------------------------------------------
+
+      async function boot() {
+        showOnly("booting");
+        try {
+          const status = await api("/api/auth/status");
+          state.status = status;
+          if (!status.initialized) showSetup(status);
+          else if (!status.authenticated) showSignIn();
+          else showDashboard(status);
+        } catch {
+          state.status = null;
+          showSignIn("Could not reach the proxy. Check that it is running, then reload.");
+        }
+      }
+
+      byId("proxyUrl").textContent = location.origin;
+      void boot();
     </script>
   </body>
 </html>

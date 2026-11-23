@@ -34,6 +34,7 @@ try {
   await rm(androidPackage, { recursive: true, force: true });
   await cp(join(output, "src/main/java/dev/remagnet/proxy"), androidPackage, { recursive: true });
   await trimTrailingWhitespace(androidPackage);
+  await dedupeApiClientImports(androidPackage);
   await makeArchiveStreaming(androidPackage);
   console.log(`Wrote ${androidPackage}`);
 } finally {
@@ -55,6 +56,28 @@ async function trimTrailingWhitespace(directory: string): Promise<void> {
       const trimmed = source.replace(/[ \t]+$/gm, "");
       if (trimmed !== source) await Bun.write(path, trimmed);
     }
+  }
+}
+
+/**
+ * OpenAPI Generator emits one import per security scheme, so two `apiKey`
+ * schemes (the admin session cookie and the archive ticket) produce two
+ * identical `ApiKeyAuth` imports. Kotlin rejects conflicting imports, so keep
+ * the first occurrence of each line.
+ */
+async function dedupeApiClientImports(packageDir: string): Promise<void> {
+  const file = join(packageDir, "infrastructure/ApiClient.kt");
+  const source = await Bun.file(file).text();
+  const lines = source.split("\n");
+  const seen = new Set<string>();
+  const deduped = lines.filter((line) => {
+    if (!line.startsWith("import ")) return true;
+    if (seen.has(line)) return false;
+    seen.add(line);
+    return true;
+  });
+  if (deduped.length !== lines.length) {
+    await Bun.write(file, deduped.join("\n"));
   }
 }
 

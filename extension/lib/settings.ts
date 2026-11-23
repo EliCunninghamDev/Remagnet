@@ -100,14 +100,10 @@ export function isProxyConfigured(settings: Settings): boolean {
   return settings.proxyBaseUrl.trim().length > 0 && settings.proxyToken.trim().length > 0;
 }
 
-/** Validate the proxy fields. Returns a message to show, or null when valid. */
-export function validateProxySettings(settings: Settings): string | null {
-  const baseUrl = settings.proxyBaseUrl.trim();
-  const token = settings.proxyToken.trim();
-
+/** Validate just the proxy origin, for sign-in before a token exists. */
+export function validateProxyBaseUrl(value: string): string | null {
+  const baseUrl = value.trim();
   if (!baseUrl) return "Enter the Remagnet Proxy URL.";
-  if (!token) return "Enter the Remagnet Proxy token.";
-  if (token.length < 16) return "The Remagnet Proxy token must be at least 16 characters.";
 
   try {
     const url = new URL(baseUrl);
@@ -123,6 +119,18 @@ export function validateProxySettings(settings: Settings): string | null {
   }
 
   return null;
+}
+
+/** Validate the proxy fields. Returns a message to show, or null when valid. */
+export function validateProxySettings(settings: Settings): string | null {
+  const baseUrl = settings.proxyBaseUrl.trim();
+  const token = settings.proxyToken.trim();
+
+  if (!baseUrl) return "Enter the Remagnet Proxy URL.";
+  if (!token) return "Enter the Remagnet Proxy token.";
+  if (token.length < 16) return "The Remagnet Proxy token must be at least 16 characters.";
+
+  return validateProxyBaseUrl(baseUrl);
 }
 
 /** Throw a readable error unless the proxy connection settings are usable. */

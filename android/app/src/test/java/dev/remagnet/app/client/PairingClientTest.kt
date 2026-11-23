@@ -64,14 +64,30 @@ class PairingClientTest {
         val (iv, data) = PairingCrypto.encrypt("session-1", code, nonce, payload)
         respond("""{"iv":"$iv","data":"$data"}""")
 
-        val result = PairingClient(http).claim(link()) as PairingClaim.Success
+        val result = PairingClient(http, deviceName = "Pixel 9").claim(link()) as PairingClaim.Success
         val settings = result.settings
 
         assertEquals("http://127.0.0.1:${server.address.port}", settings.proxyBaseUrl)
         assertEquals("0123456789abcdef", settings.proxyToken)
         assertTrue(receivedBody.contains("\"id\":\"session-1\""))
         assertTrue(receivedBody.contains("\"proof\":\"${PairingCrypto.proof(code)}\""))
+        assertTrue(receivedBody.contains("\"deviceName\":\"Pixel 9\""))
         assertTrue(!receivedBody.contains(code))
+    }
+
+    @Test
+    fun claimCanOverrideTheDefaultDeviceName() = runBlocking {
+        val (iv, data) = PairingCrypto.encrypt(
+            "session-1",
+            code,
+            ByteArray(12) { it.toByte() },
+            payload,
+        )
+        respond("""{"iv":"$iv","data":"$data"}""")
+
+        PairingClient(http, deviceName = "Phone").claim(link(), deviceName = "Tablet")
+
+        assertTrue(receivedBody.contains("\"deviceName\":\"Tablet\""))
     }
 
     @Test

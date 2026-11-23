@@ -10,7 +10,7 @@ The extension is proxy-only. It never talks to qBittorrent and stores no
 qBittorrent credentials:
 
 ```
-lib/settings.ts          Proxy URL plus the encrypted proxy token
+lib/settings.ts          Proxy URL plus the encrypted per-device token
 lib/torrent-service.ts   Background facade over @remagnet/proxy-client
 lib/pairing.ts           Claims remagnet://pair links (pairing v2)
 lib/torrents.ts          Neutral torrent shape shared with the UI
@@ -50,9 +50,11 @@ background worker directly. `bun run test:ui` runs the Vitest component suite;
 
 Completed rows always get a **Download** button. The background worker validates
 the torrent through the proxy, asks the browser to download
-`/archive/<info-hash>` and attaches `Authorization: Bearer <token>` in Firefox;
-other browsers use the proxy's `?token=` fallback. The proxy itself lives in
-`proxy/` (Rust/axum) and is documented there.
+`/archive/<info-hash>` and attaches `Authorization: Bearer <token>` in Firefox.
+Chrome cannot attach headers through the downloads API, so it mints a
+single-use, 60-second ticket with `POST /api/archive/<hash>/ticket` and appends
+only `?ticket=…` to the URL. The device token never goes in a query string. The
+proxy itself lives in `proxy/` (Rust/axum) and is documented there.
 
 Every proxy request, including the list, add and remove calls, goes through
 `@remagnet/proxy-client`, whose types and fetch wrapper are generated from
@@ -115,20 +117,28 @@ survive restarts.
 
 1. Open the options page (see below) or right-click the toolbar button →
    **Settings**.
-2. Open your Remagnet Proxy page and choose **Copy link** in the **Pair a
-   device** panel, then paste it into **Remagnet Proxy → Pairing code** and
-   choose **Pair**. The extension claims the one-time code and saves the proxy
-   URL and token.
+2. Either sign in with your Remagnet Proxy username and password, or open the
+   proxy page, choose **Copy link** in the **Pair a device** panel, and paste it
+   into **Pair with a link**. Sign-in mints a per-device token and asks for a
+   6-digit authenticator or recovery code only when two-factor authentication is
+   enabled. Pairing never asks for a second factor.
 3. Click **Allow** on the host-permission prompt. Access is scoped to the proxy
    origin even though the manifest declares optional access to `*://*/*`.
 4. Open the popup. It lists the torrents the proxy exposes (`remagnet` by
    default), so other downloads in the same qBittorrent instance stay hidden.
 
-You can enter the proxy URL and token manually instead of pairing. Nowhere in
+You can paste a device token under **Manual device token** instead. Nowhere in
 the extension do you enter a qBittorrent URL, API key, password, category or
 tags: the proxy owns all of those. The proxy page also shows a rotating pairing
 QR for the phone; each code is single-use, expires after a minute, and requires
 an HTTPS proxy origin.
+
+**Disconnect** clears this browser's device token and leaves the proxy URL in
+place for a fresh sign-in or pairing. The same token can be revoked from the
+proxy page's **Devices** list, which is the right action for a lost or retired
+browser profile. Sign-in or pairing mints a token scoped to the client API; it
+cannot reach the proxy's administrative pages even if it is copied from
+storage.
 
 Each row has a **Remove** button with a confirmation that either keeps or
 deletes the downloaded files. The background worker also polls the same

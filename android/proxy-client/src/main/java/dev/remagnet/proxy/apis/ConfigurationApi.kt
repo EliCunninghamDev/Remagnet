@@ -19,15 +19,14 @@ interface ConfigurationApi {
      * Calls qBittorrent&#39;s &#x60;app/version&#x60; and &#x60;app/webapiVersion&#x60; endpoints with the saved credentials and reports the neutral capabilities and current magnet defaults. Used by the extension&#39;s connection test, the Android app and the configuration page.
      * Responses:
      *  - 200: qBittorrent answered with its versions.
-     *  - 401: Missing or invalid proxy token.
+     *  - 401: Missing or invalid credentials.
      *  - 502: qBittorrent could not be reached or returned an error.
      *  - 503: qBittorrent credentials have not been configured on the proxy yet.
      *
-     * @param token Proxy token as a query parameter. Alternative to &#x60;Authorization: Bearer &lt;token&gt;&#x60;; either one is sufficient.  (optional)
      * @return [ConnectionHealth]
      */
     @GET("api/health")
-    suspend fun checkQbitConnection(@Query("token") token: kotlin.String? = null): Response<ConnectionHealth>
+    suspend fun checkQbitConnection(): Response<ConnectionHealth>
 
     /**
      * GET api/config
@@ -35,13 +34,12 @@ interface ConfigurationApi {
      * Returns the qBittorrent base URL and username, flags indicating whether an API key and password are saved, and the category/tags applied to magnets. Secret values are never returned, and this endpoint does not contact qBittorrent.
      * Responses:
      *  - 200: Current public configuration.
-     *  - 401: Missing or invalid proxy token.
+     *  - 401: Missing or invalid credentials.
      *
-     * @param token Proxy token as a query parameter. Alternative to &#x60;Authorization: Bearer &lt;token&gt;&#x60;; either one is sufficient.  (optional)
      * @return [PublicConfig]
      */
     @GET("api/config")
-    suspend fun getConfig(@Query("token") token: kotlin.String? = null): Response<PublicConfig>
+    suspend fun getConfig(): Response<PublicConfig>
 
     /**
      * PUT api/config
@@ -50,14 +48,13 @@ interface ConfigurationApi {
      * Responses:
      *  - 200: Configuration saved; the returned values are the effective ones.
      *  - 400: The request was rejected, for example an invalid URL, hash or field.
-     *  - 401: Missing or invalid proxy token.
+     *  - 401: Missing or invalid credentials.
      *  - 500: The proxy could not save configuration or start the archive.
      *
      * @param configUpdate
-     * @param token Proxy token as a query parameter. Alternative to &#x60;Authorization: Bearer &lt;token&gt;&#x60;; either one is sufficient.  (optional)
      * @return [PublicConfig]
      */
     @PUT("api/config")
-    suspend fun updateConfig(@Body configUpdate: ConfigUpdate, @Query("token") token: kotlin.String? = null): Response<PublicConfig>
+    suspend fun updateConfig(@Body configUpdate: ConfigUpdate): Response<PublicConfig>
 
 }

@@ -30,6 +30,7 @@ import com.google.gson.annotations.SerializedName
  * Error body returned by every failing request.
  *
  * @param error Human-readable message safe to display to the user.
+ * @param code Optional machine-readable reason. `totp_required` appears on `401` responses from sign-in and device login when a two-factor code is needed.
  */
 
 
@@ -37,7 +38,11 @@ data class Error (
 
     /* Human-readable message safe to display to the user. */
     @SerializedName("error")
-    val error: kotlin.String
+    val error: kotlin.String,
+
+    /* Optional machine-readable reason. `totp_required` appears on `401` responses from sign-in and device login when a two-factor code is needed.  */
+    @SerializedName("code")
+    val code: kotlin.String? = null
 
 ) {
 

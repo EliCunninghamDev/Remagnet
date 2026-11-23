@@ -14,10 +14,11 @@ entered them.
 
 ### Browser extension
 
-- The Remagnet Proxy URL is kept in the extension's local storage. The proxy
-  token is encrypted with AES-GCM before it is written to storage. The key is
-  generated on first use, marked non-extractable, and kept in the extension's own
-  IndexedDB.
+- The Remagnet Proxy URL is kept in the extension's local storage. The
+  per-device proxy token is encrypted with AES-GCM before it is written to
+  storage. The key is generated on first use, marked non-extractable, and kept in
+  the extension's own IndexedDB. The administrator password and any 2FA code are
+  used only during sign-in and are not stored.
 - The extension stores no qBittorrent URL, username, API key, password, category
   or tags. Those live only on the Remagnet Proxy.
 - Settings stay in that browser profile. They are not synced to a Remagnet
@@ -30,8 +31,10 @@ entered them.
 ### Android app
 
 - Settings are stored in the app's private storage.
-- The Remagnet Proxy token is encrypted with a key held by the Android Keystore.
-  The proxy URL stays readable so the settings screen can render.
+- The per-device Remagnet Proxy token is encrypted with a key held by the
+  Android Keystore. The proxy URL stays readable so the settings screen can
+  render. The administrator password and any 2FA code are used only during
+  sign-in and are not stored.
 - The app stores no qBittorrent URL, username, API key, password, category or
   tags. Those live only on the Remagnet Proxy.
 - Pairing codes and scanned QR contents are used in memory and are not saved.
@@ -42,12 +45,23 @@ entered them.
 - The proxy keeps `config.json` in its data directory on **your** server. It
   contains the qBittorrent Web UI URL and whichever qBittorrent credentials you
   saved, along with the category/tags applied to Remagnet magnets.
+- The proxy keeps `auth.json` beside it (mode `0600`) once you create the
+  administrator account. It contains the administrator username and an Argon2id
+  password hash, an optional TOTP secret, SHA-256 hashes of any unused recovery
+  codes, and the name, id, creation time and last-use time of each device plus a
+  SHA-256 hash of its token. The raw password, 2FA codes, recovery codes and
+  device tokens are not written to disk.
+- Administrator sessions live in the proxy's memory, last seven days, and are
+  lost when it restarts. First-run setup and sign-in failures are rate limited in
+  memory by client address; the limiter is not persisted or logged.
 - Files are streamed from qBittorrent to your device as a ZIP and are not copied
   or retained by the proxy.
 - Pairing sessions exist only in memory, expire after 60 seconds, are single-use,
   and are discarded when the proxy restarts. The pairing payload carries only the
-  proxy URL and token, never qBittorrent credentials. The pairing code itself is
-  never written to disk or included in request logs.
+  proxy URL and a newly minted device token, never qBittorrent credentials. The
+  pairing code itself is never written to disk or included in request logs.
+- Archive tickets exist only in memory, expire after 60 seconds, work once, and
+  are bound to one torrent hash.
 - The proxy does not log request or response bodies. Its default logs contain
   service startup and shutdown messages; enabling verbose tracing adds ordinary
   request metadata such as method, path, and status.
@@ -83,8 +97,9 @@ access to unrelated services.
 - Extension: remove the extension or clear its data in your browser's extension
   settings.
 - Android: clear the app's storage or uninstall the app.
-- Proxy: delete the `config.json` file or the data volume created for the
-  container. Outstanding pairing codes disappear when the container stops.
+- Proxy: delete the `config.json` and `auth.json` files or the data volume
+  created for the container. Outstanding pairing codes, sessions and archive
+  tickets disappear when the container stops.
 
 Remagnet holds no copy of any of this, so there is nothing to request from the
 project.

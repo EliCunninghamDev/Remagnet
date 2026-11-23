@@ -21,16 +21,15 @@ interface TorrentsApi {
      * Responses:
      *  - 200: qBittorrent accepted the add request.
      *  - 400: No URLs were supplied or qBittorrent rejected the torrent.
-     *  - 401: Missing or invalid proxy token.
+     *  - 401: Missing or invalid credentials.
      *  - 502: qBittorrent could not be reached or returned an error.
      *  - 503: qBittorrent credentials have not been configured on the proxy yet.
      *
      * @param addTorrentRequest
-     * @param token Proxy token as a query parameter. Alternative to &#x60;Authorization: Bearer &lt;token&gt;&#x60;; either one is sufficient.  (optional)
      * @return [AddTorrentResult]
      */
     @POST("api/torrents")
-    suspend fun addTorrents(@Body addTorrentRequest: AddTorrentRequest, @Query("token") token: kotlin.String? = null): Response<AddTorrentResult>
+    suspend fun addTorrents(@Body addTorrentRequest: AddTorrentRequest): Response<AddTorrentResult>
 
     /**
      * GET api/torrents/{hash}
@@ -39,17 +38,16 @@ interface TorrentsApi {
      * Responses:
      *  - 200: The torrent in the neutral shape.
      *  - 400: The request was rejected, for example an invalid URL, hash or field.
-     *  - 401: Missing or invalid proxy token.
+     *  - 401: Missing or invalid credentials.
      *  - 404: The torrent does not exist or is not owned by Remagnet.
      *  - 502: qBittorrent could not be reached or returned an error.
      *  - 503: qBittorrent credentials have not been configured on the proxy yet.
      *
      * @param hash Torrent info hash. Accepts a 40-character BitTorrent v1 hash or a 64-character v2 hash, case-insensitively.
-     * @param token Proxy token as a query parameter. Alternative to &#x60;Authorization: Bearer &lt;token&gt;&#x60;; either one is sufficient.  (optional)
      * @return [TorrentSummary]
      */
     @GET("api/torrents/{hash}")
-    suspend fun getTorrent(@Path("hash") hash: kotlin.String, @Query("token") token: kotlin.String? = null): Response<TorrentSummary>
+    suspend fun getTorrent(@Path("hash") hash: kotlin.String): Response<TorrentSummary>
 
     /**
      * GET api/torrents
@@ -57,15 +55,14 @@ interface TorrentsApi {
      * Lists qBittorrent torrents sorted by added time (newest first) and filters them server-side with the configured category and tags. A torrent matches when its category equals the configured category (case-insensitively) or any of its tags equals a configured tag. When both defaults are empty, every torrent matches.
      * Responses:
      *  - 200: The filtered torrent list.
-     *  - 401: Missing or invalid proxy token.
+     *  - 401: Missing or invalid credentials.
      *  - 502: qBittorrent could not be reached or returned an error.
      *  - 503: qBittorrent credentials have not been configured on the proxy yet.
      *
-     * @param token Proxy token as a query parameter. Alternative to &#x60;Authorization: Bearer &lt;token&gt;&#x60;; either one is sufficient.  (optional)
      * @return [TorrentList]
      */
     @GET("api/torrents")
-    suspend fun listTorrents(@Query("token") token: kotlin.String? = null): Response<TorrentList>
+    suspend fun listTorrents(): Response<TorrentList>
 
     /**
      * DELETE api/torrents/{hash}
@@ -74,17 +71,16 @@ interface TorrentsApi {
      * Responses:
      *  - 204: The torrent was deleted.
      *  - 400: The request was rejected, for example an invalid URL, hash or field.
-     *  - 401: Missing or invalid proxy token.
+     *  - 401: Missing or invalid credentials.
      *  - 404: The torrent does not exist or is not owned by Remagnet.
      *  - 502: qBittorrent could not be reached or returned an error.
      *  - 503: qBittorrent credentials have not been configured on the proxy yet.
      *
      * @param hash Torrent info hash. Accepts a 40-character BitTorrent v1 hash or a 64-character v2 hash, case-insensitively.
      * @param deleteFiles Also delete the downloaded files. (optional, default to false)
-     * @param token Proxy token as a query parameter. Alternative to &#x60;Authorization: Bearer &lt;token&gt;&#x60;; either one is sufficient.  (optional)
      * @return [Unit]
      */
     @DELETE("api/torrents/{hash}")
-    suspend fun removeTorrent(@Path("hash") hash: kotlin.String, @Query("deleteFiles") deleteFiles: kotlin.Boolean? = false, @Query("token") token: kotlin.String? = null): Response<Unit>
+    suspend fun removeTorrent(@Path("hash") hash: kotlin.String, @Query("deleteFiles") deleteFiles: kotlin.Boolean? = false): Response<Unit>
 
 }

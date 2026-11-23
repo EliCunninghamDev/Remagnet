@@ -1,6 +1,7 @@
 package dev.remagnet.app.proxy
 
 import dev.remagnet.proxy.apis.ArchivesApi
+import dev.remagnet.proxy.apis.AuthApi
 import dev.remagnet.proxy.apis.ConfigurationApi
 import dev.remagnet.proxy.apis.ServiceApi
 import dev.remagnet.proxy.apis.TorrentsApi
@@ -24,6 +25,7 @@ class ProxyApi(
     val configuration: ConfigurationApi
     val torrents: TorrentsApi
     val archives: ArchivesApi
+    val auth: AuthApi
 
     init {
         val normalizedUrl = baseUrl.trim().trimEnd('/')
@@ -54,6 +56,7 @@ class ProxyApi(
         configuration = client.createService(ConfigurationApi::class.java)
         torrents = client.createService(TorrentsApi::class.java)
         archives = client.createService(ArchivesApi::class.java)
+        auth = client.createService(AuthApi::class.java)
     }
 
     private companion object {
