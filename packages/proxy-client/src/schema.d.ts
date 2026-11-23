@@ -59,7 +59,8 @@ export interface paths {
          * @description Calls qBittorrent's `app/version` and `app/webapiVersion` endpoints with
          *     the saved credentials and reports the neutral capabilities and current
          *     magnet defaults. Used by the extension's connection test, the Android
-         *     app and the configuration page.
+         *     app and the configuration page. `apiVersion` is the client contract
+         *     version; `proxyVersion` is this proxy crate's version.
          */
         get: operations["checkQbitConnection"];
         put?: never;
@@ -494,6 +495,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/devices/current": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke the calling device's own token
+         * @description Deletes the device record whose `Authorization: Bearer rmg_…` token made
+         *     the request, which immediately invalidates that token. This lets the
+         *     extension and Android app disconnect without administrator access; it
+         *     only accepts a device token, never an administrator session cookie. The
+         *     saved `auth.json` is updated before the response. A missing, invalid or
+         *     already revoked token returns `401`.
+         */
+        delete: operations["revokeCurrentDevice"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/devices/{id}": {
         parameters: {
             query?: never;
@@ -531,6 +557,10 @@ export interface paths {
          *     it would leak into history and logs. The caller needs a device token or
          *     an administrator session; the ticket itself then authorizes exactly one
          *     `GET /archive/{hash}`.
+         *
+         *     The torrent must exist and match the proxy's configured category/tags
+         *     filter, the same ownership check used by `DELETE /api/torrents/{hash}`.
+         *     Unrelated or unknown hashes return `404` and never receive a ticket.
          */
         post: operations["createArchiveTicket"];
         delete?: never;
@@ -552,6 +582,11 @@ export interface paths {
          *     1, no bytes left, and not in `missingFiles` or `error`), lists its files
          *     and streams each one from qBittorrent into a stored ZIP entry. Nothing is
          *     buffered or written to disk.
+         *
+         *     The torrent must also match the proxy's configured category/tags filter,
+         *     the same ownership check used by `DELETE /api/torrents/{hash}`.
+         *     Unrelated and unknown hashes return `404`, whether the caller uses a
+         *     token, a session or a ticket.
          *
          *     The response has no `Content-Length` because the archive is produced
          *     while it is downloaded. If an upstream file stream fails after the
@@ -579,10 +614,12 @@ export interface components {
             /**
              * @description Optional machine-readable reason. `totp_required` appears on `401`
              *     responses from sign-in and device login when a two-factor code is
-             *     needed.
-             * @example totp_required
+             *     needed, `rate_limited` appears on `429` responses, and
+             *     `not_configured` appears on `503` responses before qBittorrent
+             *     credentials are saved.
+             * @enum {string}
              */
-            code?: string;
+            code?: "totp_required" | "rate_limited" | "not_configured";
         };
         /**
          * @description Returned by qBittorrent-backed endpoints before the proxy has credentials.
@@ -591,6 +628,11 @@ export interface components {
         ServiceUnavailable: {
             /** @example qBittorrent is not configured yet. Open the Remagnet Proxy page to set it up. */
             error: string;
+            /**
+             * @description Stable identifier for an unconfigured proxy.
+             * @constant
+             */
+            code: "not_configured";
         };
         Liveness: {
             /**
@@ -605,6 +647,13 @@ export interface components {
             service: string;
             /** @description Crate version from `CARGO_PKG_VERSION`. */
             version: string;
+            /**
+             * Format: int32
+             * @description Version of the client-facing HTTP contract. Currently `1`; it only
+             *     changes for a breaking change.
+             * @example 1
+             */
+            apiVersion: number;
         };
         /** @description Features the proxy supports through its neutral torrent API. */
         TorrentCapabilities: {
@@ -636,6 +685,18 @@ export interface components {
              * @example 2.16.2
              */
             webApiVersion: string;
+            /**
+             * Format: int32
+             * @description Version of the client-facing HTTP contract. Currently `1`; it only
+             *     changes for a breaking change.
+             * @example 1
+             */
+            apiVersion: number;
+            /**
+             * @description Version of this Remagnet Proxy build from `CARGO_PKG_VERSION`.
+             * @example 0.1.0
+             */
+            proxyVersion: string;
             capabilities: components["schemas"]["TorrentCapabilities"];
             /**
              * @description Category applied to new magnets and used for filtering.
@@ -1060,15 +1121,24 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
-        /** @description Too many sign-in attempts from this address; retry later. */
+        /**
+         * @description Too many sign-in attempts from this address. `Retry-After` is the number
+         *     of seconds to wait before trying again, and `code` is `rate_limited`.
+         */
         TooManyRequests: {
             headers: {
+                /**
+                 * @description Seconds to wait before retrying sign-in.
+                 * @example 60
+                 */
+                "Retry-After"?: number;
                 [name: string]: unknown;
             };
             content: {
                 /**
                  * @example {
-                 *       "error": "Too many sign-in attempts. Try again in 60 seconds."
+                 *       "error": "Too many sign-in attempts. Try again in 60 seconds.",
+                 *       "code": "rate_limited"
                  *     }
                  */
                 "application/json": components["schemas"]["Error"];
@@ -1088,7 +1158,7 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
-        /** @description The torrent does not exist or is not owned by Remagnet. */
+        /** @description The torrent does not exist or does not match the proxy's filter. */
         NotFound: {
             headers: {
                 [name: string]: unknown;
@@ -1120,7 +1190,11 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
-        /** @description qBittorrent credentials have not been configured on the proxy yet. */
+        /**
+         * @description qBittorrent credentials have not been configured on the proxy yet. The
+         *     body carries `code: not_configured` so clients can distinguish this from
+         *     other server failures.
+         */
         ServiceUnavailable: {
             headers: {
                 [name: string]: unknown;
@@ -1191,7 +1265,8 @@ export interface operations {
                      * @example {
                      *       "ok": true,
                      *       "service": "remagnet-bridge",
-                     *       "version": "0.1.0"
+                     *       "version": "0.1.0",
+                     *       "apiVersion": 1
                      *     }
                      */
                     "application/json": components["schemas"]["Liveness"];
@@ -1211,6 +1286,7 @@ export interface operations {
             /** @description qBittorrent answered with its versions. */
             200: {
                 headers: {
+                    "Cache-Control"?: "no-store";
                     [name: string]: unknown;
                 };
                 content: {
@@ -1220,6 +1296,8 @@ export interface operations {
                      *       "clientLabel": "qBittorrent",
                      *       "appVersion": "5.3.0",
                      *       "webApiVersion": "2.16.2",
+                     *       "apiVersion": 1,
+                     *       "proxyVersion": "0.1.0",
                      *       "capabilities": {
                      *         "pauseOnAdd": true
                      *       },
@@ -1882,6 +1960,26 @@ export interface operations {
             403: components["responses"]["Forbidden"];
         };
     };
+    revokeCurrentDevice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The calling device token was revoked. */
+            204: {
+                headers: {
+                    "Cache-Control"?: "no-store";
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
     revokeDevice: {
         parameters: {
             query?: never;
@@ -1947,6 +2045,8 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["ServiceUnavailable"];
         };
     };
     downloadArchive: {
@@ -2008,7 +2108,10 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
-            /** @description No torrent with that hash exists in qBittorrent. */
+            /**
+             * @description The torrent does not exist in qBittorrent, or it does not match the
+             *     proxy's configured category/tags filter.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -2016,7 +2119,7 @@ export interface operations {
                 content: {
                     /**
                      * @example {
-                     *       "error": "Torrent not found in qBittorrent."
+                     *       "error": "Torrent not found."
                      *     }
                      */
                     "application/json": components["schemas"]["Error"];

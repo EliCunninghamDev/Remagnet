@@ -154,7 +154,12 @@ Bun.serve({
     }
 
     if (pathname === "/healthz") {
-      return json({ ok: true, service: "remagnet-bridge", version: "0.1.0" });
+      return json({
+        ok: true,
+        service: "remagnet-bridge",
+        version: "0.1.0",
+        apiVersion: 1,
+      });
     }
 
     // Mint a single-use ticket so the Chrome download URL never carries the
@@ -209,12 +214,20 @@ Bun.serve({
       return json({ error: "Missing or invalid device token." }, 401);
     }
 
+    if (pathname === "/api/devices/current" && request.method === "DELETE") {
+      // The demo has no persisted device records; acknowledge the best-effort
+      // disconnect call the extension makes before clearing its token.
+      return new Response(null, { status: 204, headers: cors });
+    }
+
     if (pathname === "/api/health") {
       return json({
         ok: true,
         clientLabel: "qBittorrent",
         appVersion: "5.3.0",
         webApiVersion: "2.16.2",
+        apiVersion: 1,
+        proxyVersion: "0.1.0",
         capabilities: { pauseOnAdd: true },
         defaultCategory: CATEGORY,
         defaultTags: TAGS,

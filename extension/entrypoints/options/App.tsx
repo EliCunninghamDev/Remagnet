@@ -1,4 +1,9 @@
-import { createPublicProxyClient, proxyErrorCode, proxyErrorMessage } from "@remagnet/proxy-client";
+import {
+  createProxyClient,
+  createPublicProxyClient,
+  proxyErrorCode,
+  proxyErrorMessage,
+} from "@remagnet/proxy-client";
 import { createSignal, onMount, Show } from "solid-js";
 import { browser } from "wxt/browser";
 import Wordmark from "../../components/Wordmark";
@@ -208,6 +213,21 @@ export default function App() {
     setConnectedStatus(undefined);
     setSignInStatus(undefined);
     try {
+      // Best effort: revoke this device on the proxy before dropping the token.
+      // Offline proxies and already-revoked tokens must not block a local
+      // disconnect, so every failure is deliberately ignored.
+      const current = settings();
+      if (current.proxyBaseUrl && current.proxyToken) {
+        try {
+          await createProxyClient({
+            baseUrl: current.proxyBaseUrl,
+            token: current.proxyToken,
+          }).DELETE("/api/devices/current");
+        } catch {
+          // The token stays only long enough to clear it below.
+        }
+      }
+
       // Keep the proxy URL so signing back in only needs credentials.
       const values = normalize({ proxyBaseUrl: settings().proxyBaseUrl, proxyToken: "" });
       await saveSettings(values);

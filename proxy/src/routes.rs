@@ -6,7 +6,7 @@ use std::{
 use axum::{
     body::Body,
     extract::{Path, Query, State},
-    http::{header, HeaderMap, StatusCode},
+    http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     routing::{delete, get, post},
     Json, Router,
@@ -14,7 +14,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio_util::io::ReaderStream;
-use tower_http::trace::TraceLayer;
+use tower_http::{set_header::SetResponseHeaderLayer, trace::TraceLayer};
 
 use crate::{
     auth,
@@ -33,15 +33,17 @@ use crate::{
 
 type QueryMap = HashMap<String, String>;
 
+/// The version of the client-facing HTTP contract.
+///
+/// Bump this only for a breaking change to the JSON shapes or routes; clients
+/// can read it from `GET /healthz` and `GET /api/health`.
+pub const API_VERSION: u32 = 1;
+
 const NOT_CONFIGURED: &str =
     "qBittorrent is not configured yet. Open the Remagnet Proxy page to set it up.";
 
 pub fn router(state: Arc<AppState>) -> Router {
-    Router::new()
-        .route("/", get(ui))
-        .route("/icon.svg", get(icon))
-        .route("/assets/departure-mono.woff2", get(wordmark_font))
-        .route("/healthz", get(healthz))
+    let api = Router::new()
         .route("/api/health", get(api_health))
         .route("/api/config", get(get_config).put(put_config))
         .route("/api/pair", post(create_pairing))
@@ -55,6 +57,19 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/archive/{hash}/ticket", post(create_archive_ticket))
         .route("/archive/{hash}", get(archive))
         .merge(crate::auth_routes::router())
+        // Authenticated API responses can carry secrets (tokens, pairings,
+        // configuration), so no browser or intermediary may cache them.
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("no-store"),
+        ));
+
+    Router::new()
+        .route("/", get(ui))
+        .route("/icon.svg", get(icon))
+        .route("/assets/departure-mono.woff2", get(wordmark_font))
+        .route("/healthz", get(healthz))
+        .merge(api)
         .layer(TraceLayer::new_for_http())
         .with_state(state)
 }
@@ -101,6 +116,7 @@ async fn healthz() -> Json<serde_json::Value> {
         "ok": true,
         "service": "remagnet-bridge",
         "version": env!("CARGO_PKG_VERSION"),
+        "apiVersion": API_VERSION,
     }))
 }
 
@@ -118,6 +134,8 @@ async fn api_health(
         "clientLabel": "qBittorrent",
         "appVersion": app_version,
         "webApiVersion": web_api_version,
+        "apiVersion": API_VERSION,
+        "proxyVersion": env!("CARGO_PKG_VERSION"),
         "capabilities": TorrentCapabilities { pause_on_add: true },
         "defaultCategory": default_category,
         "defaultTags": default_tags,
@@ -435,6 +453,19 @@ async fn create_archive_ticket(
 ) -> Result<impl IntoResponse, AppError> {
     require_device_or_admin(&state, &headers).await?;
     validate_hash(&hash)?;
+    let (default_category, default_tags) = magnet_defaults(&state).await;
+    let qbit = require_qbit(&state).await?;
+
+    // Ticket minting obeys the same ownership filter as downloading and
+    // deleting: a hash outside the configured category/tags must not even get
+    // a short-lived credential.
+    let allowed = qbit
+        .get_torrent(&hash)
+        .await?
+        .is_some_and(|torrent| matches_torrent_filter(&torrent, &default_category, &default_tags));
+    if !allowed {
+        return Err(AppError::NotFound("Torrent not found.".to_string()));
+    }
 
     let (ticket, expires_in) = state
         .archive_tickets
@@ -458,8 +489,12 @@ async fn archive(
     require_archive_auth(&state, &headers, &query, &hash).await?;
     validate_hash(&hash)?;
 
+    let (default_category, default_tags) = magnet_defaults(&state).await;
     let qbit = require_qbit(&state).await?;
     let torrent = qbit.torrent(&hash).await?;
+    if !matches_torrent_filter(&torrent.summary(), &default_category, &default_tags) {
+        return Err(AppError::NotFound("Torrent not found.".to_string()));
+    }
     if !torrent_completed(&torrent) {
         return Err(AppError::Conflict(format!(
             "{} is not complete yet ({}%).",
@@ -883,6 +918,12 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["ok"], true);
+        assert_eq!(body["service"], "remagnet-bridge");
+        assert_eq!(body["version"], env!("CARGO_PKG_VERSION"));
+        assert_eq!(body["apiVersion"], API_VERSION);
 
         let response = app
             .router
@@ -896,6 +937,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
 
         let response = app
             .router
@@ -904,10 +946,13 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
         let body = response.into_body().collect().await.unwrap().to_bytes();
         let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(body["appVersion"], "5.3.0");
         assert_eq!(body["clientLabel"], "qBittorrent");
+        assert_eq!(body["apiVersion"], API_VERSION);
+        assert_eq!(body["proxyVersion"], env!("CARGO_PKG_VERSION"));
         assert_eq!(body["capabilities"]["pauseOnAdd"], true);
         assert_eq!(body["defaultCategory"], "remagnet");
         assert_eq!(body["defaultTags"], json!(["remagnet"]));
@@ -919,6 +964,40 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn api_responses_disable_caching() {
+        let app = app(true).await;
+
+        for uri in ["/api/health", "/api/auth/status", "/api/torrents"] {
+            let response = app
+                .router
+                .clone()
+                .oneshot(app.device_request(uri))
+                .await
+                .unwrap();
+            assert_eq!(
+                response.headers().get(header::CACHE_CONTROL).unwrap(),
+                "no-store",
+                "{uri} must not be cached"
+            );
+        }
+
+        // Public pages keep their own caching policy rather than inheriting
+        // the API one.
+        let response = app
+            .router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/healthz")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert!(!response.headers().contains_key(header::CACHE_CONTROL));
     }
 
     #[tokio::test]
@@ -938,6 +1017,7 @@ mod tests {
         let body = response.into_body().collect().await.unwrap().to_bytes();
         let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(body["error"], NOT_CONFIGURED);
+        assert_eq!(body["code"], "not_configured");
 
         let response = app
             .router
@@ -946,6 +1026,9 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["code"], "not_configured");
     }
 
     #[tokio::test]
@@ -1048,6 +1131,56 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn archive_endpoints_refuse_torrents_outside_the_filter() {
+        let app = app(true).await;
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.device_json(
+                "POST",
+                &format!("/api/archive/{OTHER_HASH}/ticket"),
+                json!({}),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["error"], "Torrent not found.");
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.admin_request(&format!("/archive/{OTHER_HASH}")))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["error"], "Torrent not found.");
+
+        // Unknown hashes cannot mint a ticket or start a download either.
+        let unknown = "4444444444444444444444444444444444444444";
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.device_json("POST", &format!("/api/archive/{unknown}/ticket"), json!({})))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.admin_request(&format!("/archive/{unknown}")))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]

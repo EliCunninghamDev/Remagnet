@@ -33,6 +33,8 @@ import dev.remagnet.app.magnet.isMagnetLink
 import dev.remagnet.app.magnet.magnetFromText
 import dev.remagnet.app.magnet.magnetLabel
 import dev.remagnet.app.magnet.parseMagnet
+import dev.remagnet.app.proxy.ProxyApi
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
@@ -353,6 +355,7 @@ class RemagnetViewModel(
      */
     fun disconnect() {
         val current = _state.value
+        val connection = current.settings
         stopPolling()
         proxyCheckId += 1
         listRequestId += 1
@@ -381,6 +384,21 @@ class RemagnetViewModel(
 
         viewModelScope.launch {
             val error = withContext(Dispatchers.IO) {
+                // Best effort: revoke this device while its token is still
+                // available. Offline proxies and already-revoked tokens must
+                // not prevent the local disconnect below.
+                if (connection.proxyConfigured) {
+                    try {
+                        ProxyApi(connection.proxyBaseUrl, connection.proxyToken)
+                            .devices
+                            .revokeCurrentDevice()
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        // Ignore: the local token is cleared regardless.
+                    }
+                }
+
                 try {
                     repository.saveDisconnected(disconnected.proxyBaseUrl)
                     null

@@ -34,6 +34,8 @@ import com.google.gson.annotations.SerializedName
  * @param clientLabel Human-readable name of the adapted torrent client.
  * @param appVersion qBittorrent application version reported by qBittorrent.
  * @param webApiVersion qBittorrent Web API version reported by qBittorrent.
+ * @param apiVersion Version of the client-facing HTTP contract. Currently `1`; it only changes for a breaking change.
+ * @param proxyVersion Version of this Remagnet Proxy build from `CARGO_PKG_VERSION`.
  * @param capabilities
  * @param defaultCategory Category applied to new magnets and used for filtering.
  * @param defaultTags Tags applied to new magnets and used for filtering.
@@ -57,6 +59,14 @@ data class ConnectionHealth (
     /* qBittorrent Web API version reported by qBittorrent. */
     @SerializedName("webApiVersion")
     val webApiVersion: kotlin.String,
+
+    /* Version of the client-facing HTTP contract. Currently `1`; it only changes for a breaking change.  */
+    @SerializedName("apiVersion")
+    val apiVersion: kotlin.Int,
+
+    /* Version of this Remagnet Proxy build from `CARGO_PKG_VERSION`. */
+    @SerializedName("proxyVersion")
+    val proxyVersion: kotlin.String,
 
     @SerializedName("capabilities")
     val capabilities: TorrentCapabilities,

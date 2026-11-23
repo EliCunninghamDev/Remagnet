@@ -64,8 +64,9 @@ The proxy has one administrator account and any number of device tokens.
 | `POST /api/auth/2fa/disable`       | session          | Disable TOTP                                                |
 | `POST /api/auth/device`            | none             | Exchange credentials for a per-device token                 |
 | `GET /api/devices`                 | session          | List device records                                         |
-| `DELETE /api/devices/:id`          | session          | Revoke a device token                                       |
-| `GET /api/health`                  | device           | Proxy capabilities, defaults and qBittorrent versions       |
+| `DELETE /api/devices/current`      | device           | Revoke the caller's own device token (self-service logout)  |
+| `DELETE /api/devices/:id`          | session          | Revoke any device token                                     |
+| `GET /api/health`                  | device           | API/proxy version, capabilities, defaults and qBit versions |
 | `GET /api/config`                  | session          | Read non-secret settings                                    |
 | `PUT /api/config`                  | session          | Update the qBittorrent URL, credentials and magnet defaults |
 | `GET /api/torrents`                | device           | List torrents owned by Remagnet                             |
@@ -85,9 +86,11 @@ accepted anywhere a device token is, including the archive download.
 The proxy is the only component that talks to qBittorrent. It owns the Web UI
 credentials and the category/tags applied to Remagnet magnets, exposes neutral
 torrent endpoints, and keeps qBittorrent credentials off the extension and
-Android client. `GET /api/torrents` filters by the configured category/tags;
-`POST /api/torrents` always applies them and ignores any client-supplied values;
-`DELETE /api/torrents/:hash` refuses torrents outside that filter.
+Android client. `GET /api/torrents` filters by the configured category/tags; `POST /api/torrents`
+always applies them and ignores any client-supplied values; `DELETE
+/api/torrents/:hash`, `POST /api/archive/:hash/ticket` and `GET /archive/:hash`
+refuse torrents outside that filter with `404`. All `/api/*` responses include
+`Cache-Control: no-store`.
 
 The proxy page's **Pair a device** panel mints and rotates the code, renders the
 QR, and revokes it when hidden. Minting also accepts the origin to encode:

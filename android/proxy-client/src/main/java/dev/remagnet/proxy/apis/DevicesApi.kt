@@ -25,6 +25,19 @@ interface DevicesApi {
     suspend fun listDevices(): Response<DeviceList>
 
     /**
+     * DELETE api/devices/current
+     * Revoke the calling device&#39;s own token
+     * Deletes the device record whose &#x60;Authorization: Bearer rmg_…&#x60; token made the request, which immediately invalidates that token. This lets the extension and Android app disconnect without administrator access; it only accepts a device token, never an administrator session cookie. The saved &#x60;auth.json&#x60; is updated before the response. A missing, invalid or already revoked token returns &#x60;401&#x60;.
+     * Responses:
+     *  - 204: The calling device token was revoked.
+     *  - 401: Missing or invalid credentials.
+     *
+     * @return [Unit]
+     */
+    @DELETE("api/devices/current")
+    suspend fun revokeCurrentDevice(): Response<Unit>
+
+    /**
      * DELETE api/devices/{id}
      * Revoke a device token
      * Deletes the device record, which immediately invalidates its token. Requires an administrator session. An unknown id returns &#x60;404&#x60;.

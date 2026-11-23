@@ -123,6 +123,9 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/auth/2fa/disable", post(disable_totp))
         .route("/api/auth/device", post(device_login))
         .route("/api/devices", get(list_devices))
+        // Literal route must stay ahead of `/api/devices/{id}` so `current`
+        // is never interpreted as a device id.
+        .route("/api/devices/current", delete(revoke_current_device))
         .route("/api/devices/{id}", delete(delete_device))
 }
 
@@ -183,9 +186,10 @@ async fn authenticate_credentials(
             .lock()
             .map_err(|_| AppError::internal("sign-in throttling is unavailable"))?;
         if let Err(retry) = limiter.check(&key) {
-            return Err(AppError::TooManyRequests(format!(
-                "Too many sign-in attempts. Try again in {retry} seconds."
-            )));
+            return Err(AppError::TooManyRequests {
+                message: format!("Too many sign-in attempts. Try again in {retry} seconds."),
+                retry_after: retry,
+            });
         }
     }
 
@@ -645,6 +649,34 @@ async fn list_devices(
     Ok(Json(json!({ "devices": data.public_devices() })))
 }
 
+async fn revoke_current_device(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<StatusCode, AppError> {
+    // Administrative sessions are deliberately not enough here: this endpoint
+    // revokes the caller's own device token, not an arbitrary device by id.
+    let token = auth::extract_bearer_token(&headers).ok_or(AppError::Unauthorized)?;
+
+    let removed = {
+        let mut data = state.auth.write().await;
+        let id = data
+            .find_device_by_token(token)
+            .map(|device| device.id.clone())
+            .ok_or(AppError::Unauthorized)?;
+        let removed = data.revoke_device(&id);
+        if removed {
+            auth::save(&state.auth_path, &data).map_err(AppError::internal)?;
+        }
+        removed
+    };
+
+    if removed {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err(AppError::Unauthorized)
+    }
+}
+
 async fn delete_device(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -970,6 +1002,21 @@ mod tests {
         )
         .await;
         assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        let retry_after: u64 = response
+            .headers()
+            .get(header::RETRY_AFTER)
+            .expect("429 must include Retry-After")
+            .to_str()
+            .unwrap()
+            .parse()
+            .unwrap();
+        assert!(retry_after > 0 && retry_after <= auth::LOGIN_WINDOW.as_secs());
+        let body = body(response).await;
+        assert_eq!(body["code"], "rate_limited");
+        assert_eq!(
+            body["error"],
+            format!("Too many sign-in attempts. Try again in {retry_after} seconds.")
+        );
 
         // A different client is not affected by another address's failures.
         let response = Request::builder()
@@ -1203,6 +1250,69 @@ mod tests {
         let response = Request::builder()
             .method("GET")
             .uri("/api/devices")
+            .header(header::AUTHORIZATION, format!("Bearer {token}"))
+            .body(Body::empty())
+            .unwrap();
+        let response = test.router.clone().oneshot(response).await.unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn devices_can_revoke_their_own_token() {
+        let test = initialized_app().await;
+        let cookie = login(&test).await;
+
+        let response = request(
+            &test.router,
+            "POST",
+            "/api/auth/device",
+            Some(json!({
+                "username": USERNAME,
+                "password": PASSWORD,
+                "deviceName": "Self revoking phone",
+            })),
+            None,
+        )
+        .await;
+        let token = body(response).await["token"].as_str().unwrap().to_string();
+
+        // An administrator session is not a device token: this endpoint only
+        // revokes the calling device.
+        let response = request(
+            &test.router,
+            "DELETE",
+            "/api/devices/current",
+            None,
+            Some(&cookie),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+        let response = Request::builder()
+            .method("DELETE")
+            .uri("/api/devices/current")
+            .header(header::AUTHORIZATION, format!("Bearer {token}"))
+            .body(Body::empty())
+            .unwrap();
+        let response = test.router.clone().oneshot(response).await.unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+
+        let saved = auth::load(&test.state.auth_path).unwrap();
+        assert!(saved.devices.is_empty());
+
+        // The revoked token no longer authenticates anything.
+        let response = Request::builder()
+            .method("GET")
+            .uri("/api/devices")
+            .header(header::AUTHORIZATION, format!("Bearer {token}"))
+            .body(Body::empty())
+            .unwrap();
+        let response = test.router.clone().oneshot(response).await.unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+        let response = Request::builder()
+            .method("DELETE")
+            .uri("/api/devices/current")
             .header(header::AUTHORIZATION, format!("Bearer {token}"))
             .body(Body::empty())
             .unwrap();

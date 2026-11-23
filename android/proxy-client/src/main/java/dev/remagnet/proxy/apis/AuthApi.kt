@@ -87,7 +87,7 @@ interface AuthApi {
      * Responses:
      *  - 200: Signed in; the session cookie identifies the browser.
      *  - 401: Bad credentials, a rejected two-factor code, or a missing code when two-factor authentication is enabled (`code: \"totp_required\"`).
-     *  - 429: Too many sign-in attempts from this address; retry later.
+     *  - 429: Too many sign-in attempts from this address. `Retry-After` is the number of seconds to wait before trying again, and `code` is `rate_limited`.
      *
      * @param loginRequest
      * @return [AuthSession]
@@ -102,7 +102,7 @@ interface AuthApi {
      * Responses:
      *  - 200: A new device token and its public device record.
      *  - 401: Bad credentials, a rejected two-factor code, or a missing code when two-factor authentication is enabled (`code: \"totp_required\"`).
-     *  - 429: Too many sign-in attempts from this address; retry later.
+     *  - 429: Too many sign-in attempts from this address. `Retry-After` is the number of seconds to wait before trying again, and `code` is `rate_limited`.
      *
      * @param deviceLoginRequest
      * @return [DeviceLoginResponse]

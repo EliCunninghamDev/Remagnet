@@ -1,5 +1,5 @@
 use axum::{
-    http::StatusCode,
+    http::{header, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     Json,
 };
@@ -14,7 +14,7 @@ pub enum AppError {
     BadRequest(String),
     Unauthorized,
     Forbidden(String),
-    TooManyRequests(String),
+    TooManyRequests { message: String, retry_after: u64 },
     TotpRequired,
     NotFound(String),
     Conflict(String),
@@ -38,12 +38,12 @@ impl std::fmt::Display for AppError {
         match self {
             Self::BadRequest(message)
             | Self::Forbidden(message)
-            | Self::TooManyRequests(message)
             | Self::NotFound(message)
             | Self::Conflict(message)
             | Self::ServiceUnavailable(message)
             | Self::Upstream(message)
             | Self::Internal(message) => formatter.write_str(message),
+            Self::TooManyRequests { message, .. } => formatter.write_str(message),
             Self::Unauthorized => formatter.write_str("authentication required"),
             Self::TotpRequired => formatter.write_str("two-factor authentication code required"),
         }
@@ -54,6 +54,11 @@ impl std::error::Error for AppError {}
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
+        let retry_after = match &self {
+            Self::TooManyRequests { retry_after, .. } => Some(*retry_after),
+            _ => None,
+        };
+
         let (status, payload) = match self {
             Self::TotpRequired => (
                 StatusCode::UNAUTHORIZED,
@@ -68,14 +73,16 @@ impl IntoResponse for AppError {
                 json!({ "error": "Authentication required." }),
             ),
             Self::Forbidden(message) => (StatusCode::FORBIDDEN, json!({ "error": message })),
-            Self::TooManyRequests(message) => {
-                (StatusCode::TOO_MANY_REQUESTS, json!({ "error": message }))
-            }
+            Self::TooManyRequests { message, .. } => (
+                StatusCode::TOO_MANY_REQUESTS,
+                json!({ "error": message, "code": "rate_limited" }),
+            ),
             Self::NotFound(message) => (StatusCode::NOT_FOUND, json!({ "error": message })),
             Self::Conflict(message) => (StatusCode::CONFLICT, json!({ "error": message })),
-            Self::ServiceUnavailable(message) => {
-                (StatusCode::SERVICE_UNAVAILABLE, json!({ "error": message }))
-            }
+            Self::ServiceUnavailable(message) => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                json!({ "error": message, "code": "not_configured" }),
+            ),
             Self::Upstream(message) => (StatusCode::BAD_GATEWAY, json!({ "error": message })),
             Self::Internal(message) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -91,6 +98,14 @@ impl IntoResponse for AppError {
             tracing::warn!(status = status.as_u16(), message, "request failed");
         }
 
-        (status, Json(payload)).into_response()
+        let mut response = (status, Json(payload)).into_response();
+        if let Some(retry_after) = retry_after {
+            response.headers_mut().insert(
+                header::RETRY_AFTER,
+                HeaderValue::from_str(&retry_after.to_string())
+                    .unwrap_or_else(|_| HeaderValue::from_static("1")),
+            );
+        }
+        response
     }
 }

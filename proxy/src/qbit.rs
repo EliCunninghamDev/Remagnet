@@ -96,7 +96,7 @@ pub struct TorrentInfo {
 }
 
 impl TorrentInfo {
-    fn summary(&self) -> TorrentSummary {
+    pub(crate) fn summary(&self) -> TorrentSummary {
         TorrentSummary {
             hash: self.hash.clone(),
             name: self.name.clone(),

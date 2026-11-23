@@ -30,16 +30,29 @@ import com.google.gson.annotations.SerializedName
  * Returned by qBittorrent-backed endpoints before the proxy has credentials. Saving an API key or username through `PUT /api/config` clears it.
  *
  * @param error
+ * @param code Stable identifier for an unconfigured proxy.
  */
 
 
 data class ServiceUnavailable (
 
     @SerializedName("error")
-    val error: kotlin.String
+    val error: kotlin.String,
+
+    /* Stable identifier for an unconfigured proxy. */
+    @SerializedName("code")
+    val code: ServiceUnavailable.Code
 
 ) {
 
+    /**
+     * Stable identifier for an unconfigured proxy.
+     *
+     * Values: not_configured
+     */
+    enum class Code(val value: kotlin.String) {
+        @SerializedName(value = "not_configured") not_configured("not_configured");
+    }
 
 }
 

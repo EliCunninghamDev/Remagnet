@@ -16,12 +16,12 @@ interface ConfigurationApi {
     /**
      * GET api/health
      * Read proxy capabilities and qBittorrent versions
-     * Calls qBittorrent&#39;s &#x60;app/version&#x60; and &#x60;app/webapiVersion&#x60; endpoints with the saved credentials and reports the neutral capabilities and current magnet defaults. Used by the extension&#39;s connection test, the Android app and the configuration page.
+     * Calls qBittorrent&#39;s &#x60;app/version&#x60; and &#x60;app/webapiVersion&#x60; endpoints with the saved credentials and reports the neutral capabilities and current magnet defaults. Used by the extension&#39;s connection test, the Android app and the configuration page. &#x60;apiVersion&#x60; is the client contract version; &#x60;proxyVersion&#x60; is this proxy crate&#39;s version.
      * Responses:
      *  - 200: qBittorrent answered with its versions.
      *  - 401: Missing or invalid credentials.
      *  - 502: qBittorrent could not be reached or returned an error.
-     *  - 503: qBittorrent credentials have not been configured on the proxy yet.
+     *  - 503: qBittorrent credentials have not been configured on the proxy yet. The body carries `code: not_configured` so clients can distinguish this from other server failures.
      *
      * @return [ConnectionHealth]
      */

@@ -30,7 +30,7 @@ import com.google.gson.annotations.SerializedName
  * Error body returned by every failing request.
  *
  * @param error Human-readable message safe to display to the user.
- * @param code Optional machine-readable reason. `totp_required` appears on `401` responses from sign-in and device login when a two-factor code is needed.
+ * @param code Optional machine-readable reason. `totp_required` appears on `401` responses from sign-in and device login when a two-factor code is needed, `rate_limited` appears on `429` responses, and `not_configured` appears on `503` responses before qBittorrent credentials are saved.
  */
 
 
@@ -40,12 +40,22 @@ data class Error (
     @SerializedName("error")
     val error: kotlin.String,
 
-    /* Optional machine-readable reason. `totp_required` appears on `401` responses from sign-in and device login when a two-factor code is needed.  */
+    /* Optional machine-readable reason. `totp_required` appears on `401` responses from sign-in and device login when a two-factor code is needed, `rate_limited` appears on `429` responses, and `not_configured` appears on `503` responses before qBittorrent credentials are saved.  */
     @SerializedName("code")
-    val code: kotlin.String? = null
+    val code: Error.Code? = null
 
 ) {
 
+    /**
+     * Optional machine-readable reason. `totp_required` appears on `401` responses from sign-in and device login when a two-factor code is needed, `rate_limited` appears on `429` responses, and `not_configured` appears on `503` responses before qBittorrent credentials are saved.
+     *
+     * Values: totp_required,rate_limited,not_configured
+     */
+    enum class Code(val value: kotlin.String) {
+        @SerializedName(value = "totp_required") totp_required("totp_required"),
+        @SerializedName(value = "rate_limited") rate_limited("rate_limited"),
+        @SerializedName(value = "not_configured") not_configured("not_configured");
+    }
 
 }
 

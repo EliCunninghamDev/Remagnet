@@ -22,11 +22,16 @@ info:
     `GET /api/auth/status`, `POST /api/auth/setup`, `POST /api/auth/login`,
     `POST /api/auth/device` and `POST /api/pair/claim` are public: they are how
     a client bootstraps credentials. Errors use a JSON body with an `error`
-    field, plus an optional machine-readable `code`.
+    field, plus an optional machine-readable `code`. Every `/api/*` response is
+    sent with `Cache-Control: no-store`.
+
+    `GET /healthz` and `GET /api/health` report `apiVersion`, the version of
+    this HTTP contract. Clients can use it to detect an incompatible proxy
+    before calling newer endpoints; it only changes for breaking changes.
 
     qBittorrent credentials are optional at boot. Until they are saved through
     `PUT /api/config`, the qBittorrent-backed endpoints return `503` with a
-    setup message.
+    setup message and `code: not_configured`.
 servers:
   - url: http://127.0.0.1:8080
     description: Local development (`BIND_ADDR` default is `0.0.0.0:8080`).
@@ -40,7 +45,7 @@ tags:
   - name: Auth
     description: Administrator setup, sign-in, two-factor and device token login.
   - name: Devices
-    description: List and revoke the per-device tokens that reach the client API.
+    description: List, revoke, and self-revoke the per-device tokens that reach the client API.
   - name: Torrents
     description: Client-neutral torrent endpoints backed by qBittorrent.
   - name: Pairing
@@ -93,6 +98,7 @@ paths:
                 ok: true
                 service: remagnet-bridge
                 version: 0.1.0
+                apiVersion: 1
   /api/health:
     get:
       operationId: checkQbitConnection
@@ -101,7 +107,8 @@ paths:
         Calls qBittorrent's `app/version` and `app/webapiVersion` endpoints with
         the saved credentials and reports the neutral capabilities and current
         magnet defaults. Used by the extension's connection test, the Android
-        app and the configuration page.
+        app and the configuration page. `apiVersion` is the client contract
+        version; `proxyVersion` is this proxy crate's version.
       tags: [Configuration]
       security:
         - bearerAuth: []
@@ -109,6 +116,11 @@ paths:
       responses:
         "200":
           description: qBittorrent answered with its versions.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
           content:
             application/json:
               schema:
@@ -118,6 +130,8 @@ paths:
                 clientLabel: qBittorrent
                 appVersion: 5.3.0
                 webApiVersion: 2.16.2
+                apiVersion: 1
+                proxyVersion: 0.1.0
                 capabilities:
                   pauseOnAdd: true
                 defaultCategory: remagnet
@@ -838,6 +852,30 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+  /api/devices/current:
+    delete:
+      operationId: revokeCurrentDevice
+      summary: Revoke the calling device's own token
+      description: |
+        Deletes the device record whose `Authorization: Bearer rmg_…` token made
+        the request, which immediately invalidates that token. This lets the
+        extension and Android app disconnect without administrator access; it
+        only accepts a device token, never an administrator session cookie. The
+        saved `auth.json` is updated before the response. A missing, invalid or
+        already revoked token returns `401`.
+      tags: [Devices]
+      security:
+        - bearerAuth: []
+      responses:
+        "204":
+          description: The calling device token was revoked.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+        "401":
+          $ref: "#/components/responses/Unauthorized"
   /api/devices/{id}:
     delete:
       operationId: revokeDevice
@@ -880,6 +918,10 @@ paths:
         it would leak into history and logs. The caller needs a device token or
         an administrator session; the ticket itself then authorizes exactly one
         `GET /archive/{hash}`.
+
+        The torrent must exist and match the proxy's configured category/tags
+        filter, the same ownership check used by `DELETE /api/torrents/{hash}`.
+        Unrelated or unknown hashes return `404` and never receive a ticket.
       tags: [Archives]
       security:
         - bearerAuth: []
@@ -902,6 +944,10 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /archive/{hash}:
     get:
       operationId: downloadArchive
@@ -911,6 +957,11 @@ paths:
         1, no bytes left, and not in `missingFiles` or `error`), lists its files
         and streams each one from qBittorrent into a stored ZIP entry. Nothing is
         buffered or written to disk.
+
+        The torrent must also match the proxy's configured category/tags filter,
+        the same ownership check used by `DELETE /api/torrents/{hash}`.
+        Unrelated and unknown hashes return `404`, whether the caller uses a
+        token, a session or a ticket.
 
         The response has no `Content-Length` because the archive is produced
         while it is downloaded. If an upstream file stream fails after the
@@ -963,13 +1014,15 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
-          description: No torrent with that hash exists in qBittorrent.
+          description: |
+            The torrent does not exist in qBittorrent, or it does not match the
+            proxy's configured category/tags filter.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
               example:
-                error: Torrent not found in qBittorrent.
+                error: Torrent not found.
         "409":
           description: |
             The torrent is not complete yet, a file is still downloading, or the
@@ -1055,13 +1108,23 @@ components:
           example:
             error: Admin sign-in is required for this action.
     TooManyRequests:
-      description: Too many sign-in attempts from this address; retry later.
+      description: |
+        Too many sign-in attempts from this address. `Retry-After` is the number
+        of seconds to wait before trying again, and `code` is `rate_limited`.
+      headers:
+        Retry-After:
+          description: Seconds to wait before retrying sign-in.
+          schema:
+            type: integer
+            minimum: 1
+          example: 60
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
           example:
             error: Too many sign-in attempts. Try again in 60 seconds.
+            code: rate_limited
     BadRequest:
       description: The request was rejected, for example an invalid URL, hash or field.
       content:
@@ -1071,7 +1134,7 @@ components:
           example:
             error: Enter a valid http:// or https:// URL.
     NotFound:
-      description: The torrent does not exist or is not owned by Remagnet.
+      description: The torrent does not exist or does not match the proxy's filter.
       content:
         application/json:
           schema:
@@ -1091,7 +1154,10 @@ components:
           schema:
             $ref: "#/components/schemas/Error"
     ServiceUnavailable:
-      description: qBittorrent credentials have not been configured on the proxy yet.
+      description: |
+        qBittorrent credentials have not been configured on the proxy yet. The
+        body carries `code: not_configured` so clients can distinguish this from
+        other server failures.
       content:
         application/json:
           schema:
@@ -1110,23 +1176,29 @@ components:
           description: |
             Optional machine-readable reason. `totp_required` appears on `401`
             responses from sign-in and device login when a two-factor code is
-            needed.
-          example: totp_required
+            needed, `rate_limited` appears on `429` responses, and
+            `not_configured` appears on `503` responses before qBittorrent
+            credentials are saved.
+          enum: [totp_required, rate_limited, not_configured]
       additionalProperties: false
     ServiceUnavailable:
       type: object
       description: |
         Returned by qBittorrent-backed endpoints before the proxy has credentials.
         Saving an API key or username through `PUT /api/config` clears it.
-      required: [error]
+      required: [error, code]
       properties:
         error:
           type: string
           example: qBittorrent is not configured yet. Open the Remagnet Proxy page to set it up.
+        code:
+          type: string
+          const: not_configured
+          description: Stable identifier for an unconfigured proxy.
       additionalProperties: false
     Liveness:
       type: object
-      required: [ok, service, version]
+      required: [ok, service, version, apiVersion]
       properties:
         ok:
           type: boolean
@@ -1139,6 +1211,14 @@ components:
         version:
           type: string
           description: Crate version from `CARGO_PKG_VERSION`.
+        apiVersion:
+          type: integer
+          format: int32
+          minimum: 1
+          description: |
+            Version of the client-facing HTTP contract. Currently `1`; it only
+            changes for a breaking change.
+          example: 1
       additionalProperties: false
     TorrentCapabilities:
       type: object
@@ -1159,6 +1239,8 @@ components:
         - clientLabel
         - appVersion
         - webApiVersion
+        - apiVersion
+        - proxyVersion
         - capabilities
         - defaultCategory
         - defaultTags
@@ -1179,6 +1261,18 @@ components:
           type: string
           description: qBittorrent Web API version reported by qBittorrent.
           example: 2.16.2
+        apiVersion:
+          type: integer
+          format: int32
+          minimum: 1
+          description: |
+            Version of the client-facing HTTP contract. Currently `1`; it only
+            changes for a breaking change.
+          example: 1
+        proxyVersion:
+          type: string
+          description: Version of this Remagnet Proxy build from `CARGO_PKG_VERSION`.
+          example: 0.1.0
         capabilities:
           $ref: "#/components/schemas/TorrentCapabilities"
         defaultCategory:
