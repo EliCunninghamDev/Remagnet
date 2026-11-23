@@ -376,9 +376,7 @@ impl QbitClient {
 
     async fn post_form(&self, path: &str, form: &[(String, String)]) -> Result<String, AppError> {
         self.ensure_login().await?;
-        let response = self
-            .request(Method::POST, path, &[], Some(form))
-            .await?;
+        let response = self.request(Method::POST, path, &[], Some(form)).await?;
         let response = ensure_success(response, path).await?;
         response.text().await.map_err(|error| {
             AppError::Upstream(format!("Could not read qBittorrent response: {error}"))
@@ -526,7 +524,11 @@ pub fn matches_torrent_filter(
         return true;
     }
 
-    let torrent_tags = torrent.tags.iter().map(|tag| fold(tag)).collect::<HashSet<_>>();
+    let torrent_tags = torrent
+        .tags
+        .iter()
+        .map(|tag| fold(tag))
+        .collect::<HashSet<_>>();
     tags.iter().any(|tag| torrent_tags.contains(&fold(tag)))
 }
 
@@ -746,12 +748,7 @@ mod tests {
 
         assert_eq!(
             info_hashes(&urls),
-            vec![
-                hex.to_string(),
-                hex.to_string(),
-                hex.to_string(),
-                v2,
-            ]
+            vec![hex.to_string(), hex.to_string(), hex.to_string(), v2,]
         );
     }
 }
