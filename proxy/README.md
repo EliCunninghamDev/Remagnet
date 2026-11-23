@@ -191,8 +191,8 @@ qBittorrent/gluetun. For a standalone host without that network, remove the
 container can reach. The root README has a complete
 [Docker Compose quick start](../README.md#quick-start).
 
-The bind mount is owned by the container's `proxy` user (UID 10001). Create it
-before the first start, or replace it with a named volume:
+The bind mount is owned by the container's `remagnet` user (UID 10001). Create
+it before the first start, or replace it with a named volume:
 
 ```bash
 mkdir -p data

@@ -35,11 +35,11 @@ RUN apt-get update \
 
 COPY --from=build /usr/local/bin/remagnet-proxy /usr/local/bin/remagnet-proxy
 
-RUN useradd --system --uid 10001 --home-dir /data --shell /usr/sbin/nologin proxy \
+RUN useradd --system --uid 10001 --home-dir /data --shell /usr/sbin/nologin remagnet \
     && mkdir -p /data \
-    && chown proxy:proxy /data
+    && chown remagnet:remagnet /data
 
-USER proxy
+USER remagnet
 ENV DATA_DIR=/data
 ENV BIND_ADDR=0.0.0.0:8080
 EXPOSE 8080
