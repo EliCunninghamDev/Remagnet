@@ -23,14 +23,24 @@
 
 package dev.remagnet.proxy.models
 
+import dev.remagnet.proxy.models.ClientKind
 
 import com.google.gson.annotations.SerializedName
 
 /**
- * @param qbitBaseUrl qBittorrent Web UI URL. Must use `http://` or `https://`, must not contain credentials, a query or a fragment, and is stored without trailing slashes.
- * @param qbitApiKey qBittorrent 5.2+ API key. Omit to keep the saved key; send an empty string to clear it.
- * @param qbitUsername Username for cookie-based login. Omit to keep the saved username; send an empty string to clear it.
- * @param qbitPassword Password for cookie-based login. Omit to keep the saved password; send an empty string to clear it.
+ * Fields the config page may change. A missing field keeps the saved value. For secret fields, sending an empty string clears the value.
+ *
+ * @param baseUrl Torrent client URL. Must use `http://` or `https://`, must not contain credentials, a query or a fragment, and is stored without trailing slashes. `qbitBaseUrl` is accepted as an alias.
+ * @param clientKind
+ * @param qbitBaseUrl Alias for `baseUrl`, kept for older clients. Do not send both fields in one request.
+ * @param apiKey qBittorrent 5.2+ API key. Omit to keep the saved key; send an empty string to clear it. `qbitApiKey` is accepted as an alias.
+ * @param qbitApiKey Alias for `apiKey`, kept for older clients.
+ * @param username Torrent client username. Omit to keep the saved username; send an empty string to clear it. `qbitUsername` is accepted as an alias.
+ * @param qbitUsername Alias for `username`, kept for older clients.
+ * @param password Torrent client password. Omit to keep the saved password; send an empty string to clear it. `qbitPassword` is accepted as an alias.
+ * @param qbitPassword Alias for `password`, kept for older clients.
+ * @param downloadsDir Path on the proxy where the client's downloads volume is mounted read-only. Required for ZIP archive downloads; send an empty string to disable them.
+ * @param clientDownloadsDir Optional prefix of torrent download paths as seen by the torrent client, such as `/data/torrents`. Used together with `downloadsDir` to locate completed files.
  * @param defaultCategory Category applied to new magnets and used to decide which torrents Remagnet owns. Omit to keep the saved value; send an empty string to disable category matching.
  * @param defaultTags Tags applied to new magnets and used to decide which torrents Remagnet owns. Omit to keep the saved value; send an empty array to disable tag matching. Entries are trimmed and deduplicated.
  */
@@ -38,21 +48,48 @@ import com.google.gson.annotations.SerializedName
 
 data class ConfigUpdate (
 
-    /* qBittorrent Web UI URL. Must use `http://` or `https://`, must not contain credentials, a query or a fragment, and is stored without trailing slashes.  */
-    @SerializedName("qbitBaseUrl")
-    val qbitBaseUrl: java.net.URI,
+    /* Torrent client URL. Must use `http://` or `https://`, must not contain credentials, a query or a fragment, and is stored without trailing slashes. `qbitBaseUrl` is accepted as an alias.  */
+    @SerializedName("baseUrl")
+    val baseUrl: java.net.URI,
 
-    /* qBittorrent 5.2+ API key. Omit to keep the saved key; send an empty string to clear it.  */
+    @SerializedName("clientKind")
+    val clientKind: ClientKind? = null,
+
+    /* Alias for `baseUrl`, kept for older clients. Do not send both fields in one request.  */
+    @SerializedName("qbitBaseUrl")
+    val qbitBaseUrl: java.net.URI? = null,
+
+    /* qBittorrent 5.2+ API key. Omit to keep the saved key; send an empty string to clear it. `qbitApiKey` is accepted as an alias.  */
+    @SerializedName("apiKey")
+    val apiKey: kotlin.String? = null,
+
+    /* Alias for `apiKey`, kept for older clients. */
     @SerializedName("qbitApiKey")
     val qbitApiKey: kotlin.String? = null,
 
-    /* Username for cookie-based login. Omit to keep the saved username; send an empty string to clear it.  */
+    /* Torrent client username. Omit to keep the saved username; send an empty string to clear it. `qbitUsername` is accepted as an alias.  */
+    @SerializedName("username")
+    val username: kotlin.String? = null,
+
+    /* Alias for `username`, kept for older clients. */
     @SerializedName("qbitUsername")
     val qbitUsername: kotlin.String? = null,
 
-    /* Password for cookie-based login. Omit to keep the saved password; send an empty string to clear it.  */
+    /* Torrent client password. Omit to keep the saved password; send an empty string to clear it. `qbitPassword` is accepted as an alias.  */
+    @SerializedName("password")
+    val password: kotlin.String? = null,
+
+    /* Alias for `password`, kept for older clients. */
     @SerializedName("qbitPassword")
     val qbitPassword: kotlin.String? = null,
+
+    /* Path on the proxy where the client's downloads volume is mounted read-only. Required for ZIP archive downloads; send an empty string to disable them.  */
+    @SerializedName("downloadsDir")
+    val downloadsDir: kotlin.String? = null,
+
+    /* Optional prefix of torrent download paths as seen by the torrent client, such as `/data/torrents`. Used together with `downloadsDir` to locate completed files.  */
+    @SerializedName("clientDownloadsDir")
+    val clientDownloadsDir: kotlin.String? = null,
 
     /* Category applied to new magnets and used to decide which torrents Remagnet owns. Omit to keep the saved value; send an empty string to disable category matching.  */
     @SerializedName("defaultCategory")

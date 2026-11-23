@@ -18,11 +18,9 @@ use tokio::io::{AsyncWriteExt, DuplexStream};
 use tokio_util::io::ReaderStream;
 
 use crate::{
+    backend::{ArchiveFile, ArchiveTorrent, TorrentBackend},
     error::AppError,
-    qbit::{QbitClient, TorrentFile},
 };
-
-const COMPLETE_EPSILON: f64 = 0.999_999;
 
 /// HTTP body for a ZIP that is still being produced.
 ///
@@ -78,7 +76,7 @@ impl Stream for ZipStream {
     }
 }
 
-/// qBittorrent v1 hashes are 40 hex characters; v2 hashes are 64.
+/// torrent v1 hashes are 40 hex characters; v2 hashes are 64.
 pub fn validate_hash(hash: &str) -> Result<(), AppError> {
     let hash = hash.trim();
     let valid_length = hash.len() == 40 || hash.len() == 64;
@@ -89,12 +87,6 @@ pub fn validate_hash(hash: &str) -> Result<(), AppError> {
             "Expected a 40 or 64 character hex info hash.".to_string(),
         ))
     }
-}
-
-pub fn torrent_completed(torrent: &crate::qbit::TorrentInfo) -> bool {
-    torrent.progress >= COMPLETE_EPSILON
-        && torrent.amount_left == 0
-        && !matches!(torrent.state.as_str(), "missingFiles" | "error")
 }
 
 /// Name used in Content-Disposition and as the browser's suggested filename.
@@ -114,7 +106,7 @@ pub fn zip_filename(torrent_name: &str) -> String {
     format!("{base}.zip")
 }
 
-/// Turn a qBittorrent file path into a safe path inside the ZIP.
+/// Turn a torrent client file path into a safe path inside the ZIP.
 pub fn zip_entry_name(file_name: &str, index: i64) -> String {
     let normalized = file_name.replace('\\', "/");
     let parts = normalized
@@ -162,14 +154,14 @@ pub fn content_disposition(filename: &str) -> String {
 
 /// Write the torrent's files into a ZIP stream.
 ///
-/// Each file is fetched from qBittorrent's `torrents/downloadFile` endpoint and
-/// copied into an entry as it arrives, so the bridge never needs the downloads
-/// volume mounted and never buffers a whole file.
+/// Each file is streamed from the configured torrent client (or its mounted
+/// downloads volume) and copied into an entry as it arrives, so the bridge never
+/// buffers a whole file. This module has no client-specific coupling.
 pub async fn write_zip(
     writer: DuplexStream,
-    qbit: QbitClient,
-    hash: String,
-    files: Vec<TorrentFile>,
+    backend: TorrentBackend,
+    torrent: ArchiveTorrent,
+    files: Vec<ArchiveFile>,
     success: Arc<AtomicBool>,
 ) -> Result<()> {
     let total_size: u64 = files.iter().map(|file| file.size).sum();
@@ -197,16 +189,14 @@ pub async fn write_zip(
 
         let mut written = 0u64;
 
-        let mut response = qbit
-            .download_file(&hash, &file.name)
+        let mut stream = backend
+            .open_file(&torrent, &file)
             .await
-            .with_context(|| format!("could not open {} from qBittorrent", file.name))?;
+            .with_context(|| format!("could not open {} from the torrent client", file.name))?;
 
-        while let Some(chunk) = response
-            .chunk()
-            .await
-            .with_context(|| format!("could not read {} from qBittorrent", file.name))?
-        {
+        while let Some(chunk) = futures_lite::StreamExt::next(&mut stream).await {
+            let chunk = chunk
+                .with_context(|| format!("could not read {} from the torrent client", file.name))?;
             written += chunk.len() as u64;
             futures_lite::io::AsyncWriteExt::write_all(&mut entry_writer, &chunk)
                 .await
@@ -215,7 +205,7 @@ pub async fn write_zip(
 
         if written != file.size {
             bail!(
-                "qBittorrent sent {written} of {} bytes for {}",
+                "The torrent client sent {written} of {} bytes for {}",
                 file.size,
                 file.name
             );

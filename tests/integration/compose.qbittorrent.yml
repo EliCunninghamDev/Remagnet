@@ -1,0 +1,31 @@
+services:
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:latest
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: UTC
+      WEBUI_PORT: "8080"
+    ports:
+      - "18080:8080"
+    volumes:
+      - ./tmp/qbittorrent/config:/config
+      - ./tmp/qbittorrent/downloads:/downloads
+
+  remagnet-bridge:
+    build:
+      context: ../../proxy
+    environment:
+      DATA_DIR: /data
+      BIND_ADDR: 0.0.0.0:8080
+      SETUP_CODE: integration-setup-code
+      CLIENT_KIND: qbittorrent
+      QBIT_BASE_URL: http://qbittorrent:8080
+      REMAGNET_CATEGORY: remagnet
+      REMAGNET_TAGS: remagnet
+    ports:
+      - "18081:8080"
+    volumes:
+      - ./tmp/qbittorrent/proxy-data:/data
+    depends_on:
+      - qbittorrent

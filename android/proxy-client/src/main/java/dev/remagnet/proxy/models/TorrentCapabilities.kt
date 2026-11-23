@@ -30,6 +30,9 @@ import com.google.gson.annotations.SerializedName
  * Features the proxy supports through its neutral torrent API.
  *
  * @param pauseOnAdd Whether `POST /api/torrents` accepts `paused`.
+ * @param archiveDownload Whether completed torrents can be streamed as ZIP archives. This is only true when `DOWNLOADS_DIR` points at the client's downloads volume.
+ * @param categories Whether the adapted client supports categories.
+ * @param tags Whether the adapted client supports tags. Transmission exposes them as labels.
  */
 
 
@@ -37,7 +40,19 @@ data class TorrentCapabilities (
 
     /* Whether `POST /api/torrents` accepts `paused`. */
     @SerializedName("pauseOnAdd")
-    val pauseOnAdd: kotlin.Boolean
+    val pauseOnAdd: kotlin.Boolean,
+
+    /* Whether completed torrents can be streamed as ZIP archives. This is only true when `DOWNLOADS_DIR` points at the client's downloads volume.  */
+    @SerializedName("archiveDownload")
+    val archiveDownload: kotlin.Boolean,
+
+    /* Whether the adapted client supports categories. */
+    @SerializedName("categories")
+    val categories: kotlin.Boolean,
+
+    /* Whether the adapted client supports tags. Transmission exposes them as labels.  */
+    @SerializedName("tags")
+    val tags: kotlin.Boolean
 
 ) {
 

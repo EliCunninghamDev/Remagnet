@@ -23,28 +23,45 @@
 
 package dev.remagnet.proxy.models
 
+import dev.remagnet.proxy.models.ClientKind
 
 import com.google.gson.annotations.SerializedName
 
 /**
  * Non-secret view of the saved configuration. Secret values are represented only by booleans.
  *
- * @param qbitBaseUrl Normalized qBittorrent Web UI base URL without a trailing slash.
- * @param qbitUsername Saved qBittorrent username, or an empty string.
+ * @param clientKind
+ * @param baseUrl Normalized torrent client URL without a trailing slash. For qBittorrent this is the Web UI URL; for Transmission it is the RPC endpoint.
+ * @param qbitBaseUrl Deprecated alias for `baseUrl`, kept for older clients. Always has the same value.
+ * @param username Saved torrent client username, or an empty string.
+ * @param qbitUsername Deprecated alias for `username`, kept for older clients.
  * @param hasApiKey Whether a qBittorrent API key is saved.
- * @param hasPassword Whether a qBittorrent password is saved.
+ * @param hasPassword Whether a torrent client password is saved.
+ * @param downloadsDir Path on the proxy where the client's downloads volume is mounted read-only, or an empty string when ZIP streaming is disabled.
+ * @param clientDownloadsDir Optional prefix of torrent download paths as seen by the torrent client, used to map them under `downloadsDir`.
  * @param defaultCategory Category applied to new magnets and used for filtering.
- * @param defaultTags Tags applied to new magnets and used for filtering.
+ * @param defaultTags Tags applied to new magnets and used for filtering. Transmission exposes tags as labels.
  */
 
 
 data class PublicConfig (
 
-    /* Normalized qBittorrent Web UI base URL without a trailing slash. */
+    @SerializedName("clientKind")
+    val clientKind: ClientKind,
+
+    /* Normalized torrent client URL without a trailing slash. For qBittorrent this is the Web UI URL; for Transmission it is the RPC endpoint.  */
+    @SerializedName("baseUrl")
+    val baseUrl: java.net.URI,
+
+    /* Deprecated alias for `baseUrl`, kept for older clients. Always has the same value.  */
     @SerializedName("qbitBaseUrl")
     val qbitBaseUrl: java.net.URI,
 
-    /* Saved qBittorrent username, or an empty string. */
+    /* Saved torrent client username, or an empty string. */
+    @SerializedName("username")
+    val username: kotlin.String,
+
+    /* Deprecated alias for `username`, kept for older clients. */
     @SerializedName("qbitUsername")
     val qbitUsername: kotlin.String,
 
@@ -52,15 +69,23 @@ data class PublicConfig (
     @SerializedName("hasApiKey")
     val hasApiKey: kotlin.Boolean,
 
-    /* Whether a qBittorrent password is saved. */
+    /* Whether a torrent client password is saved. */
     @SerializedName("hasPassword")
     val hasPassword: kotlin.Boolean,
+
+    /* Path on the proxy where the client's downloads volume is mounted read-only, or an empty string when ZIP streaming is disabled.  */
+    @SerializedName("downloadsDir")
+    val downloadsDir: kotlin.String,
+
+    /* Optional prefix of torrent download paths as seen by the torrent client, used to map them under `downloadsDir`.  */
+    @SerializedName("clientDownloadsDir")
+    val clientDownloadsDir: kotlin.String,
 
     /* Category applied to new magnets and used for filtering. */
     @SerializedName("defaultCategory")
     val defaultCategory: kotlin.String,
 
-    /* Tags applied to new magnets and used for filtering. */
+    /* Tags applied to new magnets and used for filtering. Transmission exposes tags as labels.  */
     @SerializedName("defaultTags")
     val defaultTags: kotlin.collections.List<kotlin.String>
 

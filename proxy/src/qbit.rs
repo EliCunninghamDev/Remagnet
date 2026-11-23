@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -7,61 +7,19 @@ use std::{
 };
 
 use anyhow::Context;
+use futures_lite::StreamExt as _;
 use reqwest::{header::REFERER, Method, Response, StatusCode};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize};
 use tokio::sync::Mutex;
-use url::Url;
 
-use crate::{config::Config, error::AppError};
-
-/// A torrent in the client-neutral shape shared by the extension and Android.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TorrentSummary {
-    pub hash: String,
-    pub name: String,
-    pub state: String,
-    pub progress: f64,
-    pub size: u64,
-    pub download_speed: u64,
-    pub upload_speed: u64,
-    pub eta: i64,
-    pub ratio: f64,
-    pub category: String,
-    pub tags: Vec<String>,
-    pub seeds: u64,
-    pub peers: u64,
-}
-
-/// Features the proxy exposes for the torrent client it adapts.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TorrentCapabilities {
-    pub pause_on_add: bool,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TorrentList {
-    pub torrents: Vec<TorrentSummary>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AddTorrentRequest {
-    pub urls: Vec<String>,
-    #[serde(default)]
-    pub paused: bool,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AddTorrentResult {
-    pub added: usize,
-    pub hashes: Vec<String>,
-    pub category: String,
-    pub tags: Vec<String>,
-}
+use crate::{
+    backend::{
+        extract_magnet_hashes, AddTorrentResult, ArchiveFile, ArchiveTorrent, BackendHealth,
+        ClientKind, FileByteStream, TorrentCapabilities, TorrentSummary, VolumeMapper,
+    },
+    config::Config,
+    error::AppError,
+};
 
 /// Raw qBittorrent torrent fields used internally, including completion data
 /// that the neutral API does not expose.
@@ -93,6 +51,8 @@ pub struct TorrentInfo {
     pub num_seeds: u64,
     #[serde(default)]
     pub num_leechs: u64,
+    #[serde(default)]
+    pub save_path: String,
 }
 
 impl TorrentInfo {
@@ -113,6 +73,19 @@ impl TorrentInfo {
             peers: self.num_leechs,
         }
     }
+
+    pub(crate) fn archive(&self) -> ArchiveTorrent {
+        ArchiveTorrent {
+            hash: self.hash.clone(),
+            name: self.name.clone(),
+            progress: self.progress,
+            amount_left: self.amount_left,
+            state: self.state.clone(),
+            category: self.category.clone(),
+            tags: crate::config::parse_tags(&self.tags),
+            download_dir: (!self.save_path.trim().is_empty()).then(|| self.save_path.clone()),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -124,6 +97,17 @@ pub struct TorrentFile {
     pub size: u64,
     #[serde(default)]
     pub progress: f64,
+}
+
+impl From<TorrentFile> for ArchiveFile {
+    fn from(file: TorrentFile) -> Self {
+        Self {
+            index: file.index,
+            name: file.name,
+            size: file.size,
+            progress: file.progress,
+        }
+    }
 }
 
 /// Minimal qBittorrent Web API v2 client.
@@ -139,6 +123,7 @@ pub struct QbitClient {
     http: reqwest::Client,
     logged_in: Arc<AtomicBool>,
     login_lock: Arc<Mutex<()>>,
+    volume: VolumeMapper,
 }
 
 impl QbitClient {
@@ -154,23 +139,31 @@ impl QbitClient {
             .context("could not build the qBittorrent HTTP client")?;
 
         Ok(Self {
-            base_url: config.qbit_base_url.clone(),
-            api_key: (!config.qbit_api_key.is_empty()).then(|| config.qbit_api_key.clone()),
-            username: (!config.qbit_username.is_empty()).then(|| config.qbit_username.clone()),
-            password: config.qbit_password.clone(),
+            base_url: config.base_url.clone(),
+            api_key: (!config.api_key.is_empty()).then(|| config.api_key.clone()),
+            username: (!config.username.is_empty()).then(|| config.username.clone()),
+            password: config.password.clone(),
             http,
             logged_in: Arc::new(AtomicBool::new(false)),
             login_lock: Arc::new(Mutex::new(())),
+            volume: VolumeMapper::from_config(config),
         })
     }
 
-    pub async fn test_connection(&self) -> Result<(String, String), AppError> {
+    pub async fn test_connection(&self) -> Result<BackendHealth, AppError> {
         let app_version = self.get_text("api/v2/app/version").await?;
         let web_api_version = self.get_text("api/v2/app/webapiVersion").await?;
-        Ok((
-            app_version.trim().to_string(),
-            web_api_version.trim().to_string(),
-        ))
+        Ok(BackendHealth {
+            client_label: ClientKind::Qbittorrent.label().to_string(),
+            app_version: app_version.trim().to_string(),
+            web_api_version: web_api_version.trim().to_string(),
+            capabilities: TorrentCapabilities {
+                pause_on_add: true,
+                archive_download: true,
+                categories: true,
+                tags: true,
+            },
+        })
     }
 
     pub async fn list_torrents(&self) -> Result<Vec<TorrentSummary>, AppError> {
@@ -246,7 +239,7 @@ impl QbitClient {
 
         Ok(AddTorrentResult {
             added: urls.len(),
-            hashes: info_hashes(urls),
+            hashes: extract_magnet_hashes(urls),
             category: category.to_string(),
             tags,
         })
@@ -279,7 +272,41 @@ impl QbitClient {
                 &[("hash", hash), ("file", file)],
             )
             .await?;
+        if matches!(
+            response.status(),
+            StatusCode::NOT_FOUND | StatusCode::METHOD_NOT_ALLOWED
+        ) {
+            return Err(AppError::NotFound(format!(
+                "qBittorrent does not expose {file} for download."
+            )));
+        }
         ensure_success(response, "api/v2/torrents/downloadFile").await
+    }
+
+    /// Stream one torrent file, preferring the qBittorrent HTTP endpoint.
+    ///
+    /// qBittorrent 5.x serves `torrents/downloadFile` directly. Older releases
+    /// return 404; when a read-only downloads volume is configured, the file is
+    /// read from the mounted volume instead.
+    pub async fn open_file(
+        &self,
+        torrent: &ArchiveTorrent,
+        file: &ArchiveFile,
+    ) -> Result<FileByteStream, AppError> {
+        match self.download_file(&torrent.hash, &file.name).await {
+            Ok(response) => {
+                let stream = response
+                    .bytes_stream()
+                    .map(|result| result.map_err(std::io::Error::other));
+                Ok(Box::pin(stream))
+            }
+            Err(AppError::NotFound(_)) if self.volume.is_configured() => {
+                self.volume
+                    .open_file(torrent.download_dir.as_deref(), &file.name)
+                    .await
+            }
+            Err(error) => Err(error),
+        }
     }
 
     async fn get_torrent_info(&self, hash: &str) -> Result<Option<TorrentInfo>, AppError> {
@@ -499,130 +526,6 @@ pub fn normalize_state(state: &str) -> String {
     .to_string()
 }
 
-/// Whether a torrent is owned by Remagnet under the configured defaults.
-///
-/// Category and tag matching is case-insensitive, mirroring qBittorrent and the
-/// extension's relevance filter. When both defaults are empty, every torrent
-/// matches.
-pub fn matches_torrent_filter(
-    torrent: &TorrentSummary,
-    default_category: &str,
-    default_tags: &[String],
-) -> bool {
-    let category = default_category.trim();
-    let tags = default_tags
-        .iter()
-        .map(|tag| tag.trim())
-        .filter(|tag| !tag.is_empty())
-        .collect::<Vec<_>>();
-
-    if category.is_empty() && tags.is_empty() {
-        return true;
-    }
-
-    if !category.is_empty() && fold(&torrent.category) == fold(category) {
-        return true;
-    }
-
-    let torrent_tags = torrent
-        .tags
-        .iter()
-        .map(|tag| fold(tag))
-        .collect::<HashSet<_>>();
-    tags.iter().any(|tag| torrent_tags.contains(&fold(tag)))
-}
-
-/// Extract the v1/v2 info hashes embedded in `magnet:` URLs.
-pub fn info_hashes(urls: &[String]) -> Vec<String> {
-    urls.iter().filter_map(|url| info_hash(url)).collect()
-}
-
-fn info_hash(url: &str) -> Option<String> {
-    let parsed = Url::parse(url.trim()).ok()?;
-    if !parsed.scheme().eq_ignore_ascii_case("magnet") {
-        return None;
-    }
-
-    let mut btih = None;
-    let mut btmh = None;
-    for (key, value) in parsed.query_pairs() {
-        if !key.eq_ignore_ascii_case("xt") {
-            continue;
-        }
-
-        let value = value.trim().to_ascii_lowercase();
-        if let Some(hash) = value.strip_prefix("urn:btih:") {
-            if btih.is_none() {
-                btih = parse_btih(hash);
-            }
-        } else if let Some(hash) = value.strip_prefix("urn:btmh:") {
-            if btmh.is_none() {
-                btmh = parse_btmh(hash);
-            }
-        }
-    }
-
-    btih.or(btmh)
-}
-
-fn parse_btih(hash: &str) -> Option<String> {
-    if hash.len() == 40 && is_hex(hash) {
-        return Some(hash.to_string());
-    }
-    if hash.len() == 32 {
-        return base32_to_hex(hash);
-    }
-    None
-}
-
-fn parse_btmh(hash: &str) -> Option<String> {
-    let hash = hash
-        .strip_prefix("1220")
-        .filter(|rest| rest.len() == 64)
-        .unwrap_or(hash);
-    (hash.len() == 64 && is_hex(hash)).then(|| hash.to_string())
-}
-
-fn is_hex(value: &str) -> bool {
-    value.chars().all(|character| character.is_ascii_hexdigit())
-}
-
-fn base32_to_hex(value: &str) -> Option<String> {
-    let mut bytes = Vec::with_capacity(20);
-    let mut buffer = 0u32;
-    let mut bits = 0u32;
-
-    for character in value.chars() {
-        let digit = match character.to_ascii_uppercase() {
-            'A'..='Z' => character.to_ascii_uppercase() as u32 - 'A' as u32,
-            '2'..='7' => character as u32 - '2' as u32 + 26,
-            _ => return None,
-        };
-        buffer = (buffer << 5) | digit;
-        bits += 5;
-        if bits >= 8 {
-            bits -= 8;
-            bytes.push((buffer >> bits) as u8);
-            buffer &= if bits == 0 { 0 } else { (1 << bits) - 1 };
-        }
-    }
-
-    if bytes.len() != 20 {
-        return None;
-    }
-
-    Some(
-        bytes
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect::<String>(),
-    )
-}
-
-fn fold(value: &str) -> String {
-    value.trim().to_lowercase()
-}
-
 async fn ensure_success(response: Response, path: &str) -> Result<Response, AppError> {
     let status = response.status();
     if status.is_success() {
@@ -652,24 +555,6 @@ fn truncate(value: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn torrent(category: &str, tags: &[&str]) -> TorrentSummary {
-        TorrentSummary {
-            hash: "a".repeat(40),
-            name: "Example".to_string(),
-            state: "seeding".to_string(),
-            progress: 1.0,
-            size: 10,
-            download_speed: 0,
-            upload_speed: 0,
-            eta: 0,
-            ratio: 1.0,
-            category: category.to_string(),
-            tags: tags.iter().map(|tag| tag.to_string()).collect(),
-            seeds: 1,
-            peers: 1,
-        }
-    }
 
     #[test]
     fn normalizes_every_known_qbittorrent_state() {
@@ -701,54 +586,5 @@ mod tests {
             assert_eq!(normalize_state(raw), expected);
         }
         assert_eq!(normalize_state("futureState"), "futureState");
-    }
-
-    #[test]
-    fn filters_by_category_or_tag_ignoring_case() {
-        let category = "Remagnet";
-        let tags = vec!["Nas".to_string()];
-        assert!(matches_torrent_filter(
-            &torrent("remagnet", &[]),
-            category,
-            &tags
-        ));
-        assert!(matches_torrent_filter(
-            &torrent("films", &["nas"]),
-            category,
-            &tags
-        ));
-        assert!(!matches_torrent_filter(
-            &torrent("films", &["other"]),
-            category,
-            &tags
-        ));
-    }
-
-    #[test]
-    fn empty_defaults_accept_every_torrent() {
-        assert!(matches_torrent_filter(&torrent("films", &[]), "", &[]));
-        assert!(matches_torrent_filter(
-            &torrent("", &[]),
-            "  ",
-            &["  ".to_string()]
-        ));
-    }
-
-    #[test]
-    fn extracts_v1_and_v2_hashes_from_magnets() {
-        let hex = "0123456789abcdef0123456789abcdef01234567";
-        let v2 = "0123456789abcdef".repeat(4);
-        let urls = vec![
-            format!("magnet:?xt=urn:btih:{hex}&dn=test"),
-            format!("magnet:?xt=urn:btih:{}", hex.to_uppercase()),
-            "magnet:?xt=urn:btih:AERUKZ4JVPG66AJDIVTYTK6N54ASGRLH".to_string(),
-            format!("magnet:?xt=urn:btmh:1220{v2}"),
-            "https://example.com/file.torrent".to_string(),
-        ];
-
-        assert_eq!(
-            info_hashes(&urls),
-            vec![hex.to_string(), hex.to_string(), hex.to_string(), v2,]
-        );
     }
 }

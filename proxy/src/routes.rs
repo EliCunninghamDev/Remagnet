@@ -19,15 +19,13 @@ use tower_http::{set_header::SetResponseHeaderLayer, trace::TraceLayer};
 use crate::{
     auth,
     auth_routes::{require_admin, require_archive_auth, require_device_or_admin},
+    backend::{
+        matches_torrent_filter, torrent_completed, AddTorrentRequest, AddTorrentResult,
+        TorrentBackend, TorrentList, TorrentSummary,
+    },
     config::{save, ConfigUpdate, PublicConfig},
     error::AppError,
-    qbit::{
-        matches_torrent_filter, AddTorrentRequest, AddTorrentResult, QbitClient,
-        TorrentCapabilities, TorrentList, TorrentSummary,
-    },
-    zipstream::{
-        content_disposition, torrent_completed, validate_hash, write_zip, zip_filename, ZipStream,
-    },
+    zipstream::{content_disposition, validate_hash, write_zip, zip_filename, ZipStream},
     AppState,
 };
 
@@ -125,18 +123,18 @@ async fn api_health(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, AppError> {
     require_device_or_admin(&state, &headers).await?;
-    let qbit = require_qbit(&state).await?;
+    let backend = require_backend(&state).await?;
     let (default_category, default_tags) = magnet_defaults(&state).await;
-    let (app_version, web_api_version) = qbit.test_connection().await?;
+    let health = backend.test_connection().await?;
 
     Ok(Json(json!({
         "ok": true,
-        "clientLabel": "qBittorrent",
-        "appVersion": app_version,
-        "webApiVersion": web_api_version,
+        "clientLabel": health.client_label,
+        "appVersion": health.app_version,
+        "webApiVersion": health.web_api_version,
         "apiVersion": API_VERSION,
         "proxyVersion": env!("CARGO_PKG_VERSION"),
-        "capabilities": TorrentCapabilities { pause_on_add: true },
+        "capabilities": health.capabilities,
         "defaultCategory": default_category,
         "defaultTags": default_tags,
     })))
@@ -166,20 +164,16 @@ async fn put_config(
     // Build the client before touching the file so an invalid URL or HTTP
     // client setup never replaces a working configuration. A proxy without
     // credentials stays bootable with no client until setup is completed.
-    let qbit = if candidate.has_credentials() {
-        Some(QbitClient::new(&candidate).map_err(AppError::internal)?)
-    } else {
-        None
-    };
+    let backend = TorrentBackend::from_config(&candidate).map_err(AppError::internal)?;
     save(&state.config_path, &candidate)
         .await
         .map_err(AppError::internal)?;
 
     {
         let mut config = state.config.write().await;
-        let mut client = state.qbit.write().await;
+        let mut client = state.backend.write().await;
         *config = candidate.clone();
-        *client = qbit;
+        *client = backend;
     }
 
     Ok(Json(PublicConfig::from(&candidate)))
@@ -350,9 +344,9 @@ async fn list_torrents(
 ) -> Result<Json<TorrentList>, AppError> {
     require_device_or_admin(&state, &headers).await?;
     let (default_category, default_tags) = magnet_defaults(&state).await;
-    let qbit = require_qbit(&state).await?;
+    let backend = require_backend(&state).await?;
 
-    let torrents = qbit
+    let torrents = backend
         .list_torrents()
         .await?
         .into_iter()
@@ -369,9 +363,9 @@ async fn get_torrent(
 ) -> Result<Json<TorrentSummary>, AppError> {
     require_device_or_admin(&state, &headers).await?;
     validate_hash(&hash)?;
-    let qbit = require_qbit(&state).await?;
+    let backend = require_backend(&state).await?;
 
-    match qbit.get_torrent(&hash).await? {
+    match backend.get_torrent(&hash).await? {
         Some(torrent) => Ok(Json(torrent)),
         None => Err(AppError::NotFound(
             "Torrent not found in qBittorrent.".to_string(),
@@ -386,12 +380,12 @@ async fn add_torrent(
 ) -> Result<Json<AddTorrentResult>, AppError> {
     require_device_or_admin(&state, &headers).await?;
     let (default_category, default_tags) = magnet_defaults(&state).await;
-    let qbit = require_qbit(&state).await?;
+    let backend = require_backend(&state).await?;
 
     // Clients cannot choose a category or tag: the proxy always applies its
     // configured defaults so every client agrees on what Remagnet owns.
-    let result = qbit
-        .add_torrent(
+    let result = backend
+        .add_torrents(
             &request.urls,
             &default_category,
             &default_tags,
@@ -412,11 +406,11 @@ async fn delete_torrent(
     validate_hash(&hash)?;
     let delete_files = parse_delete_files(&query)?;
     let (default_category, default_tags) = magnet_defaults(&state).await;
-    let qbit = require_qbit(&state).await?;
+    let backend = require_backend(&state).await?;
 
     // Only torrents matching the proxy's filter are deletable, so a client
     // cannot remove an unrelated torrent from a shared qBittorrent instance.
-    let allowed = qbit
+    let allowed = backend
         .get_torrent(&hash)
         .await?
         .is_some_and(|torrent| matches_torrent_filter(&torrent, &default_category, &default_tags));
@@ -424,7 +418,7 @@ async fn delete_torrent(
         return Err(AppError::NotFound("Torrent not found.".to_string()));
     }
 
-    qbit.remove_torrent(&hash, delete_files).await?;
+    backend.remove_torrent(&hash, delete_files).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -454,12 +448,12 @@ async fn create_archive_ticket(
     require_device_or_admin(&state, &headers).await?;
     validate_hash(&hash)?;
     let (default_category, default_tags) = magnet_defaults(&state).await;
-    let qbit = require_qbit(&state).await?;
+    let backend = require_backend(&state).await?;
 
     // Ticket minting obeys the same ownership filter as downloading and
     // deleting: a hash outside the configured category/tags must not even get
     // a short-lived credential.
-    let allowed = qbit
+    let allowed = backend
         .get_torrent(&hash)
         .await?
         .is_some_and(|torrent| matches_torrent_filter(&torrent, &default_category, &default_tags));
@@ -490,9 +484,9 @@ async fn archive(
     validate_hash(&hash)?;
 
     let (default_category, default_tags) = magnet_defaults(&state).await;
-    let qbit = require_qbit(&state).await?;
-    let torrent = qbit.torrent(&hash).await?;
-    if !matches_torrent_filter(&torrent.summary(), &default_category, &default_tags) {
+    let backend = require_backend(&state).await?;
+    let torrent = backend.archive_torrent(&hash).await?;
+    if !torrent.matches_filter(&default_category, &default_tags) {
         return Err(AppError::NotFound("Torrent not found.".to_string()));
     }
     if !torrent_completed(&torrent) {
@@ -503,7 +497,7 @@ async fn archive(
         )));
     }
 
-    let mut files = qbit.files(&hash).await?;
+    let mut files = backend.files(&hash).await?;
     files.sort_by_key(|file| file.index);
 
     if let Some(incomplete) = files.iter().find(|file| file.progress < 0.999_999) {
@@ -526,13 +520,14 @@ async fn archive(
     let failure: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
     let task_success = Arc::clone(&success);
     let task_failure = Arc::clone(&failure);
+    let task_hash = torrent.hash.clone();
 
     tokio::spawn(async move {
-        if let Err(error) = write_zip(writer, qbit, hash.clone(), files, task_success).await {
+        if let Err(error) = write_zip(writer, backend, torrent, files, task_success).await {
             // `{error:#}` keeps the whole anyhow chain: the top-level context
-            // alone ("could not read …") hides the actual reqwest failure.
+            // alone ("could not read …") hides the actual client failure.
             let detail = format!("{error:#}");
-            tracing::warn!(hash, error = %detail, "archive stream ended early");
+            tracing::warn!(hash = %task_hash, error = %detail, "archive stream ended early");
             if let Ok(mut slot) = task_failure.lock() {
                 *slot = Some(detail);
             }
@@ -553,9 +548,9 @@ async fn archive(
         .map_err(AppError::internal)
 }
 
-async fn require_qbit(state: &AppState) -> Result<QbitClient, AppError> {
+async fn require_backend(state: &AppState) -> Result<TorrentBackend, AppError> {
     state
-        .qbit
+        .backend
         .read()
         .await
         .clone()
@@ -594,7 +589,6 @@ mod tests {
         auth::{self, AdminAccount, AuthData},
         config::Config,
         pairing::PairingStore,
-        qbit::QbitClient,
     };
 
     const ADMIN_USER: &str = "admin";
@@ -792,12 +786,278 @@ mod tests {
         format!("http://{address}")
     }
 
+    /// Minimal Transmission JSON-RPC daemon for route-level tests.
+    ///
+    /// It enforces the session-id handshake and serves torrent metadata plus a
+    /// single file whose bytes live on the mounted downloads volume.
+    async fn fake_transmission(
+        State(torrents): State<Vec<serde_json::Value>>,
+        request: Request<Body>,
+    ) -> Response {
+        const SESSION: &str = "routes-session";
+
+        let provided = request
+            .headers()
+            .get("x-transmission-session-id")
+            .and_then(|value| value.to_str().ok());
+        if provided != Some(SESSION) {
+            return (
+                StatusCode::CONFLICT,
+                [("x-transmission-session-id", SESSION)],
+            )
+                .into_response();
+        }
+
+        let body = request.into_body().collect().await.unwrap().to_bytes();
+        let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        match payload["method"].as_str().unwrap_or_default() {
+            "session-get" => Json(json!({
+                "result": "success",
+                "arguments": { "version": "4.0.6", "rpc-version": 17 }
+            }))
+            .into_response(),
+            "torrent-get" => {
+                let ids = payload["arguments"]
+                    .get("ids")
+                    .and_then(|value| value.as_array());
+                let torrents = torrents
+                    .iter()
+                    .filter(|torrent| match ids {
+                        None => true,
+                        Some(ids) => ids.iter().any(|id| {
+                            id.as_str().is_some_and(|id| {
+                                torrent["hashString"]
+                                    .as_str()
+                                    .is_some_and(|hash| hash.eq_ignore_ascii_case(id))
+                            })
+                        }),
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>();
+                Json(json!({
+                    "result": "success",
+                    "arguments": { "torrents": torrents }
+                }))
+                .into_response()
+            }
+            "torrent-remove" => {
+                Json(json!({ "result": "success", "arguments": {} })).into_response()
+            }
+            _ => (StatusCode::NOT_FOUND, "not found").into_response(),
+        }
+    }
+
+    fn transmission_torrent(
+        hash: &str,
+        name: &str,
+        labels: &[&str],
+        completed: bool,
+    ) -> serde_json::Value {
+        json!({
+            "hashString": hash,
+            "name": name,
+            "status": if completed { 6 } else { 4 },
+            "percentDone": if completed { 1.0 } else { 0.25 },
+            "metadataPercentComplete": 1.0,
+            "totalSize": 1024,
+            "sizeWhenDone": 1024,
+            "leftUntilDone": if completed { 0 } else { 512 },
+            "rateDownload": 10,
+            "rateUpload": 5,
+            "eta": 60,
+            "uploadRatio": 1.5,
+            "labels": labels,
+            "peersSendingToUs": 3,
+            "peersGettingFromUs": 2,
+            "error": 0,
+            "errorString": "",
+            "addedDate": 0,
+            "downloadDir": "/downloads",
+            "files": [
+                { "name": "Test Torrent/readme.txt", "length": 5, "bytesCompleted": 5 }
+            ],
+            "fileStats": [ { "wanted": true } ],
+        })
+    }
+
+    async fn start_fake_transmission(torrents: Vec<serde_json::Value>) -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let app = Router::new()
+            .fallback(fake_transmission)
+            .with_state(torrents);
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        format!("http://{address}")
+    }
+
+    async fn app_with_transmission(
+        downloads_dir: &str,
+        default_category: &str,
+        default_tags: &[&str],
+    ) -> TestApp {
+        let base_url = start_fake_transmission(vec![
+            transmission_torrent(HASH, "Test Torrent", &["Remagnet"], true),
+            transmission_torrent(OTHER_HASH, "Other Torrent", &["other"], true),
+        ])
+        .await;
+
+        let mut config = config_for(&base_url);
+        config.client_kind = crate::backend::ClientKind::Transmission;
+        config.api_key.clear();
+        config.downloads_dir = downloads_dir.to_string();
+        config.default_category = default_category.to_string();
+        config.default_tags = default_tags.iter().map(|tag| tag.to_string()).collect();
+        app_from_config(config, true, test_config_path())
+    }
+
+    fn fixture_downloads() -> (tempfile::TempDir, String) {
+        let directory = tempfile::tempdir().unwrap();
+        let downloads = directory.path().join("downloads");
+        std::fs::create_dir_all(downloads.join("Test Torrent")).unwrap();
+        std::fs::write(downloads.join("Test Torrent/readme.txt"), b"hello").unwrap();
+        let path = downloads.to_string_lossy().to_string();
+        (directory, path)
+    }
+
+    #[tokio::test]
+    async fn transmission_reports_health_and_lists_labelled_torrents() {
+        let (_directory, downloads) = fixture_downloads();
+        let app = app_with_transmission(&downloads, "remagnet", &["remagnet"]).await;
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.device_request("/api/health"))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["clientLabel"], "Transmission");
+        assert_eq!(body["appVersion"], "4.0.6");
+        assert_eq!(body["webApiVersion"], "17");
+        assert_eq!(body["capabilities"]["pauseOnAdd"], true);
+        assert_eq!(body["capabilities"]["archiveDownload"], true);
+        assert_eq!(body["capabilities"]["categories"], false);
+        assert_eq!(body["capabilities"]["tags"], true);
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.device_request("/api/torrents"))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let torrents = body["torrents"].as_array().unwrap();
+        assert_eq!(torrents.len(), 1);
+        assert_eq!(torrents[0]["hash"], HASH);
+        assert_eq!(torrents[0]["name"], "Test Torrent");
+        assert_eq!(torrents[0]["tags"], json!(["Remagnet"]));
+        assert_eq!(torrents[0]["category"], "");
+        assert_eq!(torrents[0]["state"], "seeding");
+        assert_eq!(torrents[0]["size"], 1024);
+    }
+
+    #[tokio::test]
+    async fn transmission_rejects_unrelated_torrents_for_delete_and_archive() {
+        let (_directory, downloads) = fixture_downloads();
+        let app = app_with_transmission(&downloads, "remagnet", &["remagnet"]).await;
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.admin_delete(&format!("/api/torrents/{OTHER_HASH}")))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.device_json(
+                "POST",
+                &format!("/api/archive/{OTHER_HASH}/ticket"),
+                json!({}),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.admin_request(&format!("/archive/{OTHER_HASH}")))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["error"], "Torrent not found.");
+
+        // A related torrent is still removable through the same surface.
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.admin_delete(&format!("/api/torrents/{HASH}?deleteFiles=true")))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    }
+
+    #[tokio::test]
+    async fn transmission_archives_bytes_from_the_downloads_volume() {
+        let (_directory, downloads) = fixture_downloads();
+        let app = app_with_transmission(&downloads, "remagnet", &["remagnet"]).await;
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.admin_request(&format!("/archive/{HASH}")))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers().get(header::CONTENT_TYPE).unwrap(),
+            "application/zip"
+        );
+        let disposition = response
+            .headers()
+            .get(header::CONTENT_DISPOSITION)
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert!(disposition.contains("Test Torrent.zip"));
+
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let mut archive = zip::ZipArchive::new(Cursor::new(body)).unwrap();
+        assert_eq!(archive.len(), 1);
+        let mut bytes = Vec::new();
+        archive
+            .by_name("Test Torrent/readme.txt")
+            .unwrap()
+            .read_to_end(&mut bytes)
+            .unwrap();
+        assert_eq!(bytes, b"hello");
+        assert_eq!(
+            bytes,
+            std::fs::read(std::path::Path::new(&downloads).join("Test Torrent/readme.txt"))
+                .unwrap()
+        );
+    }
+
     fn config_for(base_url: &str) -> Config {
         Config {
-            qbit_base_url: base_url.to_string(),
-            qbit_api_key: "qbt_test".to_string(),
-            qbit_username: String::new(),
-            qbit_password: String::new(),
+            client_kind: crate::backend::ClientKind::Qbittorrent,
+            base_url: base_url.to_string(),
+            api_key: "qbt_test".to_string(),
+            username: String::new(),
+            password: String::new(),
+            downloads_dir: String::new(),
+            client_downloads_dir: String::new(),
             default_category: "remagnet".to_string(),
             default_tags: vec!["remagnet".to_string()],
         }
@@ -808,7 +1068,7 @@ mod tests {
         let config_path = directory.path().join("config.json");
         let auth_path = directory.path().join("auth.json");
         let qbit = if with_client {
-            Some(QbitClient::new(&config).unwrap())
+            TorrentBackend::from_config(&config).unwrap()
         } else {
             None
         };
@@ -826,7 +1086,7 @@ mod tests {
         let state = Arc::new(AppState {
             config_path,
             config: RwLock::new(config),
-            qbit: RwLock::new(qbit),
+            backend: RwLock::new(qbit),
             auth_path,
             auth: RwLock::new(data),
             setup_code: None,
@@ -1004,7 +1264,7 @@ mod tests {
     async fn unconfigured_proxy_reports_service_unavailable() {
         let base_url = start_fake(true).await;
         let mut config = config_for(&base_url);
-        config.qbit_api_key.clear();
+        config.api_key.clear();
         let app = app_from_config(config, false, test_config_path());
 
         let response = app
@@ -1253,7 +1513,7 @@ mod tests {
     async fn saving_credentials_activates_the_client() {
         let base_url = start_fake(true).await;
         let mut config = config_for(&base_url);
-        config.qbit_api_key.clear();
+        config.api_key.clear();
         let app = app_from_config(config, false, test_config_path());
 
         let response = app

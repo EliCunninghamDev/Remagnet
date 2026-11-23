@@ -1,0 +1,35 @@
+services:
+  transmission:
+    image: lscr.io/linuxserver/transmission:latest
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: UTC
+      USER: remagnet
+      PASS: remagnet-test-pass
+    ports:
+      - "19091:9091"
+    volumes:
+      - ./tmp/transmission/config:/config
+      - ./tmp/transmission/downloads:/downloads
+
+  remagnet-bridge:
+    build:
+      context: ../../proxy
+    environment:
+      DATA_DIR: /data
+      BIND_ADDR: 0.0.0.0:8080
+      SETUP_CODE: integration-setup-code
+      CLIENT_KIND: transmission
+      CLIENT_BASE_URL: http://transmission:9091
+      DOWNLOADS_DIR: /downloads
+      CLIENT_DOWNLOADS_DIR: /downloads
+      REMAGNET_CATEGORY: ""
+      REMAGNET_TAGS: remagnet
+    ports:
+      - "18081:8080"
+    volumes:
+      - ./tmp/transmission/proxy-data:/data
+      - ./tmp/transmission/downloads:/downloads:ro
+    depends_on:
+      - transmission

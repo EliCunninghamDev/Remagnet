@@ -31,7 +31,7 @@ interface ConfigurationApi {
     /**
      * GET api/config
      * Read non-secret configuration
-     * Returns the qBittorrent base URL and username, flags indicating whether an API key and password are saved, and the category/tags applied to magnets. Secret values are never returned, and this endpoint does not contact qBittorrent.
+     * Returns the selected torrent client, its base URL and username, flags indicating whether an API key and password are saved, the optional read-only downloads mount and the category/tags applied to magnets. Secret values are never returned, and this endpoint does not contact the torrent client.
      * Responses:
      *  - 200: Current public configuration.
      *  - 401: Missing or invalid credentials.
@@ -43,8 +43,8 @@ interface ConfigurationApi {
 
     /**
      * PUT api/config
-     * Update the qBittorrent connection and magnet defaults
-     * Replaces the saved qBittorrent settings and returns the new public configuration. &#x60;qbitBaseUrl&#x60; is required and is normalized by trimming whitespace and trailing slashes; credentials in the URL, query strings and fragments are rejected.  For the secret fields (&#x60;qbitApiKey&#x60;, &#x60;qbitUsername&#x60;, &#x60;qbitPassword&#x60;), omitting a field keeps the saved value and sending an empty string clears it. Credentials are not required when saving: the proxy remains bootable and qBittorrent-backed endpoints return &#x60;503&#x60; until an API key or username is saved. Saving valid credentials activates the client without a restart.  &#x60;defaultCategory&#x60; and &#x60;defaultTags&#x60; are the values applied to every magnet added through the proxy. Omitting either field keeps the saved value. Tags are trimmed and deduplicated; an empty array clears the tag filter. When both the category and tags are empty, every torrent in qBittorrent is exposed.
+     * Update the torrent client connection and magnet defaults
+     * Replaces the saved torrent client settings and returns the new public configuration. &#x60;baseUrl&#x60; is required and is normalized by trimming whitespace and trailing slashes; credentials in the URL, query strings and fragments are rejected. &#x60;qbitBaseUrl&#x60; is accepted as an alias.  For the secret fields (&#x60;apiKey&#x60;, &#x60;username&#x60;, &#x60;password&#x60;, plus the &#x60;qbit*&#x60; aliases), omitting a field keeps the saved value and sending an empty string clears it. Credentials are not required when saving: the proxy remains bootable and client-backed endpoints return &#x60;503&#x60; until setup is complete. Transmission only needs a URL; a private network can leave its optional username and password blank. Saving valid settings activates the client without a restart.  &#x60;downloadsDir&#x60; enables ZIP archive downloads and should point at the client&#39;s downloads volume mounted read-only. &#x60;clientDownloadsDir&#x60; is an optional prefix mapping, such as &#x60;/data/torrents&#x60;, for torrent paths as the client reports them.  &#x60;defaultCategory&#x60; and &#x60;defaultTags&#x60; are the values applied to every magnet added through the proxy. Omitting either field keeps the saved value. Tags are trimmed and deduplicated; an empty array clears the tag filter. When both the category and tags are empty, every torrent is exposed.
      * Responses:
      *  - 200: Configuration saved; the returned values are the effective ones.
      *  - 400: The request was rejected, for example an invalid URL, hash or field.

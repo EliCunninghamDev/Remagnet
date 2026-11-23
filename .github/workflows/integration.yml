@@ -1,0 +1,62 @@
+name: Integration
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "proxy/**"
+      - "tests/integration/**"
+      - ".github/workflows/integration.yml"
+  pull_request:
+    paths:
+      - "proxy/**"
+      - "tests/integration/**"
+      - ".github/workflows/integration.yml"
+  schedule:
+    # Weekly regression run against upstream torrent client images.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: integration-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  container-suite:
+    name: Proxy + ${{ matrix.client }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        client:
+          - qbittorrent
+          - transmission
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.5"
+
+      - name: Prepare fixture directories
+        run: bun run tests/integration/prepare.ts --client ${{ matrix.client }}
+
+      - name: Start ${{ matrix.client }} and Remagnet Proxy
+        run: docker compose -f tests/integration/compose.${{ matrix.client }}.yml up -d --build
+
+      - name: Run integration suite
+        run: bun run tests/integration/run.ts --client ${{ matrix.client }}
+
+      - name: Dump container logs on failure
+        if: failure()
+        run: docker compose -f tests/integration/compose.${{ matrix.client }}.yml logs --no-color
+
+      - name: Tear down containers
+        if: always()
+        run: docker compose -f tests/integration/compose.${{ matrix.client }}.yml down -v

@@ -80,31 +80,38 @@ export interface paths {
         };
         /**
          * Read non-secret configuration
-         * @description Returns the qBittorrent base URL and username, flags indicating whether an
-         *     API key and password are saved, and the category/tags applied to magnets.
-         *     Secret values are never returned, and this endpoint does not contact
-         *     qBittorrent.
+         * @description Returns the selected torrent client, its base URL and username, flags
+         *     indicating whether an API key and password are saved, the optional
+         *     read-only downloads mount and the category/tags applied to magnets.
+         *     Secret values are never returned, and this endpoint does not contact the
+         *     torrent client.
          */
         get: operations["getConfig"];
         /**
-         * Update the qBittorrent connection and magnet defaults
-         * @description Replaces the saved qBittorrent settings and returns the new public
-         *     configuration. `qbitBaseUrl` is required and is normalized by trimming
+         * Update the torrent client connection and magnet defaults
+         * @description Replaces the saved torrent client settings and returns the new public
+         *     configuration. `baseUrl` is required and is normalized by trimming
          *     whitespace and trailing slashes; credentials in the URL, query strings
-         *     and fragments are rejected.
+         *     and fragments are rejected. `qbitBaseUrl` is accepted as an alias.
          *
-         *     For the secret fields (`qbitApiKey`, `qbitUsername`, `qbitPassword`),
-         *     omitting a field keeps the saved value and sending an empty string clears
-         *     it. Credentials are not required when saving: the proxy remains bootable
-         *     and qBittorrent-backed endpoints return `503` until an API key or
-         *     username is saved. Saving valid credentials activates the client without
-         *     a restart.
+         *     For the secret fields (`apiKey`, `username`, `password`, plus the
+         *     `qbit*` aliases), omitting a field keeps the saved value and sending an
+         *     empty string clears it. Credentials are not required when saving: the
+         *     proxy remains bootable and client-backed endpoints return `503` until
+         *     setup is complete. Transmission only needs a URL; a private network can
+         *     leave its optional username and password blank. Saving valid settings
+         *     activates the client without a restart.
+         *
+         *     `downloadsDir` enables ZIP archive downloads and should point at the
+         *     client's downloads volume mounted read-only. `clientDownloadsDir` is an
+         *     optional prefix mapping, such as `/data/torrents`, for torrent paths as
+         *     the client reports them.
          *
          *     `defaultCategory` and `defaultTags` are the values applied to every
          *     magnet added through the proxy. Omitting either field keeps the saved
          *     value. Tags are trimmed and deduplicated; an empty array clears the tag
-         *     filter. When both the category and tags are empty, every torrent in
-         *     qBittorrent is exposed.
+         *     filter. When both the category and tags are empty, every torrent is
+         *     exposed.
          */
         put: operations["updateConfig"];
         post?: never;
@@ -655,6 +662,13 @@ export interface components {
              */
             apiVersion: number;
         };
+        /**
+         * @description Torrent client adapted by the proxy. `qbittorrent` uses the qBittorrent
+         *     Web API; `transmission` uses the Transmission RPC endpoint.
+         * @example qbittorrent
+         * @enum {string}
+         */
+        ClientKind: "qbittorrent" | "transmission";
         /** @description Features the proxy supports through its neutral torrent API. */
         TorrentCapabilities: {
             /**
@@ -662,6 +676,24 @@ export interface components {
              * @example true
              */
             pauseOnAdd: boolean;
+            /**
+             * @description Whether completed torrents can be streamed as ZIP archives. This is
+             *     only true when `DOWNLOADS_DIR` points at the client's downloads
+             *     volume.
+             * @example true
+             */
+            archiveDownload: boolean;
+            /**
+             * @description Whether the adapted client supports categories.
+             * @example true
+             */
+            categories: boolean;
+            /**
+             * @description Whether the adapted client supports tags. Transmission exposes them
+             *     as labels.
+             * @example true
+             */
+            tags: boolean;
         };
         /** @description Successful qBittorrent connection check plus the effective magnet defaults. */
         ConnectionHealth: {
@@ -809,55 +841,112 @@ export interface components {
          *     only by booleans.
          */
         PublicConfig: {
+            clientKind: components["schemas"]["ClientKind"];
             /**
              * Format: uri
-             * @description Normalized qBittorrent Web UI base URL without a trailing slash.
+             * @description Normalized torrent client URL without a trailing slash. For
+             *     qBittorrent this is the Web UI URL; for Transmission it is the RPC
+             *     endpoint.
+             * @example http://gluetun:8080
+             */
+            baseUrl: string;
+            /**
+             * Format: uri
+             * @description Deprecated alias for `baseUrl`, kept for older clients. Always has
+             *     the same value.
              * @example http://gluetun:8080
              */
             qbitBaseUrl: string;
-            /** @description Saved qBittorrent username, or an empty string. */
+            /** @description Saved torrent client username, or an empty string. */
+            username: string;
+            /** @description Deprecated alias for `username`, kept for older clients. */
             qbitUsername: string;
             /** @description Whether a qBittorrent API key is saved. */
             hasApiKey: boolean;
-            /** @description Whether a qBittorrent password is saved. */
+            /** @description Whether a torrent client password is saved. */
             hasPassword: boolean;
+            /**
+             * @description Path on the proxy where the client's downloads volume is mounted
+             *     read-only, or an empty string when ZIP streaming is disabled.
+             * @example /downloads
+             */
+            downloadsDir: string;
+            /**
+             * @description Optional prefix of torrent download paths as seen by the torrent
+             *     client, used to map them under `downloadsDir`.
+             * @example /data/torrents
+             */
+            clientDownloadsDir: string;
             /**
              * @description Category applied to new magnets and used for filtering.
              * @example remagnet
              */
             defaultCategory: string;
             /**
-             * @description Tags applied to new magnets and used for filtering.
+             * @description Tags applied to new magnets and used for filtering. Transmission
+             *     exposes tags as labels.
              * @example [
              *       "remagnet"
              *     ]
              */
             defaultTags: string[];
         };
+        /**
+         * @description Fields the config page may change. A missing field keeps the saved value.
+         *     For secret fields, sending an empty string clears the value.
+         */
         ConfigUpdate: {
+            clientKind?: components["schemas"]["ClientKind"];
             /**
              * Format: uri
-             * @description qBittorrent Web UI URL. Must use `http://` or `https://`, must not
+             * @description Torrent client URL. Must use `http://` or `https://`, must not
              *     contain credentials, a query or a fragment, and is stored without
-             *     trailing slashes.
+             *     trailing slashes. `qbitBaseUrl` is accepted as an alias.
              * @example http://gluetun:8080
              */
-            qbitBaseUrl: string;
+            baseUrl: string;
+            /**
+             * Format: uri
+             * @description Alias for `baseUrl`, kept for older clients. Do not send both
+             *     fields in one request.
+             * @example http://gluetun:8080
+             */
+            qbitBaseUrl?: string;
             /**
              * @description qBittorrent 5.2+ API key. Omit to keep the saved key; send an empty
-             *     string to clear it.
+             *     string to clear it. `qbitApiKey` is accepted as an alias.
              */
+            apiKey?: string;
+            /** @description Alias for `apiKey`, kept for older clients. */
             qbitApiKey?: string;
             /**
-             * @description Username for cookie-based login. Omit to keep the saved username;
-             *     send an empty string to clear it.
+             * @description Torrent client username. Omit to keep the saved username; send an
+             *     empty string to clear it. `qbitUsername` is accepted as an alias.
              */
+            username?: string;
+            /** @description Alias for `username`, kept for older clients. */
             qbitUsername?: string;
             /**
-             * @description Password for cookie-based login. Omit to keep the saved password;
-             *     send an empty string to clear it.
+             * @description Torrent client password. Omit to keep the saved password; send an
+             *     empty string to clear it. `qbitPassword` is accepted as an alias.
              */
+            password?: string;
+            /** @description Alias for `password`, kept for older clients. */
             qbitPassword?: string;
+            /**
+             * @description Path on the proxy where the client's downloads volume is mounted
+             *     read-only. Required for ZIP archive downloads; send an empty string
+             *     to disable them.
+             * @example /downloads
+             */
+            downloadsDir?: string;
+            /**
+             * @description Optional prefix of torrent download paths as seen by the torrent
+             *     client, such as `/data/torrents`. Used together with `downloadsDir`
+             *     to locate completed files.
+             * @example /data/torrents
+             */
+            clientDownloadsDir?: string;
             /**
              * @description Category applied to new magnets and used to decide which torrents
              *     Remagnet owns. Omit to keep the saved value; send an empty string to
@@ -1299,7 +1388,10 @@ export interface operations {
                      *       "apiVersion": 1,
                      *       "proxyVersion": "0.1.0",
                      *       "capabilities": {
-                     *         "pauseOnAdd": true
+                     *         "pauseOnAdd": true,
+                     *         "archiveDownload": true,
+                     *         "categories": true,
+                     *         "tags": true
                      *       },
                      *       "defaultCategory": "remagnet",
                      *       "defaultTags": [
@@ -1332,10 +1424,15 @@ export interface operations {
                 content: {
                     /**
                      * @example {
+                     *       "clientKind": "qbittorrent",
+                     *       "baseUrl": "http://gluetun:8080",
                      *       "qbitBaseUrl": "http://gluetun:8080",
+                     *       "username": "",
                      *       "qbitUsername": "",
                      *       "hasApiKey": true,
                      *       "hasPassword": false,
+                     *       "downloadsDir": "/downloads",
+                     *       "clientDownloadsDir": "/data/torrents",
                      *       "defaultCategory": "remagnet",
                      *       "defaultTags": [
                      *         "remagnet"

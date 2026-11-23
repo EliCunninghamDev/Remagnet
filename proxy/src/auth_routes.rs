@@ -753,17 +753,20 @@ mod tests {
         let config_path = directory.join("config.json");
         let auth_path = directory.join("auth.json");
         let config = Config {
-            qbit_base_url: "http://127.0.0.1:1".to_string(),
-            qbit_api_key: "qbt_test".to_string(),
-            qbit_username: String::new(),
-            qbit_password: String::new(),
+            client_kind: crate::backend::ClientKind::Qbittorrent,
+            base_url: "http://127.0.0.1:1".to_string(),
+            api_key: "qbt_test".to_string(),
+            username: String::new(),
+            password: String::new(),
+            downloads_dir: String::new(),
+            client_downloads_dir: String::new(),
             default_category: "remagnet".to_string(),
             default_tags: vec!["remagnet".to_string()],
         };
         Arc::new(AppState {
             config_path,
             config: RwLock::new(config),
-            qbit: RwLock::new(None),
+            backend: RwLock::new(None),
             auth_path,
             auth: RwLock::new(AuthData::default()),
             setup_code,
