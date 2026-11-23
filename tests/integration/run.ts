@@ -300,18 +300,27 @@ async function verifyZipPayload(zipBytes: Uint8Array) {
 
 async function waitForBackendReady(kind: ClientKind) {
   if (kind === "qbittorrent") {
-    await waitFor("qBittorrent Web UI", async () => {
-      try {
-        const res = await fetch(`${qbitHostBase}/api/v2/auth/login`, {
-          method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: "username=admin&password=adminadmin",
-        });
-        return res.ok && (await res.text()).trim().toLowerCase() === "ok." ? true : null;
-      } catch {
-        return null;
-      }
-    });
+    let lastFailure = "no response";
+    try {
+      await waitFor("qBittorrent Web UI", async () => {
+        try {
+          const res = await fetch(`${qbitHostBase}/api/v2/auth/login`, {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: "username=admin&password=adminadmin",
+          });
+          const body = (await res.text()).trim();
+          if (res.ok && body.toLowerCase() === "ok.") return true;
+          lastFailure = `HTTP ${res.status}: ${body || "(empty body)"}`;
+          return null;
+        } catch (error) {
+          lastFailure = String(error);
+          return null;
+        }
+      });
+    } catch (error) {
+      throw new Error(`${(error as Error).message} Last login response: ${lastFailure}`);
+    }
   } else {
     await waitFor("Transmission RPC", async () => {
       try {

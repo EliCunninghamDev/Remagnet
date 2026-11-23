@@ -53,6 +53,14 @@ jobs:
       - name: Run integration suite
         run: bun run tests/integration/run.ts --client ${{ matrix.client }}
 
+      - name: Dump qBittorrent WebUI log on failure
+        if: failure() && matrix.client == 'qbittorrent'
+        run: |
+          docker compose -f tests/integration/compose.qbittorrent.yml exec -T qbittorrent \
+            cat /config/qBittorrent/data/logs/qbittorrent.log || true
+          docker compose -f tests/integration/compose.qbittorrent.yml exec -T qbittorrent \
+            cat /config/qBittorrent/qBittorrent.conf || true
+
       - name: Dump container logs on failure
         if: failure()
         run: docker compose -f tests/integration/compose.${{ matrix.client }}.yml logs --no-color
