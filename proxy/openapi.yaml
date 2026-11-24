@@ -1164,22 +1164,31 @@ components:
           example:
             error: Torrent not found.
     InternalError:
-      description: The proxy could not save configuration or start the archive.
+      description: |
+        The proxy hit an unexpected internal error. The body uses
+        `code: internal_error` and a generic message; technical detail is only
+        written to the proxy logs.
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+          example:
+            error: The Remagnet Proxy hit an unexpected internal error. Check the proxy container logs for details.
+            code: internal_error
     BadGateway:
-      description: qBittorrent could not be reached or returned an error.
+      description: |
+        The configured torrent client could not be reached or returned an error.
+        `code` distinguishes `upstream_unreachable`, `upstream_auth` and
+        `upstream_error`.
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
     ServiceUnavailable:
       description: |
-        qBittorrent credentials have not been configured on the proxy yet. The
-        body carries `code: not_configured` so clients can distinguish this from
-        other server failures.
+        No torrent client has been configured on the proxy yet. The body carries
+        `code: not_configured` so clients can distinguish this from other server
+        failures.
       content:
         application/json:
           schema:
@@ -1187,8 +1196,10 @@ components:
   schemas:
     Error:
       type: object
-      description: Error body returned by every failing request.
-      required: [error]
+      description: |
+        Error body returned by every failing request. `error` is safe to display
+        to the user; `code` is stable and machine-readable.
+      required: [error, code]
       properties:
         error:
           type: string
@@ -1196,23 +1207,45 @@ components:
         code:
           type: string
           description: |
-            Optional machine-readable reason. `totp_required` appears on `401`
-            responses from sign-in and device login when a two-factor code is
-            needed, `rate_limited` appears on `429` responses, and
-            `not_configured` appears on `503` responses before qBittorrent
-            credentials are saved.
-          enum: [totp_required, rate_limited, not_configured]
+            Stable machine-readable reason. Every error response includes one:
+
+            - `bad_request`: the request was invalid (`400`)
+            - `unauthorized`: missing or invalid credentials (`401`)
+            - `totp_required`: a two-factor code is needed (`401`)
+            - `forbidden`: authenticated but not allowed (`403`)
+            - `not_found`: the resource does not exist (`404`)
+            - `conflict`: the resource already exists or is in the wrong state (`409`)
+            - `rate_limited`: too many attempts; see `Retry-After` (`429`)
+            - `not_configured`: no torrent client is configured yet (`503`)
+            - `upstream_unreachable`: the torrent client could not be reached or timed out (`502`)
+            - `upstream_auth`: the torrent client rejected the saved credentials (`502`)
+            - `upstream_error`: any other torrent client error (`502`)
+            - `internal_error`: an unexpected proxy error (`500`)
+          enum:
+            - bad_request
+            - unauthorized
+            - totp_required
+            - forbidden
+            - not_found
+            - conflict
+            - rate_limited
+            - not_configured
+            - upstream_unreachable
+            - upstream_auth
+            - upstream_error
+            - internal_error
       additionalProperties: false
     ServiceUnavailable:
       type: object
       description: |
-        Returned by qBittorrent-backed endpoints before the proxy has credentials.
-        Saving an API key or username through `PUT /api/config` clears it.
+        Returned by torrent-client-backed endpoints before the proxy has
+        credentials. Saving an API key, username, or client URL through
+        `PUT /api/config` clears it.
       required: [error, code]
       properties:
         error:
           type: string
-          example: qBittorrent is not configured yet. Open the Remagnet Proxy page to set it up.
+          example: No torrent client is configured yet. Open the Remagnet Proxy page to set it up.
         code:
           type: string
           const: not_configured

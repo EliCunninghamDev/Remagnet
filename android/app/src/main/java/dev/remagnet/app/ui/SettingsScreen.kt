@@ -1,5 +1,9 @@
 package dev.remagnet.app.ui
 
+import android.app.Activity
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -30,6 +34,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
@@ -41,6 +46,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.remagnet.app.BuildConfig
 import dev.remagnet.app.client.ProxyStatus
 import dev.remagnet.app.data.OnboardingResult
 import dev.remagnet.app.data.PairingLink
@@ -55,8 +61,10 @@ import dev.remagnet.app.ui.components.SecondaryButton
 import dev.remagnet.app.ui.components.SectionLabel
 import dev.remagnet.app.ui.components.StatusNote
 import dev.remagnet.app.ui.components.StatusTone
+import dev.remagnet.app.ui.components.TextAction
 import dev.remagnet.app.ui.theme.GeistMono
 import dev.remagnet.app.ui.theme.RemagnetPalette
+import dev.remagnet.app.util.IssueReportContext
 import kotlinx.coroutines.launch
 
 @Composable
@@ -77,6 +85,7 @@ fun SettingsScreen(
     onSignIn: (String, String, String, String, String) -> Unit = { _, _, _, _, _ -> },
     onClearSignIn: () -> Unit = {},
     onDisconnect: () -> Unit = {},
+    onReportIssue: (IssueReportContext) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var draft by remember(saved) { mutableStateOf(saved) }
@@ -93,6 +102,15 @@ fun SettingsScreen(
     var totpCode by rememberSaveable { mutableStateOf("") }
     var deviceName by rememberSaveable { mutableStateOf("") }
     val scope = rememberCoroutineScope()
+    val appContext = LocalContext.current
+
+    fun openLink(url: String) {
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+        if (appContext !is Activity) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        runCatching { appContext.startActivity(intent) }.onFailure {
+            Toast.makeText(appContext, "No browser found.", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     val dirty = draft.normalized() != saved.normalized()
     val needsTotp = signIn is SignInState.TotpRequired
@@ -120,7 +138,7 @@ fun SettingsScreen(
             }
 
             is OnboardingResult.Invalid -> {
-                message = FormMessage(result.message, StatusTone.Error)
+                message = FormMessage(result.message, StatusTone.Error, "Import code")
             }
         }
     }
@@ -156,7 +174,7 @@ fun SettingsScreen(
             }
 
             is PairingState.Failed -> {
-                message = FormMessage(current.message, StatusTone.Error)
+                message = FormMessage(current.message, StatusTone.Error, "Pairing")
                 onPairingConsumed()
             }
 
@@ -343,6 +361,19 @@ fun SettingsScreen(
                 }
                 signInMessage?.let { current ->
                     StatusNote(text = current.text, tone = current.tone)
+                    if (current.tone == StatusTone.Error) {
+                        TextAction(
+                            text = "Report issue",
+                            onClick = {
+                                onReportIssue(
+                                    IssueReportContext(
+                                        action = "Sign in",
+                                        message = current.text,
+                                    ),
+                                )
+                            },
+                        )
+                    }
                 }
                 PrimaryButton(
                     text = if (signingIn) "Signing in…" else "Sign in",
@@ -369,6 +400,7 @@ fun SettingsScreen(
                     status = proxyStatus,
                     checking = checkingProxy,
                     onTest = onTestConnection,
+                    onReportIssue = onReportIssue,
                 )
             }
             item {
@@ -463,7 +495,11 @@ fun SettingsScreen(
                                     }
 
                                     is SaveResult.Failed -> {
-                                        message = FormMessage(result.message, StatusTone.Error)
+                                        message = FormMessage(
+                                            result.message,
+                                            StatusTone.Error,
+                                            "Save settings",
+                                        )
                                     }
                                 }
                                 saving = false
@@ -477,7 +513,24 @@ fun SettingsScreen(
         }
 
         message?.let { current ->
-            item { StatusNote(text = current.text, tone = current.tone) }
+            item {
+                Column {
+                    StatusNote(text = current.text, tone = current.tone)
+                    if (current.tone == StatusTone.Error) {
+                        TextAction(
+                            text = "Report issue",
+                            onClick = {
+                                onReportIssue(
+                                    IssueReportContext(
+                                        action = current.action ?: "Settings",
+                                        message = current.text,
+                                    ),
+                                )
+                            },
+                        )
+                    }
+                }
+            }
         }
 
         if (errors.isNotEmpty()) {
@@ -499,6 +552,53 @@ fun SettingsScreen(
                 fontSize = 10.sp,
                 lineHeight = 15.sp,
             )
+        }
+
+        item {
+            Panel {
+                SectionLabel("About")
+                Text(
+                    text = "Remagnet ${BuildConfig.VERSION_NAME}",
+                    color = RemagnetPalette.Text,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = "Remagnet keeps magnets moving through your own proxy, " +
+                        "with no account on our side.",
+                    color = RemagnetPalette.Muted,
+                    fontSize = 12.sp,
+                    lineHeight = 17.sp,
+                )
+                SectionLabel("Support")
+                SecondaryButton(
+                    text = "Report an issue",
+                    onClick = { onReportIssue(IssueReportContext()) },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    text = "Diagnostics are redacted on this device and only leave " +
+                        "when you choose GitHub, email or copy.",
+                    color = RemagnetPalette.Muted,
+                    fontFamily = GeistMono,
+                    fontSize = 10.sp,
+                    lineHeight = 15.sp,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    TextAction(
+                        text = "Website",
+                        onClick = { openLink("https://remagnet.app") },
+                    )
+                    TextAction(
+                        text = "GitHub",
+                        onClick = { openLink("https://github.com/EliCunninghamDev/Remagnet") },
+                    )
+                    TextAction(
+                        text = "Privacy",
+                        onClick = { openLink("https://remagnet.app/privacy.html") },
+                    )
+                }
+            }
         }
     }
 
@@ -635,4 +735,8 @@ private fun PasteCodeDialog(
 private fun List<SettingsError>.messageFor(field: SettingsField): String? =
     firstOrNull { it.field == field }?.message
 
-private data class FormMessage(val text: String, val tone: StatusTone)
+private data class FormMessage(
+    val text: String,
+    val tone: StatusTone,
+    val action: String? = null,
+)

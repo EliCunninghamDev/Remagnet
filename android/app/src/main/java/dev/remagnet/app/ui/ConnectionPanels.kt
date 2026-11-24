@@ -13,8 +13,10 @@ import dev.remagnet.app.ui.components.PrimaryButton
 import dev.remagnet.app.ui.components.SectionLabel
 import dev.remagnet.app.ui.components.StatusNote
 import dev.remagnet.app.ui.components.StatusTone
+import dev.remagnet.app.ui.components.TextAction
 import dev.remagnet.app.ui.theme.GeistMono
 import dev.remagnet.app.ui.theme.RemagnetPalette
+import dev.remagnet.app.util.IssueReportContext
 
 /**
  * The saved Remagnet Proxy endpoint, its last check, and a manual retest.
@@ -28,6 +30,7 @@ fun ProxyPanel(
     status: ProxyStatus?,
     checking: Boolean,
     onTest: () -> Unit,
+    onReportIssue: (IssueReportContext) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Panel(modifier) {
@@ -56,6 +59,16 @@ fun ProxyPanel(
         }
         val note = proxyNote(status, checking)
         StatusNote(text = note.text, tone = note.tone)
+        if (note.tone == StatusTone.Error || note.tone == StatusTone.Warn) {
+            TextAction(
+                text = "Report issue",
+                onClick = {
+                    onReportIssue(
+                        IssueReportContext(action = "Connection check", message = note.text),
+                    )
+                },
+            )
+        }
         PrimaryButton(
             text = if (checking) "Checking…" else "Test connection",
             onClick = onTest,

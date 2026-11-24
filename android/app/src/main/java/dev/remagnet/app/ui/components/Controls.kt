@@ -8,6 +8,7 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -22,6 +23,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -185,6 +187,29 @@ fun SecondaryButton(
         contentPadding = ButtonDefaults.ContentPadding,
     ) {
         Text(text, fontFamily = GeistMono, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+/** A quiet inline action for secondary paths such as issue reporting. */
+@Composable
+fun TextAction(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
+    TextButton(
+        onClick = onClick,
+        modifier = modifier,
+        enabled = enabled,
+        shape = RectangleShape,
+        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+        colors = ButtonDefaults.textButtonColors(
+            contentColor = RemagnetPalette.Accent,
+            disabledContentColor = RemagnetPalette.Muted,
+        ),
+    ) {
+        Text(text, fontFamily = GeistMono, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 

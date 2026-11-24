@@ -20,8 +20,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
+import dev.remagnet.app.client.ProxyStatus
 import dev.remagnet.app.client.TorrentSummary
 import dev.remagnet.app.download.openArchive
+import dev.remagnet.app.util.IssueReportContext
 
 private enum class Screen { Home, Settings }
 
@@ -32,6 +34,11 @@ fun RemagnetApp(viewModel: RemagnetViewModel = viewModel()) {
     var screen by rememberSaveable { mutableStateOf(Screen.Home) }
     var scanResult by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingDownload by remember { mutableStateOf<TorrentSummary?>(null) }
+    var reportContext by remember { mutableStateOf<IssueReportContext?>(null) }
+    var reportOpen by remember { mutableStateOf(false) }
+    val reportBackend = (state.proxyStatus as? ProxyStatus.Online)?.let { status ->
+        "${status.clientLabel} ${status.appVersion}".trim()
+    }
 
     // A magnet can arrive from another app while Settings is open. The sheet
     // belongs over Home, so bring that screen back before it appears.
@@ -81,6 +88,11 @@ fun RemagnetApp(viewModel: RemagnetViewModel = viewModel()) {
         pendingDownload = null
     }
 
+    fun openReport(context: IssueReportContext) {
+        reportContext = context
+        reportOpen = true
+    }
+
     fun startDownload(torrent: TorrentSummary) {
         val needsPermission = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(
@@ -120,6 +132,7 @@ fun RemagnetApp(viewModel: RemagnetViewModel = viewModel()) {
             onCancelRemove = viewModel::cancelRemove,
             onOpenArchive = { path -> openArchive(context, path) },
             onDismissActionError = viewModel::dismissActionError,
+            onReportIssue = ::openReport,
         )
 
         Screen.Settings -> SettingsScreen(
@@ -150,6 +163,7 @@ fun RemagnetApp(viewModel: RemagnetViewModel = viewModel()) {
             },
             onClearSignIn = viewModel::clearSignInState,
             onDisconnect = viewModel::disconnect,
+            onReportIssue = ::openReport,
         )
     }
 
@@ -168,6 +182,18 @@ fun RemagnetApp(viewModel: RemagnetViewModel = viewModel()) {
             onOpenSettings = {
                 viewModel.closeAddSheet()
                 screen = Screen.Settings
+            },
+            onReportIssue = ::openReport,
+        )
+    }
+
+    if (reportOpen) {
+        IssueReportDialog(
+            context = reportContext,
+            backend = reportBackend,
+            onDismiss = {
+                reportOpen = false
+                reportContext = null
             },
         )
     }

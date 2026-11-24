@@ -614,26 +614,39 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        /** @description Error body returned by every failing request. */
+        /**
+         * @description Error body returned by every failing request. `error` is safe to display
+         *     to the user; `code` is stable and machine-readable.
+         */
         Error: {
             /** @description Human-readable message safe to display to the user. */
             error: string;
             /**
-             * @description Optional machine-readable reason. `totp_required` appears on `401`
-             *     responses from sign-in and device login when a two-factor code is
-             *     needed, `rate_limited` appears on `429` responses, and
-             *     `not_configured` appears on `503` responses before qBittorrent
-             *     credentials are saved.
+             * @description Stable machine-readable reason. Every error response includes one:
+             *
+             *     - `bad_request`: the request was invalid (`400`)
+             *     - `unauthorized`: missing or invalid credentials (`401`)
+             *     - `totp_required`: a two-factor code is needed (`401`)
+             *     - `forbidden`: authenticated but not allowed (`403`)
+             *     - `not_found`: the resource does not exist (`404`)
+             *     - `conflict`: the resource already exists or is in the wrong state (`409`)
+             *     - `rate_limited`: too many attempts; see `Retry-After` (`429`)
+             *     - `not_configured`: no torrent client is configured yet (`503`)
+             *     - `upstream_unreachable`: the torrent client could not be reached or timed out (`502`)
+             *     - `upstream_auth`: the torrent client rejected the saved credentials (`502`)
+             *     - `upstream_error`: any other torrent client error (`502`)
+             *     - `internal_error`: an unexpected proxy error (`500`)
              * @enum {string}
              */
-            code?: "totp_required" | "rate_limited" | "not_configured";
+            code: "bad_request" | "unauthorized" | "totp_required" | "forbidden" | "not_found" | "conflict" | "rate_limited" | "not_configured" | "upstream_unreachable" | "upstream_auth" | "upstream_error" | "internal_error";
         };
         /**
-         * @description Returned by qBittorrent-backed endpoints before the proxy has credentials.
-         *     Saving an API key or username through `PUT /api/config` clears it.
+         * @description Returned by torrent-client-backed endpoints before the proxy has
+         *     credentials. Saving an API key, username, or client URL through
+         *     `PUT /api/config` clears it.
          */
         ServiceUnavailable: {
-            /** @example qBittorrent is not configured yet. Open the Remagnet Proxy page to set it up. */
+            /** @example No torrent client is configured yet. Open the Remagnet Proxy page to set it up. */
             error: string;
             /**
              * @description Stable identifier for an unconfigured proxy.
@@ -1261,16 +1274,30 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
-        /** @description The proxy could not save configuration or start the archive. */
+        /**
+         * @description The proxy hit an unexpected internal error. The body uses
+         *     `code: internal_error` and a generic message; technical detail is only
+         *     written to the proxy logs.
+         */
         InternalError: {
             headers: {
                 [name: string]: unknown;
             };
             content: {
+                /**
+                 * @example {
+                 *       "error": "The Remagnet Proxy hit an unexpected internal error. Check the proxy container logs for details.",
+                 *       "code": "internal_error"
+                 *     }
+                 */
                 "application/json": components["schemas"]["Error"];
             };
         };
-        /** @description qBittorrent could not be reached or returned an error. */
+        /**
+         * @description The configured torrent client could not be reached or returned an error.
+         *     `code` distinguishes `upstream_unreachable`, `upstream_auth` and
+         *     `upstream_error`.
+         */
         BadGateway: {
             headers: {
                 [name: string]: unknown;
@@ -1280,9 +1307,9 @@ export interface components {
             };
         };
         /**
-         * @description qBittorrent credentials have not been configured on the proxy yet. The
-         *     body carries `code: not_configured` so clients can distinguish this from
-         *     other server failures.
+         * @description No torrent client has been configured on the proxy yet. The body carries
+         *     `code: not_configured` so clients can distinguish this from other server
+         *     failures.
          */
         ServiceUnavailable: {
             headers: {

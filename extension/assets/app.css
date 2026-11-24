@@ -122,6 +122,32 @@ button.ghost {
   font-weight: 500;
 }
 
+/* Anchors used as actions must look identical to the matching buttons. */
+a.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 0;
+  padding: 8px 14px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+a.button:hover {
+  filter: brightness(1.08);
+}
+
+a.button.ghost {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--text);
+  font-weight: 500;
+}
+
 input,
 select,
 textarea {
@@ -584,7 +610,8 @@ button.danger {
   color: var(--error-text);
 }
 
-button.linkish {
+button.linkish,
+a.linkish {
   padding: 0;
   border: 0;
   background: none;
@@ -691,6 +718,22 @@ button.client-link:hover:not(:disabled) {
 }
 
 .options-footer a:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
+.options-footer button.linkish {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.options-footer button.linkish:hover {
   color: var(--text);
   text-decoration: underline;
 }
@@ -1212,4 +1255,123 @@ body.popup-body code {
 .popup .status {
   font-size: 12px;
   padding: 8px 10px;
+}
+
+/* ---------------------------------------------------------------------------
+   Opt-in issue report
+   A local-only dialog: review the redacted diagnostics, then choose GitHub,
+   mail, or clipboard. The same panel serves the popup and the options page.
+   --------------------------------------------------------------------------- */
+
+.report-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(8, 10, 12, 0.62);
+}
+
+.report-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(520px, 100%);
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--panel);
+  color: var(--text);
+  padding: 18px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+}
+
+.report-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.report-head h2 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.report-close {
+  flex: none;
+  padding: 4px 9px;
+  font-size: 11px;
+}
+
+.report-notice {
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.diagnostics-preview {
+  max-height: 220px;
+  margin: 0;
+  padding: 10px 12px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  background: var(--track);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.report-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.report-actions .button,
+.report-actions button {
+  padding: 7px 11px;
+  font-size: 12px;
+}
+
+/* A quiet inline trigger that sits under an error status. */
+.report-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.report-inline .linkish {
+  color: inherit;
+  font-size: inherit;
+  font-weight: 500;
+}
+
+.popup .report-dialog {
+  gap: 10px;
+  padding: 14px;
+}
+
+.popup .report-head h2 {
+  font-size: 15px;
+}
+
+.popup .diagnostics-preview {
+  max-height: 180px;
+  font-size: 10px;
+}
+
+.popup .report-actions .button,
+.popup .report-actions button {
+  padding: 6px 10px;
+  font-size: 11px;
 }

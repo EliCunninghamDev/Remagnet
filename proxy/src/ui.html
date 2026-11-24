@@ -19,6 +19,7 @@
         --ok: #4e735d;
         --error: #8d3838;
         --warn: #8a6b35;
+        --radius: 0;
         --font-ui: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
       }
       @media (prefers-color-scheme: dark) {
@@ -296,6 +297,79 @@
       [hidden] { display: none; }
 
       button:hover:not(:disabled) { filter: brightness(1.08); }
+
+      /* Footer, inline report links, and the opt-in issue dialog. */
+      .page-footer {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        justify-content: center;
+        gap: 6px;
+        margin-top: auto;
+        padding-top: 12px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .page-footer .sep { opacity: .6; }
+      .page-footer a { color: inherit; text-decoration: none; }
+      .page-footer a:hover { color: var(--text); text-decoration: underline; }
+
+      .linkish {
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+        font-weight: 600;
+        text-decoration: underline;
+        text-underline-offset: 2px;
+        white-space: normal;
+      }
+      .linkish:hover:not(:disabled) { filter: none; color: var(--text); }
+      .report-inline {
+        margin-left: 2px;
+        color: var(--error);
+        font-size: 12px;
+        font-weight: 500;
+      }
+
+      dialog {
+        width: min(560px, calc(100vw - 32px));
+        max-height: calc(100vh - 64px);
+        padding: 20px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: var(--panel);
+        color: var(--text);
+        font: inherit;
+      }
+      dialog::backdrop { background: rgba(0, 0, 0, .45); }
+      dialog h2 { margin: 0; }
+      .report-diagnostics {
+        max-height: 220px;
+        margin: 0;
+        overflow: auto;
+        padding: 10px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: var(--bg);
+        color: var(--text);
+        font: 12px/1.5 var(--font-ui);
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      .button-link {
+        display: inline-flex;
+        align-items: center;
+        padding: 8px 14px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        color: var(--text);
+        font-weight: 500;
+        text-decoration: none;
+      }
+      .button-link:hover { filter: brightness(1.08); }
+
     </style>
   </head>
   <body>
@@ -727,13 +801,52 @@
           </details>
         </section>
       </div>
+      <footer class="page-footer">
+        <span id="proxyVersion">Remagnet Proxy</span>
+        <span class="sep" aria-hidden="true">·</span>
+        <a href="https://remagnet.app" target="_blank" rel="noreferrer">Website</a>
+        <span class="sep" aria-hidden="true">·</span>
+        <a href="https://github.com/EliCunninghamDev/Remagnet" target="_blank" rel="noreferrer">
+          GitHub
+        </a>
+        <span class="sep" aria-hidden="true">·</span>
+        <button id="reportFooter" type="button" class="linkish">Report an issue</button>
+        <span class="sep" aria-hidden="true">·</span>
+        <a href="https://remagnet.app/privacy.html" target="_blank" rel="noreferrer">Privacy</a>
+        <span class="sep" aria-hidden="true">·</span>
+        <a href="https://ko-fi.com/elijahcunninghamdev" target="_blank" rel="noreferrer">
+          Support on Ko-fi
+        </a>
+      </footer>
     </main>
+
+    <dialog id="reportDialog" aria-labelledby="reportTitle">
+      <div class="stack">
+        <h2 id="reportTitle">Report an issue</h2>
+        <p class="hint">
+          Nothing is sent automatically. Review the redacted diagnostics below before choosing how
+          to report.
+        </p>
+        <pre id="reportDiagnostics" class="report-diagnostics"></pre>
+        <div class="actions">
+          <a id="reportGithub" class="button-link"
+            href="https://github.com/EliCunninghamDev/Remagnet/issues/new" target="_blank"
+            rel="noreferrer">Open on GitHub</a>
+          <a id="reportEmail" class="button-link"
+            href="mailto:contact@elijahcunningham.dev">Email report</a>
+          <button id="reportCopy" type="button" class="ghost">Copy diagnostics</button>
+          <button id="reportClose" type="button" class="ghost">Close</button>
+        </div>
+      </div>
+    </dialog>
 
     <script>
       const byId = (id) => document.getElementById(id);
       const views = ["booting", "setupView", "signinView", "dashboard"];
       const state = {
         status: null,
+        version: "",
+        lastHealth: null,
         totpRequired: false,
         recoveryCodes: [],
         pairing: null,
@@ -745,19 +858,138 @@
         for (const id of views) byId(id).hidden = id !== view;
       }
 
-      function setMessage(element, message, tone = "muted") {
+      function setMessage(element, message, tone = "muted", errorContext = null) {
         element.textContent = message;
         element.className = `status ${tone}`;
+        if (tone !== "error" || !message) return;
+        const context = errorContext || {};
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "linkish report-inline";
+        button.textContent = "Report issue";
+        button.addEventListener("click", () => openReportDialog(context));
+        element.append(" ", button);
       }
+
+      // ---- Issue reporting -------------------------------------------------
+      //
+      // Reporting is strictly opt-in: this section only builds local text. The
+      // dialog never sends anything until the user opens GitHub or their mail
+      // client themselves.
+
+      const REPORT_ISSUE_URL = "https://github.com/EliCunninghamDev/Remagnet/issues/new";
+      const REPORT_EMAIL = "contact@elijahcunningham.dev";
+
+      function reportContextFor(action, error) {
+        return {
+          action,
+          status: error?.status || "",
+          code: error?.code || "",
+          message: error?.message || "",
+        };
+      }
+
+      function redactSensitiveText(text) {
+        return String(text == null ? "" : text)
+          .replace(/https?:\/\/[^\s<>"')]+/gi, "[redacted URL]")
+          .replace(/magnet:\?[^\s<>"')]+/gi, "[redacted magnet link]")
+          .replace(/\brmg_[A-Za-z0-9._~-]+/g, "[redacted token]")
+          .replace(/\bqbt_[A-Za-z0-9._~-]+/g, "[redacted API key]")
+          .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [redacted]")
+          .replace(/\b[a-f0-9]{64}\b/gi, "[redacted hash]")
+          .replace(/\b[a-f0-9]{40}\b/gi, "[redacted hash]")
+          .replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, "[redacted IP]");
+      }
+
+      function clientBackendLabel() {
+        const health = state.lastHealth;
+        if (!health?.clientLabel) return "";
+        return [health.clientLabel, health.appVersion].filter(Boolean).join(" ");
+      }
+
+      function buildReportDiagnostics(context = {}) {
+        const lines = [
+          "Component: Remagnet Proxy",
+          `Proxy version: ${state.version || "unknown"}`,
+        ];
+        const backend = clientBackendLabel();
+        if (backend) lines.push(`Client backend: ${backend}`);
+        if (context.action) lines.push(`Action: ${context.action}`);
+        if (context.status) lines.push(`HTTP status: ${context.status}`);
+        if (context.code) lines.push(`Error code: ${context.code}`);
+        if (context.message) lines.push(`Message: ${context.message}`);
+        return redactSensitiveText(lines.join("\n"));
+      }
+
+      function openReportDialog(context = null) {
+        const details = context || {};
+        const diagnostics = buildReportDiagnostics(details);
+        byId("reportDiagnostics").textContent = diagnostics;
+        byId("reportCopy").textContent = "Copy diagnostics";
+
+        const version = state.version || "unknown";
+        const query = new URLSearchParams({
+          template: "bug_report.yml",
+          component: "Remagnet Proxy",
+          version,
+          diagnostics,
+        });
+        byId("reportGithub").href = `${REPORT_ISSUE_URL}?${query.toString()}`;
+
+        const subject = `Remagnet Proxy issue${details.action ? `: ${details.action}` : ""}`;
+        const body =
+          `${diagnostics}\n\nWhat happened:\n\n\n` +
+          "What you expected:\n\n\nSteps to reproduce:\n";
+        byId("reportEmail").href =
+          `mailto:${REPORT_EMAIL}?subject=${encodeURIComponent(subject)}` +
+          `&body=${encodeURIComponent(body)}`;
+
+        const dialog = byId("reportDialog");
+        if (!dialog.open) {
+          if (typeof dialog.showModal === "function") dialog.showModal();
+          else dialog.setAttribute("open", "");
+        }
+      }
+
+      byId("reportFooter").addEventListener("click", () => openReportDialog());
+
+      byId("reportClose").addEventListener("click", () => byId("reportDialog").close());
+
+      byId("reportDialog").addEventListener("click", (event) => {
+        if (event.target === byId("reportDialog")) byId("reportDialog").close();
+      });
+
+      byId("reportCopy").addEventListener("click", async () => {
+        const button = byId("reportCopy");
+        try {
+          await navigator.clipboard.writeText(byId("reportDiagnostics").textContent);
+          button.textContent = "Copied";
+        } catch {
+          button.textContent = "Could not copy";
+        }
+        setTimeout(() => {
+          button.textContent = "Copy diagnostics";
+        }, 2000);
+      });
 
       // ---- HTTP ------------------------------------------------------------
 
       async function request(path, options = {}) {
-        const response = await fetch(path, {
-          ...options,
-          credentials: "same-origin",
-          cache: "no-store",
-        });
+        let response;
+        try {
+          response = await fetch(path, {
+            ...options,
+            credentials: "same-origin",
+            cache: "no-store",
+          });
+        } catch (cause) {
+          const error = new Error(
+            "Could not reach Remagnet Proxy. Check that the container is running and reload.",
+          );
+          error.code = "network_error";
+          error.cause = cause;
+          throw error;
+        }
         const text = await response.text();
         let body = null;
         if (text) {
@@ -770,16 +1002,38 @@
         return { response, body, text };
       }
 
+      // Reverse proxies often return an HTML error page instead of the JSON
+      // the API would normally send. Map those statuses to something useful
+      // rather than surfacing a wall of markup.
+      const HTTP_STATUS_MESSAGES = {
+        401: "Your session is not authorized. Sign in again and retry.",
+        403: "The proxy refused that action. Check your permissions and retry.",
+        404: "The proxy could not find that resource. Update the extension and proxy together.",
+        429: "Too many requests. Wait a moment, then try again.",
+        500: "Remagnet Proxy hit an internal error. Check the container logs, then retry.",
+        502: "A reverse proxy could not reach Remagnet Proxy. Check that the container is running.",
+        503: "Remagnet Proxy is unavailable right now. Check that the container is running, then retry.",
+        504: "The proxy timed out waiting for the torrent client. Check the client, then retry.",
+      };
+
+      function httpStatusMessage(status, statusText) {
+        if (HTTP_STATUS_MESSAGES[status]) return HTTP_STATUS_MESSAGES[status];
+        return statusText
+          ? `Request failed: ${status} ${statusText}.`
+          : `Request failed with HTTP ${status}.`;
+      }
+
       async function api(path, options = {}) {
-        const { response, body, text } = await request(path, options);
+        const { response, body } = await request(path, options);
         if (!response.ok) {
-          const error = new Error(
-            (body && typeof body === "object" && body.error) ||
-              (typeof text === "string" && text ? text : "") ||
-              `${response.status} ${response.statusText}`,
-          );
+          const payload = body && typeof body === "object" ? body : null;
+          const message =
+            payload && typeof payload.error === "string" && payload.error
+              ? payload.error
+              : httpStatusMessage(response.status, response.statusText);
+          const error = new Error(message);
           error.status = response.status;
-          error.code = body && typeof body === "object" ? body.code : undefined;
+          error.code = payload ? payload.code : undefined;
           throw error;
         }
         return body;
@@ -915,7 +1169,12 @@
             void boot();
             return;
           }
-          setMessage(byId("setupStatus"), error.message, "error");
+          setMessage(
+            byId("setupStatus"),
+            error.message,
+            "error",
+            reportContextFor("Creating the administrator account", error),
+          );
         } finally {
           button.disabled = false;
         }
@@ -970,7 +1229,12 @@
             );
             byId("loginTotp").focus();
           } else {
-            setMessage(byId("loginStatus"), error.message, "error");
+            setMessage(
+              byId("loginStatus"),
+              error.message,
+              "error",
+              reportContextFor("Signing in", error),
+            );
             if (error.status === 401 && !state.totpRequired) {
               byId("loginPassword").value = "";
               byId("loginPassword").focus();
@@ -1127,7 +1391,14 @@
           applyConfig(config);
           setMessage(byId("status"), "Saved secrets are never sent back to this page.");
         } catch (error) {
-          if (!error.expired) setMessage(byId("status"), error.message, "error");
+          if (!error.expired) {
+            setMessage(
+              byId("status"),
+              error.message,
+              "error",
+              reportContextFor("Loading settings", error),
+            );
+          }
         }
       }
 
@@ -1144,7 +1415,14 @@
           applyConfig(saved);
           setMessage(byId("status"), "Saved.", "ok");
         } catch (error) {
-          if (!error.expired) setMessage(byId("status"), error.message, "error");
+          if (!error.expired) {
+            setMessage(
+              byId("status"),
+              error.message,
+              "error",
+              reportContextFor("Saving settings", error),
+            );
+          }
         } finally {
           saveButton.disabled = false;
         }
@@ -1156,6 +1434,11 @@
         setMessage(byId("status"), "Testing…");
         try {
           const health = await adminApi("/api/health");
+          state.lastHealth = {
+            clientLabel: health.clientLabel || "",
+            appVersion: health.appVersion || "",
+          };
+          setProxyVersion(health.proxyVersion);
           let message =
             `Connected to ${health.clientLabel} ${health.appVersion} ` +
             `(API ${health.webApiVersion}).`;
@@ -1164,7 +1447,14 @@
           }
           setMessage(byId("status"), message, "ok");
         } catch (error) {
-          if (!error.expired) setMessage(byId("status"), error.message, "error");
+          if (!error.expired) {
+            setMessage(
+              byId("status"),
+              error.message,
+              "error",
+              reportContextFor("Testing connection", error),
+            );
+          }
         } finally {
           button.disabled = false;
         }
@@ -1272,7 +1562,14 @@
         try {
           showPairing(await mintPairing());
         } catch (error) {
-          if (!error.expired) setMessage(byId("pairStatus"), error.message, "error");
+          if (!error.expired) {
+            setMessage(
+              byId("pairStatus"),
+              error.message,
+              "error",
+              reportContextFor("Pairing device", error),
+            );
+          }
         } finally {
           state.pairingBusy = false;
         }
@@ -1289,7 +1586,12 @@
         } catch (error) {
           if (error.expired) return;
           resetPairing(false);
-          setMessage(byId("pairStatus"), error.message, "error");
+          setMessage(
+            byId("pairStatus"),
+            error.message,
+            "error",
+            reportContextFor("Pairing device", error),
+          );
         } finally {
           state.pairingBusy = false;
         }
@@ -1404,7 +1706,14 @@
           renderDevices(Array.isArray(data.devices) ? data.devices : []);
           setMessage(byId("devicesStatus"), "");
         } catch (error) {
-          if (!error.expired) setMessage(byId("devicesStatus"), error.message, "error");
+          if (!error.expired) {
+            setMessage(
+              byId("devicesStatus"),
+              error.message,
+              "error",
+              reportContextFor("Loading devices", error),
+            );
+          }
         }
       }
 
@@ -1424,7 +1733,12 @@
         } catch (error) {
           if (!error.expired) {
             button.disabled = false;
-            setMessage(byId("devicesStatus"), error.message, "error");
+            setMessage(
+              byId("devicesStatus"),
+              error.message,
+              "error",
+              reportContextFor("Revoking device", error),
+            );
           }
         }
       }
@@ -1461,7 +1775,14 @@
           );
           byId("totpVerify").focus();
         } catch (error) {
-          if (!error.expired) setMessage(byId("totpStatus"), error.message, "error");
+          if (!error.expired) {
+            setMessage(
+              byId("totpStatus"),
+              error.message,
+              "error",
+              reportContextFor("Starting two-factor setup", error),
+            );
+          }
         } finally {
           button.disabled = false;
         }
@@ -1509,7 +1830,14 @@
             "ok",
           );
         } catch (error) {
-          if (!error.expired) setMessage(byId("totpStatus"), error.message, "error");
+          if (!error.expired) {
+            setMessage(
+              byId("totpStatus"),
+              error.message,
+              "error",
+              reportContextFor("Enabling two-factor authentication", error),
+            );
+          }
         } finally {
           button.disabled = false;
         }
@@ -1570,6 +1898,7 @@
                 ? "That two-factor or recovery code is not valid."
                 : error.message,
               "error",
+              reportContextFor("Disabling two-factor authentication", error),
             );
           }
         } finally {
@@ -1606,13 +1935,38 @@
             "ok",
           );
         } catch (error) {
-          if (!error.expired) setMessage(byId("passwordStatus"), error.message, "error");
+          if (!error.expired) {
+            setMessage(
+              byId("passwordStatus"),
+              error.message,
+              "error",
+              reportContextFor("Changing password", error),
+            );
+          }
         } finally {
           button.disabled = false;
         }
       });
 
       // ---- Boot ------------------------------------------------------------
+
+      function setProxyVersion(version) {
+        if (!version) return;
+        state.version = String(version);
+        byId("proxyVersion").textContent = `Remagnet Proxy ${state.version}`;
+      }
+
+      // Version metadata is optional: fail quietly so a missing /healthz never
+      // blocks the sign-in flow.
+      async function loadVersion() {
+        try {
+          const { response, body } = await request("/healthz");
+          if (!response.ok || !body || typeof body !== "object") return;
+          setProxyVersion(body.version);
+        } catch {
+          // Leave the footer without a version.
+        }
+      }
 
       async function boot() {
         showOnly("booting");
@@ -1622,13 +1976,21 @@
           if (!status.initialized) showSetup(status);
           else if (!status.authenticated) showSignIn();
           else showDashboard(status);
-        } catch {
+        } catch (error) {
           state.status = null;
-          showSignIn("Could not reach the proxy. Check that it is running, then reload.");
+          showSignIn();
+          setMessage(
+            byId("loginStatus"),
+            error?.message ||
+              "Could not reach the proxy. Check that it is running, then reload.",
+            "error",
+            reportContextFor("Loading Remagnet Proxy", error),
+          );
         }
       }
 
       byId("proxyUrl").textContent = location.origin;
+      void loadVersion();
       void boot();
     </script>
   </body>

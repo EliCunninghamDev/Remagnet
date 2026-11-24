@@ -20,8 +20,8 @@ interface ConfigurationApi {
      * Responses:
      *  - 200: qBittorrent answered with its versions.
      *  - 401: Missing or invalid credentials.
-     *  - 502: qBittorrent could not be reached or returned an error.
-     *  - 503: qBittorrent credentials have not been configured on the proxy yet. The body carries `code: not_configured` so clients can distinguish this from other server failures.
+     *  - 502: The configured torrent client could not be reached or returned an error. `code` distinguishes `upstream_unreachable`, `upstream_auth` and `upstream_error`.
+     *  - 503: No torrent client has been configured on the proxy yet. The body carries `code: not_configured` so clients can distinguish this from other server failures.
      *
      * @return [ConnectionHealth]
      */
@@ -49,7 +49,7 @@ interface ConfigurationApi {
      *  - 200: Configuration saved; the returned values are the effective ones.
      *  - 400: The request was rejected, for example an invalid URL, hash or field.
      *  - 401: Missing or invalid credentials.
-     *  - 500: The proxy could not save configuration or start the archive.
+     *  - 500: The proxy hit an unexpected internal error. The body uses `code: internal_error` and a generic message; technical detail is only written to the proxy logs.
      *
      * @param configUpdate
      * @return [PublicConfig]

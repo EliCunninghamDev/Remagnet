@@ -27,7 +27,7 @@ package dev.remagnet.proxy.models
 import com.google.gson.annotations.SerializedName
 
 /**
- * Returned by qBittorrent-backed endpoints before the proxy has credentials. Saving an API key or username through `PUT /api/config` clears it.
+ * Returned by torrent-client-backed endpoints before the proxy has credentials. Saving an API key, username, or client URL through `PUT /api/config` clears it.
  *
  * @param error
  * @param code Stable identifier for an unconfigured proxy.

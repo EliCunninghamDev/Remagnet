@@ -148,7 +148,7 @@ class ProxyTorrentClientTest {
     @Test
     fun anUnauthorizedTokenIsReportedSeparately() = runBlocking {
         listCode = 401
-        listBody = """{"error":"Missing or invalid proxy token."}"""
+        listBody = """{"error":"Missing or invalid proxy token.","code":"unauthorized"}"""
 
         val result = client().listTorrents()
 
@@ -156,6 +156,22 @@ class ProxyTorrentClientTest {
         val error = (result as QbitResult.Failure).error
         assertTrue(error is QbitError.Unauthorized)
         assertEquals("Missing or invalid proxy token.", error.message)
+        assertEquals("unauthorized", error.code)
+    }
+
+    @Test
+    fun keepsTheProxyErrorCodeForOtherFailures() = runBlocking {
+        listCode = 502
+        listBody = """{"error":"qBittorrent is offline.","code":"qbit_unreachable"}"""
+
+        val result = client().listTorrents()
+
+        assertTrue(result is QbitResult.Failure)
+        val error = (result as QbitResult.Failure).error
+        assertTrue(error is QbitError.Http)
+        assertEquals(502, (error as QbitError.Http).status)
+        assertEquals("qBittorrent is offline.", error.message)
+        assertEquals("qbit_unreachable", error.code)
     }
 
     @Test

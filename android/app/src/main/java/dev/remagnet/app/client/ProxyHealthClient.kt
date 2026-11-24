@@ -57,9 +57,9 @@ class ProxyHealthClient(
             api.service.getLiveness()
         } catch (cancelled: CancellationException) {
             throw cancelled
-        } catch (_: IOException) {
+        } catch (error: IOException) {
             return ProxyStatus.Unreachable(
-                "Could not reach the Remagnet Proxy at ${settings.proxyBaseUrl}. Check the URL and network.",
+                describeProxyConnectionFailure(error, settings.proxyBaseUrl),
             )
         } catch (error: Exception) {
             return ProxyStatus.Unreachable(
@@ -77,9 +77,9 @@ class ProxyHealthClient(
             api.configuration.checkQbitConnection()
         } catch (cancelled: CancellationException) {
             throw cancelled
-        } catch (_: IOException) {
+        } catch (error: IOException) {
             return ProxyStatus.Unreachable(
-                "The Remagnet Proxy stopped responding while checking qBittorrent.",
+                describeProxyConnectionFailure(error, settings.proxyBaseUrl),
             )
         } catch (error: Exception) {
             return ProxyStatus.Unreachable(

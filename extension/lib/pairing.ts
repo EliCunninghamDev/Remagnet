@@ -1,3 +1,5 @@
+import { describeNetworkError, ProxyHttpError } from "@remagnet/proxy-client";
+
 /** Connection details returned by a successful pairing claim. */
 export interface PairedSettings {
   proxyBaseUrl: string;
@@ -69,19 +71,12 @@ export async function claimPairing(
 
   const trimmedDeviceName = deviceName?.trim();
   const proof = encode(new Uint8Array(await crypto.subtle.digest("SHA-256", buffer(secret))));
-  const response = await fetch(`${link.baseUrl}/api/pair/claim`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      id: link.id,
-      proof,
-      ...(trimmedDeviceName ? { deviceName: trimmedDeviceName } : {}),
-    }),
-    cache: "no-store",
-    signal: AbortSignal.timeout(15_000),
+  const response = await claimRequest(link, proof, trimmedDeviceName).catch((error: unknown) => {
+    if (error instanceof ProxyHttpError) throw error;
+    throw new ProxyHttpError(describeNetworkError(error, link.baseUrl));
   });
   if (!response.ok) {
-    throw new Error(await errorMessage(response, "The pairing code was rejected."));
+    throw await pairingError(response, "The pairing code was rejected.");
   }
 
   const encrypted = (await response.json()) as EncryptedPayload;
@@ -177,12 +172,37 @@ function buffer(bytes: Uint8Array): ArrayBuffer {
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 }
 
-async function errorMessage(response: Response, fallback: string): Promise<string> {
+/** POST the hashed pairing code; transport failures are normalized by the caller. */
+function claimRequest(link: PairingLink, proof: string, deviceName?: string): Promise<Response> {
+  return fetch(`${link.baseUrl}/api/pair/claim`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      id: link.id,
+      proof,
+      ...(deviceName ? { deviceName } : {}),
+    }),
+    cache: "no-store",
+    signal: AbortSignal.timeout(15_000),
+  });
+}
+
+/**
+ * Turn a rejected claim into a `ProxyHttpError` that keeps the HTTP status and
+ * the proxy's machine-readable error code, so the UI can act on them.
+ */
+async function pairingError(response: Response, fallback: string): Promise<ProxyHttpError> {
+  let message = "";
+  let code: string | undefined;
   try {
-    const body = (await response.json()) as { error?: unknown };
-    if (typeof body.error === "string" && body.error.trim()) return body.error;
+    const body = (await response.json()) as { error?: unknown; code?: unknown };
+    if (typeof body.error === "string" && body.error.trim()) message = body.error;
+    if (typeof body.code === "string" && body.code.trim()) code = body.code;
   } catch {
     // Non-JSON error pages fall back to the status text.
   }
-  return response.statusText ? `${fallback} (${response.statusText})` : fallback;
+  if (!message) {
+    message = response.statusText ? `${fallback} (${response.statusText})` : fallback;
+  }
+  return new ProxyHttpError(message, { status: response.status, code });
 }

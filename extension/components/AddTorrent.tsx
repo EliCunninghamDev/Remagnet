@@ -1,13 +1,16 @@
 import { createMemo, createSignal, onMount, Show } from "solid-js";
+import type { IssueReportContext } from "../lib/issue-report";
 import { isMagnetLink, type MagnetLink, magnetLabel, parseMagnet } from "../lib/magnet";
 import {
   type AddTorrentsResult,
+  BackgroundError,
   sendBackgroundMessage,
   type TorrentLookupResult,
 } from "../lib/messages";
 import type { TorrentSummary } from "../lib/torrents";
 import AddedSummary from "./AddedSummary";
 import type { FlowStatus } from "./flow-status";
+import IssueReportDialog from "./IssueReportDialog";
 import MagnetForm from "./MagnetForm";
 import MagnetReview from "./MagnetReview";
 import Wordmark from "./Wordmark";
@@ -47,6 +50,8 @@ export default function AddTorrent(props: AddTorrentProps) {
   const [busy, setBusy] = createSignal(false);
   const [status, setStatus] = createSignal<FlowStatus>();
   const [added, setAdded] = createSignal<AddedState>();
+  const [reportContext, setReportContext] = createSignal<IssueReportContext>();
+  const [reportOpen, setReportOpen] = createSignal(false);
 
   let lookupToken = 0;
 
@@ -78,6 +83,7 @@ export default function AddTorrent(props: AddTorrentProps) {
     setEditing(false);
     setAdded(undefined);
     setStatus(undefined);
+    setReportContext(undefined);
     setExisting(null);
     void lookup(link.infoHash);
     return true;
@@ -112,6 +118,7 @@ export default function AddTorrent(props: AddTorrentProps) {
     setDraft(magnetUri());
     setEditing(true);
     setStatus(undefined);
+    setReportContext(undefined);
   }
 
   async function submit(event: SubmitEvent) {
@@ -121,6 +128,7 @@ export default function AddTorrent(props: AddTorrentProps) {
 
     setBusy(true);
     setStatus(undefined);
+    setReportContext(undefined);
 
     try {
       const result = await sendBackgroundMessage<AddTorrentsResult>({
@@ -137,6 +145,7 @@ export default function AddTorrent(props: AddTorrentProps) {
       setStatus({ tone: "ok", message: `Sent “${name}” to Remagnet Proxy.` });
     } catch (error) {
       setStatus({ tone: "error", message: errorMessage(error) });
+      setReportContext(issueContext(error, "Adding torrent"));
     } finally {
       setBusy(false);
     }
@@ -149,6 +158,7 @@ export default function AddTorrent(props: AddTorrentProps) {
     setEditing(true);
     setExisting(null);
     setStatus(undefined);
+    setReportContext(undefined);
   }
 
   const body = (
@@ -196,8 +206,30 @@ export default function AddTorrent(props: AddTorrentProps) {
     </Show>
   );
 
+  const reportControls = (
+    <>
+      <Show when={reportContext()}>
+        <p class="report-inline">
+          <button class="linkish" type="button" onClick={() => setReportOpen(true)}>
+            Report issue
+          </button>
+        </p>
+      </Show>
+      <IssueReportDialog
+        open={reportOpen()}
+        context={reportContext()}
+        onClose={() => setReportOpen(false)}
+      />
+    </>
+  );
+
   if (props.embedded) {
-    return <section class="add-flow stack">{body}</section>;
+    return (
+      <section class="add-flow stack">
+        {body}
+        {reportControls}
+      </section>
+    );
   }
 
   return (
@@ -213,10 +245,20 @@ export default function AddTorrent(props: AddTorrentProps) {
         </button>
       </header>
       {body}
+      {reportControls}
     </main>
   );
 }
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function issueContext(cause: unknown, action: string): IssueReportContext {
+  const context: IssueReportContext = { action, message: errorMessage(cause) };
+  if (cause instanceof BackgroundError) {
+    if (cause.code) context.code = cause.code;
+    if (cause.status !== undefined) context.status = cause.status;
+  }
+  return context;
 }

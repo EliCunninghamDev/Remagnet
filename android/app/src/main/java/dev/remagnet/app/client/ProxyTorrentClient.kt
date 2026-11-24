@@ -151,47 +151,61 @@ class ProxyTorrentClient(
     )
 
     private fun errorFor(response: Response<*>, fallback: String): QbitError {
-        val detail = errorMessage(response)
+        val error = errorBody(response)
+        val detail = error.message
+        val code = error.code
         return when (response.code()) {
             401 -> QbitError.Unauthorized(
                 detail ?: "The Remagnet Proxy token is missing or invalid.",
+                code,
             )
 
-            400 -> QbitError.Rejected(detail ?: fallback)
+            400 -> QbitError.Rejected(detail ?: fallback, code)
             404 -> QbitError.Http(
                 404,
                 detail ?: "The torrent does not exist or is not owned by Remagnet.",
+                code,
             )
 
             503 -> QbitError.Http(
                 503,
                 detail ?: "The Remagnet Proxy has no qBittorrent credentials configured yet.",
+                code,
             )
 
             502 -> QbitError.Http(
                 502,
                 detail ?: "The Remagnet Proxy could not reach qBittorrent.",
+                code,
             )
 
             else -> QbitError.Http(
                 response.code(),
                 detail ?: "$fallback (HTTP ${response.code()})",
+                code,
             )
         }
     }
 
-    private fun errorMessage(response: Response<*>): String? {
+    private data class ProxyErrorBody(val message: String? = null, val code: String? = null)
+
+    private fun errorBody(response: Response<*>): ProxyErrorBody {
         val text = try {
             response.errorBody()?.string()
         } catch (_: IOException) {
             null
-        } ?: return null
+        } ?: return ProxyErrorBody()
 
         return try {
-            JsonParser.parseString(text).asJsonObject["error"]?.asString?.trim()
-                ?.takeIf { it.isNotEmpty() }
+            val json = JsonParser.parseString(text).asJsonObject
+            ProxyErrorBody(
+                message = json.get("error")?.takeIf { it.isJsonPrimitive }?.asString
+                    ?.trim()?.takeIf { it.isNotEmpty() },
+                code = json.get("code")?.takeIf { it.isJsonPrimitive }?.asString
+                    ?.trim()?.takeIf { it.isNotEmpty() },
+            )
         } catch (_: Exception) {
-            null
+            ProxyErrorBody()
         }
     }
 
@@ -207,10 +221,10 @@ class ProxyTorrentClient(
                 error.message ?: "The Remagnet Proxy settings are not valid.",
             ),
         )
-    } catch (_: IOException) {
+    } catch (error: IOException) {
         QbitResult.Failure(
             QbitError.Unreachable(
-                "Could not reach the Remagnet Proxy at $baseUrl. Check the URL and network.",
+                describeProxyConnectionFailure(error, baseUrl),
             ),
         )
     } catch (_: Exception) {

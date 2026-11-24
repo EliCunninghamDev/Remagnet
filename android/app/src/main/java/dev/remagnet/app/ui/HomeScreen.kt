@@ -25,8 +25,10 @@ import dev.remagnet.app.ui.components.SecondaryButton
 import dev.remagnet.app.ui.components.SectionLabel
 import dev.remagnet.app.ui.components.StatusNote
 import dev.remagnet.app.ui.components.StatusTone
+import dev.remagnet.app.ui.components.TextAction
 import dev.remagnet.app.ui.theme.GeistMono
 import dev.remagnet.app.ui.theme.RemagnetPalette
+import dev.remagnet.app.util.IssueReportContext
 
 /**
  * The app's first screen is the torrent list. It is deliberately backed by
@@ -48,6 +50,7 @@ fun HomeScreen(
     onCancelRemove: () -> Unit,
     onOpenArchive: (String) -> Unit,
     onDismissActionError: () -> Unit,
+    onReportIssue: (IssueReportContext) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(
@@ -117,11 +120,28 @@ fun HomeScreen(
                 item {
                     Panel {
                         StatusNote(text = message, tone = StatusTone.Error)
-                        SecondaryButton(
-                            text = "Dismiss",
-                            onClick = onDismissActionError,
+                        Row(
                             modifier = Modifier.fillMaxWidth(),
-                        )
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            SecondaryButton(
+                                text = "Dismiss",
+                                onClick = onDismissActionError,
+                                modifier = Modifier.weight(1f),
+                            )
+                            TextAction(
+                                text = "Report issue",
+                                onClick = {
+                                    onReportIssue(
+                                        IssueReportContext(
+                                            action = "Home action error",
+                                            message = message,
+                                        ),
+                                    )
+                                },
+                            )
+                        }
                     }
                 }
             }
@@ -176,6 +196,7 @@ fun HomeScreen(
                         onRemove = onRemove,
                         onCancelRemove = onCancelRemove,
                         onOpenArchive = onOpenArchive,
+                        onReportIssue = onReportIssue,
                     )
                 }
             }

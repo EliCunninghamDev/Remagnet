@@ -48,7 +48,22 @@ export interface RemoveTorrentsResult {
   removed: string[];
 }
 
-export type BackgroundResponse<T> = { ok: true; data: T } | { ok: false; error: string };
+export type BackgroundResponse<T> =
+  | { ok: true; data: T }
+  | { ok: false; error: string; code?: string; status?: number };
+
+/** A failed background request, carrying the proxy's code and HTTP status when known. */
+export class BackgroundError extends Error {
+  readonly code?: string;
+  readonly status?: number;
+
+  constructor(message: string, options: { code?: string; status?: number } = {}) {
+    super(message);
+    this.name = "BackgroundError";
+    if (options.code !== undefined) this.code = options.code;
+    if (options.status !== undefined) this.status = options.status;
+  }
+}
 
 export async function sendBackgroundMessage<T>(request: BackgroundRequest): Promise<T> {
   const response = (await browser.runtime.sendMessage(request)) as
@@ -56,7 +71,9 @@ export async function sendBackgroundMessage<T>(request: BackgroundRequest): Prom
     | undefined;
 
   if (!response) throw new Error("The extension background worker did not respond.");
-  if (!response.ok) throw new Error(response.error);
+  if (!response.ok) {
+    throw new BackgroundError(response.error, { code: response.code, status: response.status });
+  }
   return response.data;
 }
 

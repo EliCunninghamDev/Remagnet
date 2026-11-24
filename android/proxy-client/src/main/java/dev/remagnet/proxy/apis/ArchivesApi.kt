@@ -21,7 +21,7 @@ interface ArchivesApi {
      *  - 400: The request was rejected, for example an invalid URL, hash or field.
      *  - 401: Missing or invalid credentials.
      *  - 404: The torrent does not exist or does not match the proxy's filter.
-     *  - 503: qBittorrent credentials have not been configured on the proxy yet. The body carries `code: not_configured` so clients can distinguish this from other server failures.
+     *  - 503: No torrent client has been configured on the proxy yet. The body carries `code: not_configured` so clients can distinguish this from other server failures.
      *
      * @param hash Torrent info hash. Accepts a 40-character BitTorrent v1 hash or a 64-character v2 hash, case-insensitively.
      * @return [ArchiveTicket]
@@ -39,9 +39,9 @@ interface ArchivesApi {
      *  - 401: Missing or invalid credentials.
      *  - 404: The torrent does not exist in qBittorrent, or it does not match the proxy's configured category/tags filter.
      *  - 409: The torrent is not complete yet, a file is still downloading, or the torrent has no files to archive.
-     *  - 500: The proxy could not save configuration or start the archive.
-     *  - 502: qBittorrent could not be reached or returned an error.
-     *  - 503: qBittorrent credentials have not been configured on the proxy yet. The body carries `code: not_configured` so clients can distinguish this from other server failures.
+     *  - 500: The proxy hit an unexpected internal error. The body uses `code: internal_error` and a generic message; technical detail is only written to the proxy logs.
+     *  - 502: The configured torrent client could not be reached or returned an error. `code` distinguishes `upstream_unreachable`, `upstream_auth` and `upstream_error`.
+     *  - 503: No torrent client has been configured on the proxy yet. The body carries `code: not_configured` so clients can distinguish this from other server failures.
      *
      * @param hash Torrent info hash. Accepts a 40-character BitTorrent v1 hash or a 64-character v2 hash, case-insensitively.
      * @param ticket Single-use download ticket from &#x60;POST /api/archive/{hash}/ticket&#x60;. Alternative to a device token or administrator session; the ticket is consumed by the download and expires after 60 seconds.  (optional)

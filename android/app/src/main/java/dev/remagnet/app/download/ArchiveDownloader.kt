@@ -1,5 +1,7 @@
 package dev.remagnet.app.download
 
+import com.google.gson.JsonParser
+import dev.remagnet.app.client.describeProxyConnectionFailure
 import java.io.IOException
 import java.io.InputStream
 import java.util.concurrent.TimeUnit
@@ -46,9 +48,9 @@ class ArchiveDownloader(
 
         val response = try {
             http.newCall(request).execute()
-        } catch (_: IOException) {
+        } catch (error: IOException) {
             return ArchiveOpenResult.Failed(
-                "Could not reach the Remagnet Proxy at $baseUrl. Check the URL and network.",
+                describeProxyConnectionFailure(error, baseUrl),
             )
         } catch (error: Exception) {
             return ArchiveOpenResult.Failed(
@@ -78,6 +80,9 @@ class ArchiveDownloader(
 
 /** A message that tells the user what to do about each documented status. */
 fun archiveErrorMessage(status: Int, detail: String? = null): String {
+    val clean = detail?.trim()
+    proxyErrorMessage(clean)?.let { return it }
+
     val base = when (status) {
         400 -> "The Remagnet Proxy rejected that info hash."
         401 -> "The Remagnet Proxy rejected the token. Check the token in Settings."
@@ -90,10 +95,24 @@ fun archiveErrorMessage(status: Int, detail: String? = null): String {
     }
 
     if (status != 500 && status != 502) return base
-    val clean = detail?.trim()
-        ?.takeIf { it.isNotEmpty() && !it.startsWith("<") }
+    val text = clean
+        ?.takeIf { it.isNotEmpty() && !it.startsWith("<") && !it.startsWith("{") }
         ?.take(180)
-    return if (clean == null) base else "$base $clean"
+    return if (text == null) base else "$base $text"
+}
+
+/** The proxy reports failures as `{"error": "..."}`; prefer that over a fallback. */
+private fun proxyErrorMessage(detail: String?): String? {
+    if (detail.isNullOrEmpty() || !detail.startsWith("{")) return null
+    return try {
+        JsonParser.parseString(detail).asJsonObject.get("error")
+            ?.takeIf { it.isJsonPrimitive }
+            ?.asString
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+    } catch (_: Exception) {
+        null
+    }
 }
 
 private val defaultArchiveHttp: OkHttpClient by lazy {

@@ -13,24 +13,24 @@ sealed interface QbitResult<out T> {
 }
 
 /** A user-readable failure from the qBittorrent client. */
-sealed class QbitError(val message: String) {
+sealed class QbitError(val message: String, val code: String? = null) {
     /** The settings needed for a request are missing or malformed. */
-    class InvalidSettings(message: String) : QbitError(message)
+    class InvalidSettings(message: String, code: String? = null) : QbitError(message, code)
 
     /** The client rejected the API key, session or login attempt. */
-    class Unauthorized(message: String) : QbitError(message)
+    class Unauthorized(message: String, code: String? = null) : QbitError(message, code)
 
     /** The host could not be reached at all. */
-    class Unreachable(message: String) : QbitError(message)
+    class Unreachable(message: String, code: String? = null) : QbitError(message, code)
 
     /** The client answered with an unexpected status. */
-    class Http(val status: Int, message: String) : QbitError(message)
+    class Http(val status: Int, message: String, code: String? = null) : QbitError(message, code)
 
     /** The client answered, but refused the torrent itself. */
-    class Rejected(message: String) : QbitError(message)
+    class Rejected(message: String, code: String? = null) : QbitError(message, code)
 
     /** The response was not the shape the Web API documents. */
-    class InvalidResponse(message: String) : QbitError(message)
+    class InvalidResponse(message: String, code: String? = null) : QbitError(message, code)
 }
 
 fun <T> QbitResult<T>.valueOrNull(): T? = (this as? QbitResult.Success)?.value

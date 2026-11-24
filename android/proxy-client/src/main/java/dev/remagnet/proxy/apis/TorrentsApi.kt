@@ -22,8 +22,8 @@ interface TorrentsApi {
      *  - 200: qBittorrent accepted the add request.
      *  - 400: No URLs were supplied or qBittorrent rejected the torrent.
      *  - 401: Missing or invalid credentials.
-     *  - 502: qBittorrent could not be reached or returned an error.
-     *  - 503: qBittorrent credentials have not been configured on the proxy yet. The body carries `code: not_configured` so clients can distinguish this from other server failures.
+     *  - 502: The configured torrent client could not be reached or returned an error. `code` distinguishes `upstream_unreachable`, `upstream_auth` and `upstream_error`.
+     *  - 503: No torrent client has been configured on the proxy yet. The body carries `code: not_configured` so clients can distinguish this from other server failures.
      *
      * @param addTorrentRequest
      * @return [AddTorrentResult]
@@ -40,8 +40,8 @@ interface TorrentsApi {
      *  - 400: The request was rejected, for example an invalid URL, hash or field.
      *  - 401: Missing or invalid credentials.
      *  - 404: The torrent does not exist or does not match the proxy's filter.
-     *  - 502: qBittorrent could not be reached or returned an error.
-     *  - 503: qBittorrent credentials have not been configured on the proxy yet. The body carries `code: not_configured` so clients can distinguish this from other server failures.
+     *  - 502: The configured torrent client could not be reached or returned an error. `code` distinguishes `upstream_unreachable`, `upstream_auth` and `upstream_error`.
+     *  - 503: No torrent client has been configured on the proxy yet. The body carries `code: not_configured` so clients can distinguish this from other server failures.
      *
      * @param hash Torrent info hash. Accepts a 40-character BitTorrent v1 hash or a 64-character v2 hash, case-insensitively.
      * @return [TorrentSummary]
@@ -56,8 +56,8 @@ interface TorrentsApi {
      * Responses:
      *  - 200: The filtered torrent list.
      *  - 401: Missing or invalid credentials.
-     *  - 502: qBittorrent could not be reached or returned an error.
-     *  - 503: qBittorrent credentials have not been configured on the proxy yet. The body carries `code: not_configured` so clients can distinguish this from other server failures.
+     *  - 502: The configured torrent client could not be reached or returned an error. `code` distinguishes `upstream_unreachable`, `upstream_auth` and `upstream_error`.
+     *  - 503: No torrent client has been configured on the proxy yet. The body carries `code: not_configured` so clients can distinguish this from other server failures.
      *
      * @return [TorrentList]
      */
@@ -73,8 +73,8 @@ interface TorrentsApi {
      *  - 400: The request was rejected, for example an invalid URL, hash or field.
      *  - 401: Missing or invalid credentials.
      *  - 404: The torrent does not exist or does not match the proxy's filter.
-     *  - 502: qBittorrent could not be reached or returned an error.
-     *  - 503: qBittorrent credentials have not been configured on the proxy yet. The body carries `code: not_configured` so clients can distinguish this from other server failures.
+     *  - 502: The configured torrent client could not be reached or returned an error. `code` distinguishes `upstream_unreachable`, `upstream_auth` and `upstream_error`.
+     *  - 503: No torrent client has been configured on the proxy yet. The body carries `code: not_configured` so clients can distinguish this from other server failures.
      *
      * @param hash Torrent info hash. Accepts a 40-character BitTorrent v1 hash or a 64-character v2 hash, case-insensitively.
      * @param deleteFiles Also delete the downloaded files. (optional, default to false)

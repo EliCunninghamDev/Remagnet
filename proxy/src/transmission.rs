@@ -299,9 +299,10 @@ impl TransmissionClient {
                 request = request.header(SESSION_HEADER, session_id);
             }
 
-            let response = request.send().await.map_err(|error| {
-                AppError::Upstream(format!("Transmission request failed: {error}"))
-            })?;
+            let response = request
+                .send()
+                .await
+                .map_err(|error| AppError::from_reqwest("Transmission", error))?;
 
             let status = response.status();
             if status == StatusCode::CONFLICT {
@@ -326,28 +327,26 @@ impl TransmissionClient {
             }
 
             if matches!(status, StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN) {
-                return Err(AppError::Upstream(
-                    "Transmission rejected the saved credentials.".to_string(),
+                return Err(AppError::UpstreamAuth(
+                    "Transmission rejected the saved credentials. Update the username and password in the Remagnet Proxy page."
+                        .to_string(),
                 ));
             }
 
             if !status.is_success() {
-                let detail = response.text().await.unwrap_or_default();
-                let detail = detail.trim();
-                let detail = if detail.is_empty() {
-                    String::new()
-                } else {
-                    format!(": {}", truncate(detail, 300))
-                };
+                let body = response.text().await.unwrap_or_default();
+                let detail = error_detail(&body);
                 return Err(AppError::Upstream(format!(
                     "Transmission returned {status} for {method}{detail}"
                 )));
             }
 
             let body: Value = response.json().await.map_err(|error| {
-                AppError::Upstream(format!(
-                    "Could not parse the Transmission response for {method}: {error}"
-                ))
+                tracing::warn!(error = %error, method, "could not parse the Transmission response");
+                AppError::Upstream(
+                    "Transmission returned a response Remagnet Proxy could not read. Check that Transmission is running and up to date."
+                        .to_string(),
+                )
             })?;
 
             let result = body
@@ -412,10 +411,22 @@ fn torrents_from<T: DeserializeOwned>(arguments: &Value) -> Result<Vec<T>, AppEr
         .cloned()
         .unwrap_or_else(|| json!([]));
     serde_json::from_value(torrents).map_err(|error| {
-        AppError::Upstream(format!(
-            "Could not parse the Transmission torrent data: {error}"
-        ))
+        tracing::warn!(error = %error, "could not parse the Transmission torrent data");
+        AppError::Upstream(
+            "Transmission returned torrent data Remagnet Proxy could not read. Check that Transmission is running and up to date."
+                .to_string(),
+        )
     })
+}
+
+/// Include a short upstream body in an error, unless it is an HTML page rather
+/// than a useful message.
+fn error_detail(body: &str) -> String {
+    let body = body.trim();
+    if body.is_empty() || body.starts_with('<') {
+        return String::new();
+    }
+    format!(": {}", truncate(body, 300))
 }
 
 fn truncate(value: &str, max_chars: usize) -> String {
@@ -860,10 +871,11 @@ mod tests {
         let client = TransmissionClient::new(&bad).unwrap();
         let error = client.test_connection().await.unwrap_err();
         match error {
-            AppError::Upstream(message) => {
-                assert_eq!(message, "Transmission rejected the saved credentials.")
-            }
-            other => panic!("expected Upstream, got {other:?}"),
+            AppError::UpstreamAuth(message) => assert_eq!(
+                message,
+                "Transmission rejected the saved credentials. Update the username and password in the Remagnet Proxy page."
+            ),
+            other => panic!("expected UpstreamAuth, got {other:?}"),
         }
     }
 

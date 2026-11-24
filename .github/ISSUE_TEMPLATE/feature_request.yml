@@ -1,0 +1,45 @@
+name: Feature request
+description: Suggest an improvement to the browser extension, Android app, or Remagnet Proxy.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the suggestion. Please do not include proxy tokens, passwords, API keys, or private URLs.
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - Firefox extension
+        - Chrome extension
+        - Android app
+        - Remagnet Proxy
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: Describe the situation or limitation you ran into.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What would you like Remagnet to do instead?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Optional — workarounds or other approaches you have tried.
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Optional — mockups, links, or anything else that helps.

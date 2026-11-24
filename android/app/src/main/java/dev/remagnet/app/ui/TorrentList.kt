@@ -25,10 +25,12 @@ import dev.remagnet.app.ui.components.SecondaryButton
 import dev.remagnet.app.ui.components.SquareBar
 import dev.remagnet.app.ui.components.StatusNote
 import dev.remagnet.app.ui.components.StatusTone
+import dev.remagnet.app.ui.components.TextAction
 import dev.remagnet.app.ui.components.TileBarPhase
 import dev.remagnet.app.ui.components.isLargeText
 import dev.remagnet.app.ui.theme.GeistMono
 import dev.remagnet.app.ui.theme.RemagnetPalette
+import dev.remagnet.app.util.IssueReportContext
 import dev.remagnet.app.util.formatBytes
 import dev.remagnet.app.util.formatEta
 import dev.remagnet.app.util.formatSpeed
@@ -56,6 +58,7 @@ fun TorrentListSection(
     onRemove: (TorrentSummary, Boolean) -> Unit,
     onCancelRemove: () -> Unit,
     onOpenArchive: (String) -> Unit,
+    onReportIssue: (IssueReportContext) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Panel(modifier) {
@@ -75,6 +78,14 @@ fun TorrentListSection(
                         modifier = Modifier.weight(1f),
                     )
                 }
+                TextAction(
+                    text = "Report issue",
+                    onClick = {
+                        onReportIssue(
+                            IssueReportContext(action = "Torrent list", message = error),
+                        )
+                    },
+                )
             }
 
             loading && torrents.isEmpty() -> Text(
@@ -99,6 +110,14 @@ fun TorrentListSection(
                         onClick = onRetry,
                         enabled = !loading,
                         modifier = Modifier.fillMaxWidth(),
+                    )
+                    TextAction(
+                        text = "Report issue",
+                        onClick = {
+                            onReportIssue(
+                                IssueReportContext(action = "Torrent list", message = error),
+                            )
+                        },
                     )
                 }
 

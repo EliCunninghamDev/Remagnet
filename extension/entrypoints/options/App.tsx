@@ -3,10 +3,13 @@ import {
   createPublicProxyClient,
   proxyErrorCode,
   proxyErrorMessage,
+  toProxyError,
 } from "@remagnet/proxy-client";
 import { createSignal, onMount, Show } from "solid-js";
 import { browser } from "wxt/browser";
+import IssueReportDialog from "../../components/IssueReportDialog";
 import Wordmark from "../../components/Wordmark";
+import type { IssueReportContext } from "../../lib/issue-report";
 import { type ConnectionTestResult, sendBackgroundMessage } from "../../lib/messages";
 import { claimPairing, parsePairingLink } from "../../lib/pairing";
 import { ensureHostPermission } from "../../lib/permissions";
@@ -40,13 +43,22 @@ export default function App() {
   const [totpRequired, setTotpRequired] = createSignal(false);
   const [signInBusy, setSignInBusy] = createSignal(false);
   const [signInStatus, setSignInStatus] = createSignal<Status>();
+  const [signInContext, setSignInContext] = createSignal<IssueReportContext>();
   const [connectedStatus, setConnectedStatus] = createSignal<Status>();
+  const [connectedContext, setConnectedContext] = createSignal<IssueReportContext>();
 
   const [pairingLink, setPairingLink] = createSignal("");
   const [pairingStatus, setPairingStatus] = createSignal<Status>();
+  const [pairingContext, setPairingContext] = createSignal<IssueReportContext>();
   const [pairingBusy, setPairingBusy] = createSignal(false);
 
   const [manualStatus, setManualStatus] = createSignal<Status>();
+  const [manualContext, setManualContext] = createSignal<IssueReportContext>();
+
+  // One shared dialog: the trigger passes the context for the status it sits
+  // beside, while the footer opens it with no context at all.
+  const [reportOpen, setReportOpen] = createSignal(false);
+  const [reportContext, setReportContext] = createSignal<IssueReportContext>();
   // Kept separate so typing an unsaved token does not flip the page into the
   // Connected state before the user saves it.
   const [manualToken, setManualToken] = createSignal("");
@@ -63,6 +75,29 @@ export default function App() {
     setSettings((current) => ({ ...current, [key]: value }));
   }
 
+  function openReport(context?: IssueReportContext) {
+    setReportContext(context);
+    setReportOpen(true);
+  }
+
+  /** A backend label only: the dialog must never receive a proxy URL. */
+  const backendLabel = () => (isProxyConfigured(settings()) ? "Remagnet Proxy" : undefined);
+
+  /**
+   * Turn any thrown value into report context, normalizing bare fetch failures
+   * into the same guidance the status line shows.
+   */
+  function issueContext(cause: unknown, action: string, baseUrl?: string): IssueReportContext {
+    const error = toProxyError(cause, baseUrl);
+    return {
+      action,
+      message: error.message,
+      ...(error.code ? { code: error.code } : {}),
+      ...(error.status !== undefined ? { status: error.status } : {}),
+      ...(backendLabel() ? { backend: backendLabel() } : {}),
+    };
+  }
+
   async function signIn(event: SubmitEvent) {
     event.preventDefault();
     if (signInBusy() || pairingBusy() || busy()) return;
@@ -74,6 +109,7 @@ export default function App() {
 
     setSignInBusy(true);
     setSignInStatus(undefined);
+    setSignInContext(undefined);
     try {
       const urlError = validateProxyBaseUrl(baseUrl);
       if (urlError) throw new Error(urlError);
@@ -127,14 +163,20 @@ export default function App() {
           type: "connection:test",
         });
         setConnectedStatus({ tone: "ok", message: signedInMessage(result) });
+        setConnectedContext(undefined);
       } catch (error) {
         setConnectedStatus({
           tone: "error",
           message: `Signed in and saved, but the connection test failed: ${errorMessage(error)}`,
         });
+        setConnectedContext(issueContext(error, "Testing connection after sign-in"));
       }
     } catch (error) {
-      setSignInStatus({ tone: "error", message: errorMessage(error) });
+      // Normalize transport failures so the user never sees a bare
+      // "Failed to fetch" from the browser.
+      const normalized = toProxyError(error, baseUrl);
+      setSignInStatus({ tone: "error", message: normalized.message });
+      setSignInContext(issueContext(error, "Signing in", baseUrl));
     } finally {
       setSignInBusy(false);
     }
@@ -146,6 +188,7 @@ export default function App() {
 
     setPairingBusy(true);
     setPairingStatus(undefined);
+    setPairingContext(undefined);
     try {
       const link = parsePairingLink(input);
       const granted = await ensureHostPermission(link.baseUrl);
@@ -180,14 +223,17 @@ export default function App() {
           tone: "ok",
           message: `Paired and connected to ${result.clientLabel} ${result.appVersion} via Remagnet Proxy.`,
         });
+        setConnectedContext(undefined);
       } catch (error) {
         setConnectedStatus({
           tone: "error",
           message: `Paired and saved, but the connection test failed: ${errorMessage(error)}`,
         });
+        setConnectedContext(issueContext(error, "Testing connection after pairing"));
       }
     } catch (error) {
       setPairingStatus({ tone: "error", message: errorMessage(error) });
+      setPairingContext(issueContext(error, "Pairing with a link"));
     } finally {
       setPairingBusy(false);
     }
@@ -196,6 +242,7 @@ export default function App() {
   async function testSavedConnection() {
     setBusy(true);
     setConnectedStatus(undefined);
+    setConnectedContext(undefined);
     try {
       const result = await sendBackgroundMessage<ConnectionTestResult>({
         type: "connection:test",
@@ -203,6 +250,7 @@ export default function App() {
       setConnectedStatus({ tone: "ok", message: connectedMessage(result) });
     } catch (error) {
       setConnectedStatus({ tone: "error", message: errorMessage(error) });
+      setConnectedContext(issueContext(error, "Testing connection"));
     } finally {
       setBusy(false);
     }
@@ -211,6 +259,7 @@ export default function App() {
   async function disconnect() {
     setBusy(true);
     setConnectedStatus(undefined);
+    setConnectedContext(undefined);
     setSignInStatus(undefined);
     try {
       // Best effort: revoke this device on the proxy before dropping the token.
@@ -242,6 +291,7 @@ export default function App() {
       });
     } catch (error) {
       setConnectedStatus({ tone: "error", message: errorMessage(error) });
+      setConnectedContext(issueContext(error, "Disconnecting"));
     } finally {
       setBusy(false);
     }
@@ -251,6 +301,7 @@ export default function App() {
     event.preventDefault();
     setBusy(true);
     setManualStatus(undefined);
+    setManualContext(undefined);
     try {
       const saved = await persistSettings();
       if (saved) {
@@ -258,6 +309,7 @@ export default function App() {
       }
     } catch (error) {
       setManualStatus({ tone: "error", message: errorMessage(error) });
+      setManualContext(issueContext(error, "Saving settings"));
     } finally {
       setBusy(false);
     }
@@ -266,6 +318,7 @@ export default function App() {
   async function saveAndTestConnection() {
     setBusy(true);
     setManualStatus(undefined);
+    setManualContext(undefined);
     try {
       const saved = await persistSettings();
       if (!saved) return;
@@ -276,6 +329,7 @@ export default function App() {
       setManualStatus({ tone: "ok", message: connectedMessage(result) });
     } catch (error) {
       setManualStatus({ tone: "error", message: errorMessage(error) });
+      setManualContext(issueContext(error, "Testing connection after saving"));
     } finally {
       setBusy(false);
     }
@@ -286,15 +340,15 @@ export default function App() {
     const validationError = validateProxySettings(values);
     if (validationError) {
       setManualStatus({ tone: "error", message: validationError });
+      setManualContext({ action: "Saving settings", message: validationError });
       return null;
     }
 
     const granted = await ensureHostPermission(values.proxyBaseUrl);
     if (!granted) {
-      setManualStatus({
-        tone: "error",
-        message: `Host access is required to talk to the Remagnet Proxy at ${values.proxyBaseUrl}. Grant it and try again.`,
-      });
+      const message = `Host access is required to talk to the Remagnet Proxy at ${values.proxyBaseUrl}. Grant it and try again.`;
+      setManualStatus({ tone: "error", message });
+      setManualContext({ action: "Saving settings", message });
       return null;
     }
 
@@ -392,7 +446,14 @@ export default function App() {
               </div>
 
               <Show when={signInStatus()}>
-                {(current) => <p class={`status ${current().tone}`}>{current().message}</p>}
+                {(current) => (
+                  <StatusLine
+                    status={current()}
+                    onReport={
+                      current().tone === "error" ? () => openReport(signInContext()) : undefined
+                    }
+                  />
+                )}
               </Show>
             </form>
           }
@@ -421,7 +482,14 @@ export default function App() {
               </button>
             </div>
             <Show when={connectedStatus()}>
-              {(current) => <p class={`status ${current().tone}`}>{current().message}</p>}
+              {(current) => (
+                <StatusLine
+                  status={current()}
+                  onReport={
+                    current().tone === "error" ? () => openReport(connectedContext()) : undefined
+                  }
+                />
+              )}
             </Show>
           </section>
         </Show>
@@ -456,7 +524,14 @@ export default function App() {
             </label>
 
             <Show when={pairingStatus()}>
-              {(current) => <p class={`status ${current().tone}`}>{current().message}</p>}
+              {(current) => (
+                <StatusLine
+                  status={current()}
+                  onReport={
+                    current().tone === "error" ? () => openReport(pairingContext()) : undefined
+                  }
+                />
+              )}
             </Show>
           </section>
         </Show>
@@ -512,7 +587,14 @@ export default function App() {
             </div>
 
             <Show when={manualStatus()}>
-              {(current) => <p class={`status ${current().tone}`}>{current().message}</p>}
+              {(current) => (
+                <StatusLine
+                  status={current()}
+                  onReport={
+                    current().tone === "error" ? () => openReport(manualContext()) : undefined
+                  }
+                />
+              )}
             </Show>
           </form>
         </details>
@@ -535,13 +617,9 @@ export default function App() {
         <span class="sep" aria-hidden="true">
           ·
         </span>
-        <a
-          href="https://github.com/EliCunninghamDev/Remagnet/issues"
-          target="_blank"
-          rel="noreferrer"
-        >
+        <button class="linkish" type="button" onClick={() => openReport()}>
           Report an issue
-        </a>
+        </button>
         <span class="sep" aria-hidden="true">
           ·
         </span>
@@ -555,7 +633,29 @@ export default function App() {
           Support on Ko-fi
         </a>
       </footer>
+
+      <IssueReportDialog
+        open={reportOpen()}
+        context={reportContext()}
+        backend={backendLabel()}
+        onClose={() => setReportOpen(false)}
+      />
     </main>
+  );
+}
+
+/** A status line with an optional opt-in report trigger on errors. */
+function StatusLine(props: { status: Status; onReport?: () => void }) {
+  return (
+    <p class={`status ${props.status.tone}`}>
+      {props.status.message}
+      <Show when={props.status.tone === "error" && props.onReport}>
+        {" "}
+        <button class="linkish" type="button" onClick={() => props.onReport?.()}>
+          Report issue
+        </button>
+      </Show>
+    </p>
   );
 }
 

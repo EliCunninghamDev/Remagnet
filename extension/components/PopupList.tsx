@@ -18,6 +18,10 @@ export interface PopupListProps {
   onRetry: () => void;
   onOpenSettings: () => void;
   onDismissActionError: () => void;
+  /** Optional opt-in report trigger; omitted by the gallery and older tests. */
+  onReportError?: () => void;
+  /** Optional report trigger for a failed row action. */
+  onReportActionError?: () => void;
   onAdd: () => void;
   onZip: (torrent: TorrentSummary) => void;
   onRemoveToggle: (torrent: TorrentSummary) => void;
@@ -89,6 +93,11 @@ export default function PopupList(props: PopupListProps) {
               <button class="ghost" type="button" onClick={props.onOpenSettings}>
                 Open settings
               </button>
+              <Show when={props.onReportError}>
+                <button class="linkish" type="button" onClick={() => props.onReportError?.()}>
+                  Report issue
+                </button>
+              </Show>
             </div>
           </div>
         )}
@@ -101,6 +110,12 @@ export default function PopupList(props: PopupListProps) {
             <button class="linkish" type="button" onClick={props.onDismissActionError}>
               Dismiss
             </button>
+            <Show when={props.onReportActionError}>
+              {" "}
+              <button class="linkish" type="button" onClick={() => props.onReportActionError?.()}>
+                Report issue
+              </button>
+            </Show>
           </p>
         )}
       </Show>

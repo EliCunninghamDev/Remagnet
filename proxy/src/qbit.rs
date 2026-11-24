@@ -388,7 +388,11 @@ impl QbitClient {
         let response = self.send(Method::GET, path, query).await?;
         let response = ensure_success(response, path).await?;
         response.json().await.map_err(|error| {
-            AppError::Upstream(format!("Could not parse qBittorrent JSON: {error}"))
+            tracing::warn!(error = %error, path, "could not parse qBittorrent JSON");
+            AppError::Upstream(
+                "qBittorrent returned a response Remagnet Proxy could not read. Check that qBittorrent is running and up to date."
+                    .to_string(),
+            )
         })
     }
 
@@ -397,7 +401,11 @@ impl QbitClient {
         let response = self.send(Method::GET, path, &[]).await?;
         let response = ensure_success(response, path).await?;
         response.text().await.map_err(|error| {
-            AppError::Upstream(format!("Could not read qBittorrent response: {error}"))
+            tracing::warn!(error = %error, path, "could not read qBittorrent response");
+            AppError::Upstream(
+                "Remagnet Proxy could not read qBittorrent's response. Check that it is running and reachable."
+                    .to_string(),
+            )
         })
     }
 
@@ -406,7 +414,11 @@ impl QbitClient {
         let response = self.request(Method::POST, path, &[], Some(form)).await?;
         let response = ensure_success(response, path).await?;
         response.text().await.map_err(|error| {
-            AppError::Upstream(format!("Could not read qBittorrent response: {error}"))
+            tracing::warn!(error = %error, path, "could not read qBittorrent response");
+            AppError::Upstream(
+                "Remagnet Proxy could not read qBittorrent's response. Check that it is running and reachable."
+                    .to_string(),
+            )
         })
     }
 
@@ -439,7 +451,7 @@ impl QbitClient {
             .form(&[("username", username), ("password", &self.password)])
             .send()
             .await
-            .map_err(|error| AppError::Upstream(format!("qBittorrent login failed: {error}")))?;
+            .map_err(|error| AppError::from_reqwest("qBittorrent", error))?;
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -447,8 +459,9 @@ impl QbitClient {
         // qBittorrent 4.x answers 200 "Ok."; 5.3 answers 204 with no body.
         if !status.is_success() || !(body.is_empty() || body.eq_ignore_ascii_case("ok.")) {
             self.logged_in.store(false, Ordering::Relaxed);
-            return Err(AppError::Upstream(
-                "qBittorrent rejected the saved username/password.".to_string(),
+            return Err(AppError::UpstreamAuth(
+                "qBittorrent rejected the saved credentials. Update the API key or login in the Remagnet Proxy page."
+                    .to_string(),
             ));
         }
 
@@ -488,9 +501,10 @@ impl QbitClient {
                 request = request.bearer_auth(api_key);
             }
 
-            let response = request.send().await.map_err(|error| {
-                AppError::Upstream(format!("qBittorrent request failed: {error}"))
-            })?;
+            let response = request
+                .send()
+                .await
+                .map_err(|error| AppError::from_reqwest("qBittorrent", error))?;
 
             let retryable = self.api_key.is_none()
                 && matches!(
@@ -534,24 +548,20 @@ async fn ensure_success(response: Response, path: &str) -> Result<Response, AppE
         return Ok(response);
     }
 
+    if matches!(status, StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN) {
+        return Err(AppError::UpstreamAuth(
+            "qBittorrent rejected the saved credentials. Update the API key or login in the Remagnet Proxy page."
+                .to_string(),
+        ));
+    }
+
     let body = response.text().await.unwrap_or_default();
-    let body = body.trim();
-    let detail = if body.is_empty() {
-        String::new()
-    } else {
-        format!(": {}", truncate(body, 300))
-    };
+    let detail = AppError::sanitize_upstream_body(&body, 300)
+        .map(|detail| format!(": {detail}"))
+        .unwrap_or_default();
     Err(AppError::Upstream(format!(
         "qBittorrent returned {status} for {path}{detail}"
     )))
-}
-
-fn truncate(value: &str, max_chars: usize) -> String {
-    let mut truncated = value.chars().take(max_chars).collect::<String>();
-    if value.chars().count() > max_chars {
-        truncated.push('…');
-    }
-    truncated
 }
 
 #[cfg(test)]
@@ -661,10 +671,11 @@ mod tests {
 
         let error = client.test_connection().await.unwrap_err();
         match error {
-            AppError::Upstream(message) => {
-                assert_eq!(message, "qBittorrent rejected the saved username/password.")
-            }
-            other => panic!("expected Upstream, got {other:?}"),
+            AppError::UpstreamAuth(message) => assert_eq!(
+                message,
+                "qBittorrent rejected the saved credentials. Update the API key or login in the Remagnet Proxy page."
+            ),
+            other => panic!("expected UpstreamAuth, got {other:?}"),
         }
     }
 

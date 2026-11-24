@@ -83,6 +83,23 @@ class ArchiveFilesTest {
         assertFalse(archiveErrorMessage(500, "<html>nope</html>").contains("html"))
     }
 
+    @Test
+    fun prefersTheProxyJsonErrorMessage() {
+        assertEquals(
+            "The proxy token expired.",
+            archiveErrorMessage(401, """{"error":"The proxy token expired."}"""),
+        )
+        assertEquals(
+            "qBittorrent is offline.",
+            archiveErrorMessage(502, """{"error":"qBittorrent is offline."}"""),
+        )
+        assertTrue(
+            archiveErrorMessage(500, """{"code":"internal_error"}""")
+                .contains("start the archive"),
+        )
+        assertFalse(archiveErrorMessage(500, """{"code":"internal_error"}""").contains("{"))
+    }
+
     private fun createTempDir(prefix: String): File =
         File.createTempFile(prefix, "").let { file ->
             file.delete()

@@ -27,10 +27,10 @@ package dev.remagnet.proxy.models
 import com.google.gson.annotations.SerializedName
 
 /**
- * Error body returned by every failing request.
+ * Error body returned by every failing request. `error` is safe to display to the user; `code` is stable and machine-readable.
  *
  * @param error Human-readable message safe to display to the user.
- * @param code Optional machine-readable reason. `totp_required` appears on `401` responses from sign-in and device login when a two-factor code is needed, `rate_limited` appears on `429` responses, and `not_configured` appears on `503` responses before qBittorrent credentials are saved.
+ * @param code Stable machine-readable reason. Every error response includes one:  - `bad_request`: the request was invalid (`400`) - `unauthorized`: missing or invalid credentials (`401`) - `totp_required`: a two-factor code is needed (`401`) - `forbidden`: authenticated but not allowed (`403`) - `not_found`: the resource does not exist (`404`) - `conflict`: the resource already exists or is in the wrong state (`409`) - `rate_limited`: too many attempts; see `Retry-After` (`429`) - `not_configured`: no torrent client is configured yet (`503`) - `upstream_unreachable`: the torrent client could not be reached or timed out (`502`) - `upstream_auth`: the torrent client rejected the saved credentials (`502`) - `upstream_error`: any other torrent client error (`502`) - `internal_error`: an unexpected proxy error (`500`)
  */
 
 
@@ -40,21 +40,30 @@ data class Error (
     @SerializedName("error")
     val error: kotlin.String,
 
-    /* Optional machine-readable reason. `totp_required` appears on `401` responses from sign-in and device login when a two-factor code is needed, `rate_limited` appears on `429` responses, and `not_configured` appears on `503` responses before qBittorrent credentials are saved.  */
+    /* Stable machine-readable reason. Every error response includes one:  - `bad_request`: the request was invalid (`400`) - `unauthorized`: missing or invalid credentials (`401`) - `totp_required`: a two-factor code is needed (`401`) - `forbidden`: authenticated but not allowed (`403`) - `not_found`: the resource does not exist (`404`) - `conflict`: the resource already exists or is in the wrong state (`409`) - `rate_limited`: too many attempts; see `Retry-After` (`429`) - `not_configured`: no torrent client is configured yet (`503`) - `upstream_unreachable`: the torrent client could not be reached or timed out (`502`) - `upstream_auth`: the torrent client rejected the saved credentials (`502`) - `upstream_error`: any other torrent client error (`502`) - `internal_error`: an unexpected proxy error (`500`)  */
     @SerializedName("code")
-    val code: Error.Code? = null
+    val code: Error.Code
 
 ) {
 
     /**
-     * Optional machine-readable reason. `totp_required` appears on `401` responses from sign-in and device login when a two-factor code is needed, `rate_limited` appears on `429` responses, and `not_configured` appears on `503` responses before qBittorrent credentials are saved.
+     * Stable machine-readable reason. Every error response includes one:  - `bad_request`: the request was invalid (`400`) - `unauthorized`: missing or invalid credentials (`401`) - `totp_required`: a two-factor code is needed (`401`) - `forbidden`: authenticated but not allowed (`403`) - `not_found`: the resource does not exist (`404`) - `conflict`: the resource already exists or is in the wrong state (`409`) - `rate_limited`: too many attempts; see `Retry-After` (`429`) - `not_configured`: no torrent client is configured yet (`503`) - `upstream_unreachable`: the torrent client could not be reached or timed out (`502`) - `upstream_auth`: the torrent client rejected the saved credentials (`502`) - `upstream_error`: any other torrent client error (`502`) - `internal_error`: an unexpected proxy error (`500`)
      *
-     * Values: totp_required,rate_limited,not_configured
+     * Values: bad_request,unauthorized,totp_required,forbidden,not_found,conflict,rate_limited,not_configured,upstream_unreachable,upstream_auth,upstream_error,internal_error
      */
     enum class Code(val value: kotlin.String) {
+        @SerializedName(value = "bad_request") bad_request("bad_request"),
+        @SerializedName(value = "unauthorized") unauthorized("unauthorized"),
         @SerializedName(value = "totp_required") totp_required("totp_required"),
+        @SerializedName(value = "forbidden") forbidden("forbidden"),
+        @SerializedName(value = "not_found") not_found("not_found"),
+        @SerializedName(value = "conflict") conflict("conflict"),
         @SerializedName(value = "rate_limited") rate_limited("rate_limited"),
-        @SerializedName(value = "not_configured") not_configured("not_configured");
+        @SerializedName(value = "not_configured") not_configured("not_configured"),
+        @SerializedName(value = "upstream_unreachable") upstream_unreachable("upstream_unreachable"),
+        @SerializedName(value = "upstream_auth") upstream_auth("upstream_auth"),
+        @SerializedName(value = "upstream_error") upstream_error("upstream_error"),
+        @SerializedName(value = "internal_error") internal_error("internal_error");
     }
 
 }

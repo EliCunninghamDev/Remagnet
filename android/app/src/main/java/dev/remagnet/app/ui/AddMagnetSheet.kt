@@ -37,9 +37,11 @@ import dev.remagnet.app.ui.components.SecondaryButton
 import dev.remagnet.app.ui.components.SectionLabel
 import dev.remagnet.app.ui.components.StatusNote
 import dev.remagnet.app.ui.components.StatusTone
+import dev.remagnet.app.ui.components.TextAction
 import dev.remagnet.app.ui.components.isLargeText
 import dev.remagnet.app.ui.theme.GeistMono
 import dev.remagnet.app.ui.theme.RemagnetPalette
+import dev.remagnet.app.util.IssueReportContext
 import dev.remagnet.app.util.formatBytes
 import dev.remagnet.app.util.formatPercent
 
@@ -62,6 +64,7 @@ fun AddMagnetSheet(
     onEdit: () -> Unit,
     onAddAnother: () -> Unit,
     onOpenSettings: () -> Unit,
+    onReportIssue: (IssueReportContext) -> Unit = {},
 ) {
     val submitting = state is AddSheetState.Review && state.submitting
     val submittingNow by rememberUpdatedState(submitting)
@@ -107,6 +110,7 @@ fun AddMagnetSheet(
                     onReview = onReview,
                     onDismiss = onDismiss,
                     onOpenSettings = onOpenSettings,
+                    onReportIssue = onReportIssue,
                 )
 
                 is AddSheetState.Review -> ReviewContent(
@@ -117,6 +121,7 @@ fun AddMagnetSheet(
                     onEdit = onEdit,
                     onDismiss = onDismiss,
                     onOpenSettings = onOpenSettings,
+                    onReportIssue = onReportIssue,
                 )
 
                 is AddSheetState.Added -> AddedContent(
@@ -139,6 +144,7 @@ private fun PasteContent(
     onReview: () -> Unit,
     onDismiss: () -> Unit,
     onOpenSettings: () -> Unit,
+    onReportIssue: (IssueReportContext) -> Unit,
 ) {
     SectionLabel("Add magnet")
     Text(
@@ -156,6 +162,16 @@ private fun PasteContent(
         error = state.error,
         maxLines = 4,
     )
+    state.error?.let { message ->
+        TextAction(
+            text = "Report issue",
+            onClick = {
+                onReportIssue(
+                    IssueReportContext(action = "Add magnet paste", message = message),
+                )
+            },
+        )
+    }
     if (isLargeText()) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             PrimaryButton(
@@ -208,6 +224,7 @@ private fun ReviewContent(
     onEdit: () -> Unit,
     onDismiss: () -> Unit,
     onOpenSettings: () -> Unit,
+    onReportIssue: (IssueReportContext) -> Unit,
 ) {
     val magnet = state.magnet
 
@@ -251,6 +268,7 @@ private fun ReviewContent(
         duplicate = state.duplicate,
         onRetry = onRetryDuplicate,
         onOpenSettings = onOpenSettings,
+        onReportIssue = onReportIssue,
     )
 
     CheckRow(
@@ -261,7 +279,17 @@ private fun ReviewContent(
         enabled = !state.submitting,
     )
 
-    state.error?.let { StatusNote(text = it, tone = StatusTone.Error) }
+    state.error?.let { message ->
+        StatusNote(text = message, tone = StatusTone.Error)
+        TextAction(
+            text = "Report issue",
+            onClick = {
+                onReportIssue(
+                    IssueReportContext(action = "Add magnet", message = message),
+                )
+            },
+        )
+    }
 
     val sendLabel = when {
         state.submitting -> "Sending…"
@@ -306,6 +334,7 @@ private fun DuplicateNotice(
     duplicate: DuplicateState,
     onRetry: () -> Unit,
     onOpenSettings: () -> Unit,
+    onReportIssue: (IssueReportContext) -> Unit,
 ) {
     when (duplicate) {
         DuplicateState.Checking -> StatusNote(
@@ -334,6 +363,17 @@ private fun DuplicateNotice(
                 text = "Retry check",
                 onClick = onRetry,
                 modifier = Modifier.fillMaxWidth(),
+            )
+            TextAction(
+                text = "Report issue",
+                onClick = {
+                    onReportIssue(
+                        IssueReportContext(
+                            action = "Duplicate check",
+                            message = duplicate.message,
+                        ),
+                    )
+                },
             )
         }
 

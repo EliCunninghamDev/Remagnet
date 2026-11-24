@@ -70,9 +70,9 @@ class DeviceLoginClient(
             createApi(baseUrl).loginDevice(request)
         } catch (cancelled: CancellationException) {
             throw cancelled
-        } catch (_: IOException) {
+        } catch (error: IOException) {
             return@withContext DeviceLoginResult.Failed(
-                "Could not reach the Remagnet Proxy at $baseUrl. Check the URL and network.",
+                describeProxyConnectionFailure(error, baseUrl),
             )
         } catch (error: Exception) {
             return@withContext DeviceLoginResult.Failed(

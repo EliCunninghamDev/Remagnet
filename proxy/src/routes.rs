@@ -38,7 +38,7 @@ type QueryMap = HashMap<String, String>;
 pub const API_VERSION: u32 = 1;
 
 const NOT_CONFIGURED: &str =
-    "qBittorrent is not configured yet. Open the Remagnet Proxy page to set it up.";
+    "No torrent client is configured yet. Open the Remagnet Proxy page to set it up.";
 
 pub fn router(state: Arc<AppState>) -> Router {
     let api = Router::new()

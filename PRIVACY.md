@@ -78,6 +78,10 @@ Outbound links to GitHub and Ko-fi open in your browser and are governed by thos
 sites' privacy policies. Remagnet does not include any tracking parameters or
 identifiers in those links.
 
+The optional **Report an issue** feature never sends anything automatically. It
+only shows a redacted diagnostics snippet for you to review, then lets you choose
+to open GitHub, open your email client, or copy the text yourself.
+
 ## Permissions
 
 - **Extension storage** keeps the proxy URL and encrypted token described above.

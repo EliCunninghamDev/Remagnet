@@ -1,11 +1,14 @@
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { browser } from "wxt/browser";
 import AddTorrent from "../../components/AddTorrent";
+import IssueReportDialog from "../../components/IssueReportDialog";
 import PopupList from "../../components/PopupList";
 import Wordmark from "../../components/Wordmark";
+import type { IssueReportContext } from "../../lib/issue-report";
 import { parseMagnet } from "../../lib/magnet";
 import {
   type ArchiveDownloadResult,
+  BackgroundError,
   COMPLETE_PROGRESS,
   type RemoveTorrentsResult,
   sendBackgroundMessage,
@@ -34,6 +37,8 @@ export default function App() {
   const [confirmingRemove, setConfirmingRemove] = createSignal<string>();
   const [error, setError] = createSignal<string>();
   const [actionError, setActionError] = createSignal<string>();
+  const [errorContext, setErrorContext] = createSignal<IssueReportContext>();
+  const [reportOpen, setReportOpen] = createSignal(false);
 
   let refreshing = false;
 
@@ -135,6 +140,7 @@ export default function App() {
       if (!silent) {
         setLoading(false);
         setError();
+        setErrorContext();
       }
       return;
     }
@@ -145,6 +151,7 @@ export default function App() {
       setLoading(true);
       setError();
       setActionError();
+      setErrorContext();
     }
 
     try {
@@ -156,6 +163,7 @@ export default function App() {
         console.warn("[remagnet] background refresh failed", cause);
       } else {
         setError(errorMessage(cause));
+        setErrorContext(issueContext(cause, "Listing torrents"));
       }
     } finally {
       refreshing = false;
@@ -178,6 +186,7 @@ export default function App() {
   async function downloadZip(torrent: TorrentSummary) {
     setDownloading(torrent.hash);
     setActionError();
+    setErrorContext();
     try {
       await sendBackgroundMessage<ArchiveDownloadResult>({
         type: "archive:download",
@@ -186,6 +195,7 @@ export default function App() {
       });
     } catch (cause) {
       setActionError(errorMessage(cause));
+      setErrorContext(issueContext(cause, "Downloading ZIP"));
     } finally {
       setDownloading();
     }
@@ -194,6 +204,7 @@ export default function App() {
   async function removeTorrent(torrent: TorrentSummary, deleteFiles: boolean) {
     setRemoving(torrent.hash);
     setActionError();
+    setErrorContext();
     try {
       await sendBackgroundMessage<RemoveTorrentsResult>({
         type: "torrents:remove",
@@ -204,12 +215,19 @@ export default function App() {
       setConfirmingRemove();
     } catch (cause) {
       setActionError(errorMessage(cause));
+      setErrorContext(issueContext(cause, "Removing torrent"));
     } finally {
       setRemoving();
     }
   }
 
+  function openIssueReport() {
+    setReportOpen(true);
+  }
+
   const serverLabel = () => settings()?.proxyBaseUrl ?? "Loading…";
+  /** A label only: the dialog must never receive a proxy URL in `backend`. */
+  const backendLabel = () => (configured() ? "Remagnet Proxy" : undefined);
 
   return (
     <main class="popup">
@@ -229,6 +247,8 @@ export default function App() {
             onRetry={() => void refresh()}
             onOpenSettings={() => void browser.runtime.openOptionsPage()}
             onDismissActionError={() => setActionError()}
+            onReportError={openIssueReport}
+            onReportActionError={openIssueReport}
             onAdd={startAdd}
             onZip={(torrent) => void downloadZip(torrent)}
             onRemoveToggle={(torrent) =>
@@ -264,10 +284,27 @@ export default function App() {
           onAdded={closeAdd}
         />
       </Show>
+
+      <IssueReportDialog
+        open={reportOpen()}
+        context={errorContext()}
+        backend={backendLabel()}
+        onClose={() => setReportOpen(false)}
+      />
     </main>
   );
 }
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** Keep the proxy's code and status alongside the user-facing message. */
+function issueContext(cause: unknown, action: string): IssueReportContext {
+  const context: IssueReportContext = { action, message: errorMessage(cause) };
+  if (cause instanceof BackgroundError) {
+    if (cause.code) context.code = cause.code;
+    if (cause.status !== undefined) context.status = cause.status;
+  }
+  return context;
 }

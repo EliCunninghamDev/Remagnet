@@ -1,4 +1,9 @@
-import { archiveDownloadUrl, createProxyClient, proxyErrorMessage } from "@remagnet/proxy-client";
+import {
+  archiveDownloadUrl,
+  createProxyClient,
+  proxyError,
+  toProxyError,
+} from "@remagnet/proxy-client";
 import { browser } from "wxt/browser";
 import { defineBackground } from "wxt/utils/define-background";
 import { archiveFilename } from "../lib/archive";
@@ -90,9 +95,12 @@ async function handleRequest(request: BackgroundRequest): Promise<BackgroundResp
       }
     }
   } catch (error) {
+    const err = toProxyError(error);
     return {
       ok: false,
-      error: error instanceof Error ? error.message : String(error),
+      error: err.message,
+      ...(err.code ? { code: err.code } : {}),
+      ...(err.status ? { status: err.status } : {}),
     };
   }
 }
@@ -145,10 +153,14 @@ async function downloadArchive(hash: string, name?: string): Promise<ArchiveDown
 
 /** Exchange the device token for an archive URL that is safe to log. */
 async function mintArchiveTicket(proxy: ProxySettings, hash: string): Promise<string> {
-  const { data, error, response } = await createProxyClient(proxy).POST(
-    "/api/archive/{hash}/ticket",
-    { params: { path: { hash } } },
-  );
-  if (error || !data?.ticket) throw new Error(proxyErrorMessage(response, error));
-  return data.ticket;
+  try {
+    const { data, error, response } = await createProxyClient(proxy).POST(
+      "/api/archive/{hash}/ticket",
+      { params: { path: { hash } } },
+    );
+    if (error || !data?.ticket) throw proxyError(response, error);
+    return data.ticket;
+  } catch (error) {
+    throw toProxyError(error, proxy.baseUrl);
+  }
 }

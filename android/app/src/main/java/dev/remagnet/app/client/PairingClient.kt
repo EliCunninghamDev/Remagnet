@@ -62,9 +62,9 @@ class PairingClient(
             http.newCall(request).execute()
         } catch (cancelled: CancellationException) {
             throw cancelled
-        } catch (_: IOException) {
+        } catch (error: IOException) {
             return@withContext PairingClaim.Failed(
-                "Could not reach the Remagnet Proxy at ${link.proxyBaseUrl}. Check the URL and network.",
+                describeProxyConnectionFailure(error, link.proxyBaseUrl),
             )
         } catch (error: Exception) {
             return@withContext PairingClaim.Failed(
