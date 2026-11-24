@@ -173,7 +173,9 @@ git push origin main --tags
 
 Pushing a `vMAJOR.MINOR.PATCH` tag triggers
 [`.github/workflows/release.yml`](.github/workflows/release.yml), which verifies
-all versions, runs extension/proxy/Android checks, and publishes:
+all versions and runs extension, proxy, Android, and containerized integration
+checks (against real qBittorrent and Transmission). The image is only pushed and
+the GitHub release only created once every check passes. It publishes:
 
 - `remagnet-<version>-chrome.zip`, `remagnet-<version>-firefox.zip`, and
   `remagnet-<version>-firefox-sources.zip` (for addons.mozilla.org review)

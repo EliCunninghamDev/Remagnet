@@ -208,11 +208,60 @@ jobs:
           path: release/*
           if-no-files-found: error
 
+  # The container suites are the only checks that exercise the real proxy
+  # against real torrent clients. Publishing waits for them so a tag never
+  # produces an image that the integration suite would reject.
+  integration:
+    name: Integration (${{ matrix.client }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        client:
+          - qbittorrent
+          - transmission
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.5"
+
+      - name: Prepare fixture directories
+        run: bun run tests/integration/prepare.ts --client ${{ matrix.client }}
+
+      - name: Start ${{ matrix.client }} and Remagnet Proxy
+        run: docker compose -f tests/integration/compose.${{ matrix.client }}.yml up -d --build
+
+      - name: Run integration suite
+        run: bun run tests/integration/run.ts --client ${{ matrix.client }}
+
+      - name: Dump qBittorrent WebUI log on failure
+        if: failure() && matrix.client == 'qbittorrent'
+        run: |
+          docker compose -f tests/integration/compose.qbittorrent.yml exec -T qbittorrent \
+            cat /config/qBittorrent/data/logs/qbittorrent.log || true
+          docker compose -f tests/integration/compose.qbittorrent.yml exec -T qbittorrent \
+            cat /config/qBittorrent/qBittorrent.conf || true
+
+      - name: Dump container logs on failure
+        if: failure()
+        run: docker compose -f tests/integration/compose.${{ matrix.client }}.yml logs --no-color
+
+      - name: Tear down containers
+        if: always()
+        run: docker compose -f tests/integration/compose.${{ matrix.client }}.yml down -v
+
   proxy:
     name: Proxy image
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    needs: prepare
+    needs: [prepare, integration]
 
     permissions:
       contents: read
@@ -278,7 +327,7 @@ jobs:
     name: Publish GitHub release
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: [prepare, extension, android, proxy]
+    needs: [prepare, extension, android, integration, proxy]
 
     permissions:
       contents: write
