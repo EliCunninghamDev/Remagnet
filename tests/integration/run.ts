@@ -217,7 +217,10 @@ async function main() {
       { headers: { Authorization: `Bearer ${deviceToken}` } },
     );
     assert.equal(res.status, 200);
-    return res.body.torrents.find((entry) => entry.hash === uploadFixture.infoHash) ?? null;
+    const entry = res.body.torrents.find((entry) => entry.hash === uploadFixture.infoHash);
+    // qBittorrent lists a fresh upload as "checking" for a moment before the
+    // paused state settles, so presence alone does not prove `paused: true`.
+    return entry?.state === "stopped" ? entry : null;
   });
   assert.equal(listedUpload.state, "stopped");
 
