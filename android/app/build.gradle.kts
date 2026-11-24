@@ -32,7 +32,7 @@ android {
         minSdk = 26
         targetSdk = 36
         versionCode = releaseVersionCode ?: 1
-        versionName = releaseVersionName ?: "0.3.1"
+        versionName = releaseVersionName ?: "0.4.0"
     }
 
     buildFeatures {
