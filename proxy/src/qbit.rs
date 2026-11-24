@@ -443,7 +443,9 @@ impl QbitClient {
 
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
-        if !status.is_success() || !body.trim().eq_ignore_ascii_case("ok.") {
+        let body = body.trim();
+        // qBittorrent 4.x answers 200 "Ok."; 5.3 answers 204 with no body.
+        if !status.is_success() || !(body.is_empty() || body.eq_ignore_ascii_case("ok.")) {
             self.logged_in.store(false, Ordering::Relaxed);
             return Err(AppError::Upstream(
                 "qBittorrent rejected the saved username/password.".to_string(),
@@ -554,7 +556,117 @@ fn truncate(value: &str, max_chars: usize) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Mutex;
+
+    use axum::{
+        body::Body,
+        extract::State,
+        http::{header, Request},
+        response::{IntoResponse, Response},
+        Router,
+    };
+    use http_body_util::BodyExt;
+
     use super::*;
+
+    #[derive(Clone, Default)]
+    struct FakeQbit {
+        reject: bool,
+        logins: Arc<Mutex<Vec<String>>>,
+    }
+
+    async fn fake_qbit(State(fake): State<FakeQbit>, request: Request<Body>) -> Response {
+        let path = request.uri().path().to_string();
+        if path == "/api/v2/auth/login" {
+            let body = request.into_body().collect().await.unwrap().to_bytes();
+            fake.logins
+                .lock()
+                .unwrap()
+                .push(String::from_utf8_lossy(&body).to_string());
+            if fake.reject {
+                return (StatusCode::OK, "Fails.").into_response();
+            }
+            // qBittorrent 5.3: 204, no body, session cookie.
+            return (
+                StatusCode::NO_CONTENT,
+                [(header::SET_COOKIE, "SID=authenticated; path=/")],
+            )
+                .into_response();
+        }
+
+        let authenticated = request
+            .headers()
+            .get(header::COOKIE)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.contains("SID=authenticated"));
+        if !authenticated {
+            return StatusCode::UNAUTHORIZED.into_response();
+        }
+
+        match path.as_str() {
+            "/api/v2/app/version" => "v5.3.0".into_response(),
+            "/api/v2/app/webapiVersion" => "2.11.0".into_response(),
+            _ => StatusCode::NOT_FOUND.into_response(),
+        }
+    }
+
+    async fn start_fake(fake: FakeQbit) -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let app = Router::new().fallback(fake_qbit).with_state(fake);
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        format!("http://{address}")
+    }
+
+    fn config(base_url: &str) -> Config {
+        Config {
+            client_kind: ClientKind::Qbittorrent,
+            base_url: base_url.to_string(),
+            api_key: String::new(),
+            username: "admin".to_string(),
+            password: "adminadmin".to_string(),
+            downloads_dir: String::new(),
+            client_downloads_dir: String::new(),
+            default_category: "remagnet".to_string(),
+            default_tags: vec!["remagnet".to_string()],
+        }
+    }
+
+    #[tokio::test]
+    async fn accepts_the_empty_204_login_from_qbittorrent_5() {
+        let fake = FakeQbit::default();
+        let base_url = start_fake(fake.clone()).await;
+        let client = QbitClient::new(&config(&base_url)).unwrap();
+
+        let health = client.test_connection().await.unwrap();
+        assert_eq!(health.app_version, "v5.3.0");
+        assert_eq!(health.web_api_version, "2.11.0");
+
+        let logins = fake.logins.lock().unwrap().clone();
+        assert_eq!(logins.len(), 1);
+        assert!(logins[0].contains("username=admin"));
+        assert!(logins[0].contains("password=adminadmin"));
+    }
+
+    #[tokio::test]
+    async fn rejects_a_login_body_that_reports_failure() {
+        let fake = FakeQbit {
+            reject: true,
+            ..FakeQbit::default()
+        };
+        let base_url = start_fake(fake).await;
+        let client = QbitClient::new(&config(&base_url)).unwrap();
+
+        let error = client.test_connection().await.unwrap_err();
+        match error {
+            AppError::Upstream(message) => {
+                assert_eq!(message, "qBittorrent rejected the saved username/password.")
+            }
+            other => panic!("expected Upstream, got {other:?}"),
+        }
+    }
 
     #[test]
     fn normalizes_every_known_qbittorrent_state() {
