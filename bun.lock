@@ -14,7 +14,7 @@
     },
     "extension": {
       "name": "@remagnet/extension",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "dependencies": {
         "@remagnet/proxy-client": "workspace:*",
         "solid-js": "^1.9.20",
@@ -32,7 +32,7 @@
     },
     "packages/proxy-client": {
       "name": "@remagnet/proxy-client",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "dependencies": {
         "openapi-fetch": "^0.17.0",
       },
