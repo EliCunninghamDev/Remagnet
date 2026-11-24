@@ -22,6 +22,10 @@ use crate::{
     error::AppError,
 };
 
+/// Message for a torrent the client refused, for example because it exists.
+const TORRENT_REJECTED: &str =
+    "qBittorrent rejected the torrent. It may already exist, or the magnet link may be invalid.";
+
 /// Raw qBittorrent torrent fields used internally, including completion data
 /// that the neutral API does not expose.
 #[derive(Debug, Clone, Deserialize)]
@@ -242,10 +246,7 @@ impl QbitClient {
                 .await?
         };
         if body.trim().to_ascii_lowercase().starts_with("fail") {
-            return Err(AppError::BadRequest(
-                "qBittorrent rejected the torrent. It may already exist, or the magnet link may be invalid."
-                    .to_string(),
-            ));
+            return Err(AppError::BadRequest(TORRENT_REJECTED.to_string()));
         }
 
         let mut hashes = extract_magnet_hashes(urls);
@@ -635,6 +636,13 @@ async fn ensure_success(response: Response, path: &str) -> Result<Response, AppE
         ));
     }
 
+    // qBittorrent 5.x answers `409 Conflict` from `torrents/add` when every
+    // submitted torrent already exists. That is a rejected request, not an
+    // upstream failure.
+    if status == StatusCode::CONFLICT && path.ends_with("torrents/add") {
+        return Err(AppError::BadRequest(TORRENT_REJECTED.to_string()));
+    }
+
     let body = response.text().await.unwrap_or_default();
     let detail = AppError::sanitize_upstream_body(&body, 300)
         .map(|detail| format!(": {detail}"))
@@ -669,6 +677,7 @@ mod tests {
     struct FakeQbit {
         reject: bool,
         fail_add_once: bool,
+        conflict_add: bool,
         logins: Arc<Mutex<Vec<String>>>,
         add_requests: Arc<Mutex<Vec<CapturedAdd>>>,
         add_attempts: Arc<Mutex<usize>>,
@@ -716,6 +725,9 @@ mod tests {
                 };
                 if fake.fail_add_once && attempt == 1 {
                     return StatusCode::UNAUTHORIZED.into_response();
+                }
+                if fake.conflict_add {
+                    return (StatusCode::CONFLICT, "Conflict").into_response();
                 }
 
                 let content_type = request
@@ -877,6 +889,30 @@ mod tests {
         assert_eq!(*fake.add_attempts.lock().unwrap(), 2);
         assert_eq!(fake.logins.lock().unwrap().len(), 2);
         assert_eq!(fake.add_requests.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_duplicate_upload_is_reported_as_a_rejected_torrent() {
+        let fake = FakeQbit {
+            conflict_add: true,
+            ..FakeQbit::default()
+        };
+        let base_url = start_fake(fake).await;
+        let client = QbitClient::new(&config(&base_url)).unwrap();
+
+        let error = client
+            .add_torrent(
+                &[],
+                &[torrent_file("debian.torrent", b"d4:infod4:name4:testee")],
+                "",
+                &[],
+                true,
+            )
+            .await
+            .unwrap_err();
+
+        assert!(matches!(error, AppError::BadRequest(_)), "{error:?}");
+        assert!(error.to_string().contains("may already exist"));
     }
 
     #[tokio::test]
