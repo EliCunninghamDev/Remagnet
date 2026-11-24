@@ -33,6 +33,7 @@ import com.google.gson.annotations.SerializedName
  * @param archiveDownload Whether completed torrents can be streamed as ZIP archives. This is only true when `DOWNLOADS_DIR` points at the client's downloads volume.
  * @param categories Whether the adapted client supports categories.
  * @param tags Whether the adapted client supports tags. Transmission exposes them as labels.
+ * @param torrentFiles Whether `POST /api/torrents` accepts uploaded `.torrent` files in `files`, not just magnet or torrent URLs.
  */
 
 
@@ -52,7 +53,11 @@ data class TorrentCapabilities (
 
     /* Whether the adapted client supports tags. Transmission exposes them as labels.  */
     @SerializedName("tags")
-    val tags: kotlin.Boolean
+    val tags: kotlin.Boolean,
+
+    /* Whether `POST /api/torrents` accepts uploaded `.torrent` files in `files`, not just magnet or torrent URLs.  */
+    @SerializedName("torrentFiles")
+    val torrentFiles: kotlin.Boolean
 
 ) {
 

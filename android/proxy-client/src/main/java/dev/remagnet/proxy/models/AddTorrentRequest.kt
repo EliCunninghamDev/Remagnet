@@ -23,22 +23,28 @@
 
 package dev.remagnet.proxy.models
 
+import dev.remagnet.proxy.models.TorrentFileUpload
 
 import com.google.gson.annotations.SerializedName
 
 /**
- * Magnets or torrent URLs to add. Category and tags are intentionally not accepted: the proxy always applies its configured defaults.
+ * Magnets, torrent URLs, or uploaded `.torrent` files to add. At least one of `urls` or `files` must be non-empty. Category and tags are intentionally not accepted: the proxy always applies its configured defaults.
  *
- * @param urls Magnet links or http(s) URLs understood by qBittorrent.
+ * @param urls Magnet links or http(s) URLs understood by the client. Optional when `files` is non-empty.
+ * @param files Raw `.torrent` files to add. Optional when `urls` is non-empty.
  * @param paused Add the torrents stopped instead of starting them immediately.
  */
 
 
 data class AddTorrentRequest (
 
-    /* Magnet links or http(s) URLs understood by qBittorrent. */
+    /* Magnet links or http(s) URLs understood by the client. Optional when `files` is non-empty.  */
     @SerializedName("urls")
-    val urls: kotlin.collections.List<kotlin.String>,
+    val urls: kotlin.collections.List<kotlin.String>? = null,
+
+    /* Raw `.torrent` files to add. Optional when `urls` is non-empty.  */
+    @SerializedName("files")
+    val files: kotlin.collections.List<TorrentFileUpload>? = null,
 
     /* Add the torrents stopped instead of starting them immediately. */
     @SerializedName("paused")

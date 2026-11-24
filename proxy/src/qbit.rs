@@ -15,7 +15,8 @@ use tokio::sync::Mutex;
 use crate::{
     backend::{
         extract_magnet_hashes, AddTorrentResult, ArchiveFile, ArchiveTorrent, BackendHealth,
-        ClientKind, FileByteStream, TorrentCapabilities, TorrentSummary, VolumeMapper,
+        ClientKind, FileByteStream, TorrentCapabilities, TorrentFilePayload, TorrentSummary,
+        VolumeMapper,
     },
     config::Config,
     error::AppError,
@@ -162,6 +163,7 @@ impl QbitClient {
                 archive_download: true,
                 categories: true,
                 tags: true,
+                torrent_files: true,
             },
         })
     }
@@ -196,13 +198,14 @@ impl QbitClient {
     pub async fn add_torrent(
         &self,
         urls: &[String],
+        files: &[TorrentFilePayload],
         category: &str,
         tags: &[String],
         paused: bool,
     ) -> Result<AddTorrentResult, AppError> {
-        if urls.is_empty() {
+        if urls.is_empty() && files.is_empty() {
             return Err(AppError::BadRequest(
-                "No magnet or torrent URL was supplied.".to_string(),
+                "No magnet, torrent URL, or .torrent file was supplied.".to_string(),
             ));
         }
 
@@ -216,7 +219,10 @@ impl QbitClient {
             self.ensure_tags(&tags).await?;
         }
 
-        let mut form = vec![("urls".to_string(), urls.join("\n"))];
+        let mut form = Vec::new();
+        if !urls.is_empty() {
+            form.push(("urls".to_string(), urls.join("\n")));
+        }
         if !category.is_empty() {
             form.push(("category".to_string(), category.to_string()));
         }
@@ -229,7 +235,12 @@ impl QbitClient {
             form.push(("stopped".to_string(), "true".to_string()));
         }
 
-        let body = self.post_form("api/v2/torrents/add", &form).await?;
+        let body = if files.is_empty() {
+            self.post_form("api/v2/torrents/add", &form).await?
+        } else {
+            self.post_multipart("api/v2/torrents/add", &form, files)
+                .await?
+        };
         if body.trim().to_ascii_lowercase().starts_with("fail") {
             return Err(AppError::BadRequest(
                 "qBittorrent rejected the torrent. It may already exist, or the magnet link may be invalid."
@@ -237,9 +248,12 @@ impl QbitClient {
             ));
         }
 
+        let mut hashes = extract_magnet_hashes(urls);
+        hashes.extend(files.iter().map(|file| file.info_hash.clone()));
+
         Ok(AddTorrentResult {
-            added: urls.len(),
-            hashes: extract_magnet_hashes(urls),
+            added: urls.len() + files.len(),
+            hashes,
             category: category.to_string(),
             tags,
         })
@@ -422,6 +436,72 @@ impl QbitClient {
         })
     }
 
+    /// POST a `multipart/form-data` add request.
+    ///
+    /// `reqwest::multipart::Form` is consumed by `RequestBuilder::multipart`, so
+    /// the form is rebuilt for every attempt; that keeps the 401/403 login retry
+    /// working for uploaded `.torrent` files exactly like the form path.
+    async fn post_multipart(
+        &self,
+        path: &str,
+        fields: &[(String, String)],
+        files: &[TorrentFilePayload],
+    ) -> Result<String, AppError> {
+        self.ensure_login().await?;
+
+        let url = format!("{}/{}", self.base_url, path.trim_start_matches('/'));
+        let referer = format!("{}/", self.base_url);
+
+        for attempt in 0..2 {
+            let mut form = reqwest::multipart::Form::new();
+            for (name, value) in fields {
+                form = form.text(name.clone(), value.clone());
+            }
+            for file in files {
+                let part = reqwest::multipart::Part::bytes(file.bytes.clone())
+                    .file_name(file.filename.clone())
+                    .mime_str("application/x-bittorrent")
+                    .map_err(AppError::internal)?;
+                form = form.part("torrents", part);
+            }
+
+            let mut request = self
+                .http
+                .post(&url)
+                .header(REFERER, &referer)
+                .multipart(form);
+            if let Some(api_key) = &self.api_key {
+                request = request.bearer_auth(api_key);
+            }
+
+            let response = request
+                .send()
+                .await
+                .map_err(|error| AppError::from_reqwest("qBittorrent", error))?;
+
+            let retryable = self.api_key.is_none()
+                && matches!(
+                    response.status(),
+                    StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN
+                );
+            if retryable && attempt == 0 {
+                self.login(true).await?;
+                continue;
+            }
+
+            let response = ensure_success(response, path).await?;
+            return response.text().await.map_err(|error| {
+                tracing::warn!(error = %error, path, "could not read qBittorrent response");
+                AppError::Upstream(
+                    "Remagnet Proxy could not read qBittorrent's response. Check that it is running and reachable."
+                        .to_string(),
+                )
+            });
+        }
+
+        unreachable!("the retry loop always returns")
+    }
+
     async fn ensure_login(&self) -> Result<(), AppError> {
         if self.api_key.is_some() || self.logged_in.load(Ordering::Relaxed) {
             return Ok(());
@@ -573,16 +653,25 @@ mod tests {
         extract::State,
         http::{header, Request},
         response::{IntoResponse, Response},
-        Router,
+        Json, Router,
     };
     use http_body_util::BodyExt;
 
     use super::*;
 
     #[derive(Clone, Default)]
+    struct CapturedAdd {
+        content_type: Option<String>,
+        body: Vec<u8>,
+    }
+
+    #[derive(Clone, Default)]
     struct FakeQbit {
         reject: bool,
+        fail_add_once: bool,
         logins: Arc<Mutex<Vec<String>>>,
+        add_requests: Arc<Mutex<Vec<CapturedAdd>>>,
+        add_attempts: Arc<Mutex<usize>>,
     }
 
     async fn fake_qbit(State(fake): State<FakeQbit>, request: Request<Body>) -> Response {
@@ -616,6 +705,37 @@ mod tests {
         match path.as_str() {
             "/api/v2/app/version" => "v5.3.0".into_response(),
             "/api/v2/app/webapiVersion" => "2.11.0".into_response(),
+            "/api/v2/torrents/categories" => Json(serde_json::json!({})).into_response(),
+            "/api/v2/torrents/tags" => Json(serde_json::json!([])).into_response(),
+            "/api/v2/torrents/createCategory" | "/api/v2/torrents/createTags" => "".into_response(),
+            "/api/v2/torrents/add" => {
+                let attempt = {
+                    let mut attempts = fake.add_attempts.lock().unwrap();
+                    *attempts += 1;
+                    *attempts
+                };
+                if fake.fail_add_once && attempt == 1 {
+                    return StatusCode::UNAUTHORIZED.into_response();
+                }
+
+                let content_type = request
+                    .headers()
+                    .get(header::CONTENT_TYPE)
+                    .and_then(|value| value.to_str().ok())
+                    .map(str::to_string);
+                let body = request
+                    .into_body()
+                    .collect()
+                    .await
+                    .unwrap()
+                    .to_bytes()
+                    .to_vec();
+                fake.add_requests
+                    .lock()
+                    .unwrap()
+                    .push(CapturedAdd { content_type, body });
+                "Ok.".into_response()
+            }
             _ => StatusCode::NOT_FOUND.into_response(),
         }
     }
@@ -677,6 +797,99 @@ mod tests {
             ),
             other => panic!("expected UpstreamAuth, got {other:?}"),
         }
+    }
+
+    fn torrent_file(filename: &str, marker: &[u8]) -> TorrentFilePayload {
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
+
+        TorrentFilePayload {
+            filename: filename.to_string(),
+            bytes: marker.to_vec(),
+            base64: STANDARD.encode(marker),
+            info_hash: "a".repeat(40),
+        }
+    }
+
+    #[tokio::test]
+    async fn uploads_torrent_files_as_multipart_with_defaults() {
+        let fake = FakeQbit::default();
+        let base_url = start_fake(fake.clone()).await;
+        let client = QbitClient::new(&config(&base_url)).unwrap();
+        let file = torrent_file("debian.torrent", b"d4:infod4:name4:testee");
+
+        let result = client
+            .add_torrent(
+                &[],
+                std::slice::from_ref(&file),
+                "remagnet",
+                &["remagnet".to_string(), "nas".to_string()],
+                true,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(result.added, 1);
+        assert_eq!(result.hashes, vec![file.info_hash.clone()]);
+        assert_eq!(result.category, "remagnet");
+        assert_eq!(result.tags, vec!["remagnet", "nas"]);
+
+        let captured = fake.add_requests.lock().unwrap();
+        assert_eq!(captured.len(), 1);
+        let content_type = captured[0].content_type.as_deref().unwrap();
+        assert!(
+            content_type.starts_with("multipart/form-data; boundary="),
+            "{content_type}"
+        );
+
+        let body = String::from_utf8_lossy(&captured[0].body);
+        assert!(body.contains("name=\"torrents\"; filename=\"debian.torrent\""));
+        assert!(body.contains("Content-Type: application/x-bittorrent"));
+        assert!(body.contains("d4:infod4:name4:testee"));
+        assert!(body.contains("name=\"category\""));
+        assert!(body.contains("remagnet"));
+        assert!(body.contains("name=\"tags\""));
+        assert!(body.contains("remagnet,nas"));
+        assert!(body.contains("name=\"paused\""));
+        assert!(body.contains("name=\"stopped\""));
+        assert!(!body.contains("name=\"urls\""));
+    }
+
+    #[tokio::test]
+    async fn multipart_uploads_retry_after_a_401() {
+        let fake = FakeQbit {
+            fail_add_once: true,
+            ..FakeQbit::default()
+        };
+        let base_url = start_fake(fake.clone()).await;
+        let client = QbitClient::new(&config(&base_url)).unwrap();
+
+        client
+            .add_torrent(
+                &[],
+                &[torrent_file("debian.torrent", b"d4:infod4:name4:testee")],
+                "",
+                &[],
+                false,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(*fake.add_attempts.lock().unwrap(), 2);
+        assert_eq!(fake.logins.lock().unwrap().len(), 2);
+        assert_eq!(fake.add_requests.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn rejects_an_add_without_urls_or_files() {
+        let fake = FakeQbit::default();
+        let base_url = start_fake(fake).await;
+        let client = QbitClient::new(&config(&base_url)).unwrap();
+
+        let error = client
+            .add_torrent(&[], &[], "", &[], false)
+            .await
+            .unwrap_err();
+        assert!(matches!(error, AppError::BadRequest(_)), "{error:?}");
     }
 
     #[test]

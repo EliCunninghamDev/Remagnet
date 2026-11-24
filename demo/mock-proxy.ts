@@ -97,6 +97,20 @@ function parseMagnet(uri: string): { hash: string; name: string; size: number } 
   };
 }
 
+const toHex = (bytes: ArrayBuffer): string =>
+  Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, "0")).join("");
+
+/** The demo only needs a stable 64-character hash for an uploaded file. */
+async function uploadedTorrentHash(data: string): Promise<string | null> {
+  try {
+    const bytes = new Uint8Array(Buffer.from(data.trim(), "base64"));
+    if (bytes.length === 0) return null;
+    return toHex(await crypto.subtle.digest("SHA-256", bytes));
+  } catch {
+    return null;
+  }
+}
+
 function summary(torrent: MockTorrent) {
   return {
     hash: torrent.hash,
@@ -228,7 +242,7 @@ Bun.serve({
         webApiVersion: "2.16.2",
         apiVersion: 1,
         proxyVersion: "0.1.0",
-        capabilities: { pauseOnAdd: true },
+        capabilities: { pauseOnAdd: true, torrentFiles: true },
         defaultCategory: CATEGORY,
         defaultTags: TAGS,
       });
@@ -240,20 +254,29 @@ Bun.serve({
     }
 
     if (pathname === "/api/torrents" && request.method === "POST") {
-      let payload: { urls?: unknown };
+      let payload: { urls?: unknown; files?: unknown; paused?: unknown };
       try {
         payload = (await request.json()) as typeof payload;
       } catch {
-        return json({ error: "Send a JSON body with a urls array." }, 400);
+        return json({ error: "Send a JSON body with a urls or files array." }, 400);
       }
 
       const urls = Array.isArray(payload.urls)
         ? payload.urls.filter((url): url is string => typeof url === "string")
         : [];
-      if (urls.length === 0) {
-        return json({ error: "No magnet or torrent URL was supplied." }, 400);
+      const files = Array.isArray(payload.files)
+        ? payload.files.filter(
+            (file): file is { filename?: unknown; data: string } =>
+              typeof file === "object" &&
+              file !== null &&
+              typeof (file as { data?: unknown }).data === "string",
+          )
+        : [];
+      if (urls.length === 0 && files.length === 0) {
+        return json({ error: "No magnet, torrent URL, or .torrent file was supplied." }, 400);
       }
 
+      const paused = payload.paused === true;
       const hashes: string[] = [];
       for (const uri of urls) {
         const magnet = parseMagnet(uri);
@@ -262,12 +285,12 @@ Bun.serve({
         torrents.set(magnet.hash, {
           hash: magnet.hash,
           name: magnet.name,
-          state: "downloading",
-          progress: 0.03,
+          state: paused ? "stopped" : "downloading",
+          progress: paused ? 0 : 0.03,
           size: magnet.size || 1_140_000_000,
-          downloadSpeed: 18_400_000,
-          uploadSpeed: 420_000,
-          eta: 64,
+          downloadSpeed: paused ? 0 : 18_400_000,
+          uploadSpeed: paused ? 0 : 420_000,
+          eta: paused ? 86_400 : 64,
           ratio: 0,
           category: CATEGORY,
           tags: [...TAGS],
@@ -277,7 +300,37 @@ Bun.serve({
         });
       }
 
-      return json({ added: urls.length, hashes, category: CATEGORY, tags: TAGS });
+      for (const file of files) {
+        const hash = await uploadedTorrentHash(file.data);
+        if (!hash) continue;
+        const filename =
+          (typeof file.filename === "string" ? file.filename.split(/[\\/]/).pop() : "") ||
+          `${hash.slice(0, 12)}.torrent`;
+        hashes.push(hash);
+        torrents.set(hash, {
+          hash,
+          name: filename.replace(/\.torrent$/i, "") || filename,
+          state: paused ? "stopped" : "downloading",
+          progress: paused ? 0 : 0.03,
+          size: 1_140_000_000,
+          downloadSpeed: paused ? 0 : 18_400_000,
+          uploadSpeed: paused ? 0 : 420_000,
+          eta: paused ? 86_400 : 64,
+          ratio: 0,
+          category: CATEGORY,
+          tags: [...TAGS],
+          seeds: 42,
+          peers: 7,
+          addedAt: Date.now(),
+        });
+      }
+
+      return json({
+        added: urls.length + files.length,
+        hashes,
+        category: CATEGORY,
+        tags: TAGS,
+      });
     }
 
     const torrentPath = pathname.match(/^\/api\/torrents\/([^/]+)$/);

@@ -19,6 +19,10 @@ class ProxyTorrentClientTest {
     private val authorization = AtomicReference<String?>(null)
     private val addBody = AtomicReference<String?>(null)
     private var listCode = 200
+    private var addCode = 200
+    private var addResponse =
+        """{"added":1,"hashes":["abc123"],""" +
+            """"category":"remagnet","tags":["linux"]}"""
     private var listBody = """
         {
           "torrents": [
@@ -49,12 +53,7 @@ class ProxyTorrentClientTest {
             when {
                 exchange.requestMethod == "POST" -> {
                     addBody.set(exchange.requestBody.readBytes().decodeToString())
-                    respond(
-                        exchange,
-                        200,
-                        """{"added":1,"hashes":["abc123"],""" +
-                            """"category":"remagnet","tags":["linux"]}""",
-                    )
+                    respond(exchange, addCode, addResponse)
                 }
 
                 exchange.requestMethod == "GET" && exchange.requestURI.path.endsWith("/missing") ->
@@ -130,14 +129,69 @@ class ProxyTorrentClientTest {
         assertTrue(json.get("paused").asBoolean)
         assertNull(json.get("category"))
         assertNull(json.get("tags"))
+        assertNull(json.get("files"))
     }
 
     @Test
-    fun addWithoutUrlsFailsBeforeCallingTheNetwork() = runBlocking {
-        val result = client().addTorrent(AddTorrentRequest(urls = emptyList()))
+    fun addUploadsTorrentFileBytesAsBase64() = runBlocking {
+        val bytes = byteArrayOf(0x64, 0x65, 0x01, 0x02, 0xff.toByte())
+        val request = AddTorrentRequest(
+            files = listOf(TorrentFileUpload(filename = "debian.torrent", bytes = bytes)),
+            paused = true,
+        )
+
+        val result = client().addTorrent(request)
+
+        assertTrue(result.toString(), result is QbitResult.Success)
+        val added = (result as QbitResult.Success).value
+        assertEquals(1, added.added)
+        assertEquals(listOf("abc123"), added.hashes)
+
+        val json = JsonParser.parseString(addBody.get().orEmpty()).asJsonObject
+        assertNull(json.get("urls"))
+        assertTrue(json.get("paused").asBoolean)
+        val file = json.getAsJsonArray("files")[0].asJsonObject
+        assertEquals(java.util.Base64.getEncoder().encodeToString(bytes), file.get("data").asString)
+        assertEquals("debian.torrent", file.get("filename").asString)
+    }
+
+    @Test
+    fun addUploadsFilesWithoutAFilenameWhenTheCallerHasNone() = runBlocking {
+        val request = AddTorrentRequest(
+            files = listOf(TorrentFileUpload(bytes = byteArrayOf(0x01))),
+        )
+
+        client().addTorrent(request)
+
+        val json = JsonParser.parseString(addBody.get().orEmpty()).asJsonObject
+        val file = json.getAsJsonArray("files")[0].asJsonObject
+        assertNull(file.get("filename"))
+        assertTrue(json.get("paused").asBoolean.not())
+    }
+
+    @Test
+    fun addWithoutUrlsOrFilesFailsBeforeCallingTheNetwork() = runBlocking {
+        val result = client().addTorrent(AddTorrentRequest())
 
         assertTrue(result is QbitResult.Failure)
         assertTrue((result as QbitResult.Failure).error is QbitError.InvalidSettings)
+        assertNull(addBody.get())
+    }
+
+    @Test
+    fun anOversizedUploadIsReportedAsRejected() = runBlocking {
+        addCode = 413
+        addResponse = """{"error":"The .torrent file is too large.","code":"too_large"}"""
+
+        val result = client().addTorrent(
+            AddTorrentRequest(files = listOf(TorrentFileUpload(bytes = byteArrayOf(0x01)))),
+        )
+
+        assertTrue(result is QbitResult.Failure)
+        val error = (result as QbitResult.Failure).error
+        assertTrue(error is QbitError.Rejected)
+        assertEquals("The .torrent file is too large.", error.message)
+        assertEquals("too_large", error.code)
     }
 
     @Test

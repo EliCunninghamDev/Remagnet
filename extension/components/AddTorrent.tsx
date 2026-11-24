@@ -1,12 +1,15 @@
 import { createMemo, createSignal, onMount, Show } from "solid-js";
+import { openTorrentFileSurface } from "../lib/add-surface";
 import type { IssueReportContext } from "../lib/issue-report";
 import { isMagnetLink, type MagnetLink, magnetLabel, parseMagnet } from "../lib/magnet";
 import {
   type AddTorrentsResult,
   BackgroundError,
+  type BackgroundRequest,
   sendBackgroundMessage,
   type TorrentLookupResult,
 } from "../lib/messages";
+import { type ParsedTorrentFile, parseTorrentFile, torrentFileLabel } from "../lib/torrent-file";
 import type { TorrentSummary } from "../lib/torrents";
 import AddedSummary from "./AddedSummary";
 import type { FlowStatus } from "./flow-status";
@@ -24,6 +27,8 @@ export interface AddTorrentProps {
   initialMagnet?: string;
   /** Compact layout for the toolbar popover instead of a full page. */
   embedded?: boolean;
+  /** Focus the file chooser when `add.html?source=file` opens. */
+  autoFocusFile?: boolean;
   /** Return to the torrent list, or close the add page. */
   onClose: () => void;
   /**
@@ -34,16 +39,17 @@ export interface AddTorrentProps {
 }
 
 /**
- * The magnet review and submit flow.
+ * The magnet and `.torrent` review and submit flow.
  *
  * It is shared by the toolbar popover (the normal surface) and `add.html`,
- * which stays as the protocol-handler fallback for browsers or cases where the
- * popover cannot be opened.
+ * which stays as the protocol-handler fallback and as the place the popover
+ * hands file selection to, since a native file picker closes the popover.
  */
 export default function AddTorrent(props: AddTorrentProps) {
   const initialMagnet = props.initialMagnet?.trim() ?? "";
   const [magnetUri, setMagnetUri] = createSignal(initialMagnet);
   const [draft, setDraft] = createSignal(initialMagnet);
+  const [torrentFile, setTorrentFile] = createSignal<ParsedTorrentFile | null>(null);
   const [editing, setEditing] = createSignal(parseMagnet(initialMagnet) === null);
   const [paused, setPaused] = createSignal(false);
   const [existing, setExisting] = createSignal<TorrentSummary | null>(null);
@@ -54,6 +60,7 @@ export default function AddTorrent(props: AddTorrentProps) {
   const [reportOpen, setReportOpen] = createSignal(false);
 
   let lookupToken = 0;
+  let fileToken = 0;
 
   const magnet = createMemo<MagnetLink | null>(() => {
     const uri = magnetUri().trim();
@@ -78,6 +85,8 @@ export default function AddTorrent(props: AddTorrentProps) {
       return false;
     }
 
+    fileToken += 1;
+    setTorrentFile(null);
     setMagnetUri(link.uri);
     setDraft(link.uri);
     setEditing(false);
@@ -87,6 +96,32 @@ export default function AddTorrent(props: AddTorrentProps) {
     setExisting(null);
     void lookup(link.infoHash);
     return true;
+  }
+
+  /** Parse a `.torrent` file and open its review screen. */
+  async function handleFileSelect(file: File) {
+    const token = ++fileToken;
+    setStatus(undefined);
+    setReportContext(undefined);
+
+    try {
+      const parsed = await parseTorrentFile(file);
+      if (token !== fileToken) return;
+
+      setTorrentFile(parsed);
+      setMagnetUri("");
+      setDraft("");
+      setEditing(false);
+      setAdded(undefined);
+      setStatus(undefined);
+      setReportContext(undefined);
+      setExisting(null);
+      void lookup(parsed.infoHash);
+    } catch (error) {
+      if (token === fileToken) {
+        setStatus({ tone: "error", message: errorMessage(error) });
+      }
+    }
   }
 
   async function lookup(hash: string | null) {
@@ -123,24 +158,38 @@ export default function AddTorrent(props: AddTorrentProps) {
 
   async function submit(event: SubmitEvent) {
     event.preventDefault();
-    const link = magnet();
-    if (!link || existing()) return;
+    const file = torrentFile();
+    const link = file ? null : magnet();
+    if ((!file && !link) || existing()) return;
+
+    let request: BackgroundRequest;
+    if (file) {
+      request = {
+        type: "torrents:add",
+        files: [{ filename: file.filename, data: file.dataBase64 }],
+        ...(paused() ? { paused: true } : {}),
+      };
+    } else if (link) {
+      request = {
+        type: "torrents:add",
+        urls: [link.uri],
+        ...(paused() ? { paused: true } : {}),
+      };
+    } else {
+      return;
+    }
 
     setBusy(true);
     setStatus(undefined);
     setReportContext(undefined);
 
     try {
-      const result = await sendBackgroundMessage<AddTorrentsResult>({
-        type: "torrents:add",
-        urls: [link.uri],
-        ...(paused() ? { paused: true } : {}),
-      });
+      const result = await sendBackgroundMessage<AddTorrentsResult>(request);
       if (props.onAdded) {
         props.onAdded();
         return;
       }
-      const name = magnetLabel(link);
+      const name = file ? torrentFileLabel(file) : link ? magnetLabel(link) : "";
       setAdded({ ...result, name });
       setStatus({ tone: "ok", message: `Sent “${name}” to Remagnet Proxy.` });
     } catch (error) {
@@ -152,13 +201,21 @@ export default function AddTorrent(props: AddTorrentProps) {
   }
 
   function reset() {
+    fileToken += 1;
     setAdded(undefined);
     setMagnetUri("");
     setDraft("");
+    setTorrentFile(null);
     setEditing(true);
     setExisting(null);
     setStatus(undefined);
     setReportContext(undefined);
+  }
+
+  /** The popover hands file selection to a tab so the picker can stay open. */
+  function openFilePickerSurface() {
+    void openTorrentFileSurface();
+    window.close();
   }
 
   const body = (
@@ -166,30 +223,33 @@ export default function AddTorrent(props: AddTorrentProps) {
       when={added()}
       fallback={
         <Show
-          when={!editing() && magnet()}
+          when={!editing() && (magnet() ?? torrentFile())}
           fallback={
             <MagnetForm
               draft={draft()}
               status={status()}
-              canCancel={Boolean(magnetUri())}
+              canCancel={Boolean(magnetUri() || torrentFile())}
+              embedded={Boolean(props.embedded)}
+              autoFocusFile={Boolean(props.autoFocusFile)}
               onDraftChange={setDraft}
               onSubmit={applyDraft}
               onCancel={() => setEditing(false)}
+              onFileSelect={(file) => void handleFileSelect(file)}
+              onOpenFilePickerSurface={props.embedded ? openFilePickerSurface : undefined}
             />
           }
         >
-          {(link) => (
-            <MagnetReview
-              link={link()}
-              existing={existing()}
-              paused={paused()}
-              busy={busy()}
-              status={status()}
-              onEdit={editMagnet}
-              onSubmit={submit}
-              onPausedChange={setPaused}
-            />
-          )}
+          <MagnetReview
+            link={magnet() ?? undefined}
+            file={torrentFile() ?? undefined}
+            existing={existing()}
+            paused={paused()}
+            busy={busy()}
+            status={status()}
+            onEdit={editMagnet}
+            onSubmit={submit}
+            onPausedChange={setPaused}
+          />
         </Show>
       }
     >
@@ -238,7 +298,7 @@ export default function AddTorrent(props: AddTorrentProps) {
         <div class="header-text">
           <Wordmark as="p" size="lg" surface="Add torrent" />
           <h1>Send to Remagnet Proxy</h1>
-          <p class="muted">The proxy adds the magnet to your torrent client.</p>
+          <p class="muted">The proxy adds the magnet or .torrent file to your torrent client.</p>
         </div>
         <button class="ghost" type="button" onClick={() => props.onClose()}>
           Close

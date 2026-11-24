@@ -27,8 +27,8 @@ package dev.remagnet.proxy.models
 import com.google.gson.annotations.SerializedName
 
 /**
- * @param added Number of submitted URLs.
- * @param hashes Info hashes extracted from submitted `magnet:` URLs.
+ * @param added Number of submitted magnet/torrent URLs plus uploaded `.torrent` files.
+ * @param hashes Info hashes from submitted `magnet:` URLs plus the computed info hashes of uploaded `.torrent` files.
  * @param category Category the proxy applied to the added torrents.
  * @param tags Tags the proxy applied to the added torrents.
  */
@@ -36,11 +36,11 @@ import com.google.gson.annotations.SerializedName
 
 data class AddTorrentResult (
 
-    /* Number of submitted URLs. */
+    /* Number of submitted magnet/torrent URLs plus uploaded `.torrent` files.  */
     @SerializedName("added")
     val added: kotlin.Int,
 
-    /* Info hashes extracted from submitted `magnet:` URLs. */
+    /* Info hashes from submitted `magnet:` URLs plus the computed info hashes of uploaded `.torrent` files.  */
     @SerializedName("hashes")
     val hashes: kotlin.collections.List<kotlin.String>,
 

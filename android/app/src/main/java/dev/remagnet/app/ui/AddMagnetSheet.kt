@@ -28,7 +28,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.remagnet.app.data.RemagnetSettings
-import dev.remagnet.app.magnet.magnetLabel
 import dev.remagnet.app.magnet.trackerHosts
 import dev.remagnet.app.ui.components.CheckRow
 import dev.remagnet.app.ui.components.Field
@@ -46,7 +45,7 @@ import dev.remagnet.app.util.formatBytes
 import dev.remagnet.app.util.formatPercent
 
 /**
- * The magnet review and add flow, presented as a modal sheet over the home
+ * The torrent review and add flow, presented as a modal sheet over the home
  * screen. The list behind it stays visible, and dismissing never discards a
  * link that the client rejected.
  */
@@ -65,6 +64,7 @@ fun AddMagnetSheet(
     onAddAnother: () -> Unit,
     onOpenSettings: () -> Unit,
     onReportIssue: (IssueReportContext) -> Unit = {},
+    onPickTorrentFile: () -> Unit = {},
 ) {
     val submitting = state is AddSheetState.Review && state.submitting
     val submittingNow by rememberUpdatedState(submitting)
@@ -108,6 +108,7 @@ fun AddMagnetSheet(
                     settings = settings,
                     onDraftChange = onDraftChange,
                     onReview = onReview,
+                    onPickTorrentFile = onPickTorrentFile,
                     onDismiss = onDismiss,
                     onOpenSettings = onOpenSettings,
                     onReportIssue = onReportIssue,
@@ -142,14 +143,16 @@ private fun PasteContent(
     settings: RemagnetSettings,
     onDraftChange: (String) -> Unit,
     onReview: () -> Unit,
+    onPickTorrentFile: () -> Unit,
     onDismiss: () -> Unit,
     onOpenSettings: () -> Unit,
     onReportIssue: (IssueReportContext) -> Unit,
 ) {
-    SectionLabel("Add magnet")
+    SectionLabel("Add torrent")
     Text(
-        text = "Paste a magnet link, or open one from a browser, chat app or file " +
-            "manager. Remagnet opens this sheet and sends nothing until you confirm.",
+        text = "Paste a magnet link, choose a .torrent file, or open or share one " +
+            "from another app. Remagnet opens this sheet and sends nothing until " +
+            "you confirm.",
         color = RemagnetPalette.Muted,
         fontSize = 12.sp,
         lineHeight = 18.sp,
@@ -172,6 +175,11 @@ private fun PasteContent(
             },
         )
     }
+    SecondaryButton(
+        text = "Choose .torrent file",
+        onClick = onPickTorrentFile,
+        modifier = Modifier.fillMaxWidth(),
+    )
     if (isLargeText()) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             PrimaryButton(
@@ -226,7 +234,11 @@ private fun ReviewContent(
     onOpenSettings: () -> Unit,
     onReportIssue: (IssueReportContext) -> Unit,
 ) {
-    val magnet = state.magnet
+    val item = state.item
+    val editLabel = when (item) {
+        is AddItem.Magnet -> "Edit"
+        is AddItem.TorrentFile -> "Change"
+    }
 
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -235,7 +247,7 @@ private fun ReviewContent(
         Column(modifier = Modifier.weight(1f)) {
             SectionLabel("Review")
             Text(
-                text = magnetLabel(magnet),
+                text = item.label,
                 color = RemagnetPalette.Text,
                 fontSize = 16.sp,
                 fontWeight = FontWeight.SemiBold,
@@ -243,24 +255,28 @@ private fun ReviewContent(
             )
         }
         SecondaryButton(
-            text = "Edit",
+            text = editLabel,
             onClick = onEdit,
             enabled = !state.submitting,
         )
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-        magnet.infoHash?.let { MetadataRow("Info hash", it, mono = true) }
-        magnet.sizeBytes?.let { MetadataRow("Size", formatBytes(it)) }
-        if (magnet.trackers.isNotEmpty()) {
-            val hosts = trackerHosts(magnet)
+        item.infoHash?.let { MetadataRow("Info hash", it, mono = true) }
+        item.sizeBytes?.let { MetadataRow("Size", formatBytes(it)) }
+        item.fileCount?.takeIf { it > 1 }?.let { count ->
+            MetadataRow("Files", "$count files")
+        }
+        if (item.isPrivate) MetadataRow("Private", "Yes")
+        if (item.trackers.isNotEmpty()) {
+            val hosts = trackerHosts(item.trackers)
             MetadataRow(
-                label = "Trackers (${magnet.trackers.size})",
+                label = "Trackers (${item.trackers.size})",
                 value = hosts.joinToString(", ").ifEmpty { "No readable tracker host" },
             )
         }
-        if (magnet.webSeeds.isNotEmpty()) {
-            MetadataRow("Web seeds", magnet.webSeeds.size.toString())
+        if (item.webSeeds.isNotEmpty()) {
+            MetadataRow("Web seeds", item.webSeeds.size.toString())
         }
     }
 
@@ -406,7 +422,7 @@ private fun AddedContent(
         fontWeight = FontWeight.SemiBold,
         lineHeight = 21.sp,
     )
-    StatusNote("Remagnet Proxy sent the magnet to qBittorrent.", StatusTone.Ok)
+    StatusNote("Remagnet Proxy sent the torrent to qBittorrent.", StatusTone.Ok)
     if (state.category.isNotEmpty()) MetadataRow("Category", state.category)
     if (state.tags.isNotEmpty()) MetadataRow("Tags", state.tags.joinToString(", "))
 

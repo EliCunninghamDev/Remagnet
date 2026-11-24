@@ -139,14 +139,24 @@ export interface paths {
         get: operations["listTorrents"];
         put?: never;
         /**
-         * Add one or more magnets
-         * @description Adds `urls` to qBittorrent with the proxy's configured category and tags.
-         *     Clients cannot override either value. A non-empty category is created
-         *     first when missing, as are missing tags. With `paused: true` the proxy
-         *     sends both qBittorrent 4.x (`paused`) and 5.x (`stopped`) form fields.
+         * Add magnets, torrent URLs, or uploaded .torrent files
+         * @description Adds the submitted torrents to the configured client with the proxy's
+         *     category and tags. Send at least one entry in `urls` or `files`; a
+         *     request where both are empty returns `400`. Clients cannot override the
+         *     category or tags. A non-empty category is created first when missing, as
+         *     are missing tags. With `paused: true` the proxy adds the torrents
+         *     stopped.
+         *
+         *     `urls` accepts `magnet:` links and http(s) URLs understood by the
+         *     client. `files` carries raw `.torrent` metainfo as standard base64 in
+         *     `data`; the proxy validates the bencode, computes the info hash, and
+         *     sends the original bytes to qBittorrent as multipart or to Transmission
+         *     as `metainfo`. Files larger than 10 MiB are rejected with `413`, and the
+         *     overall JSON body is limited to 16 MiB.
          *
          *     `hashes` contains the v1/v2 info hashes extracted from submitted
-         *     `magnet:` URLs; non-magnet URLs simply contribute no hash. qBittorrent
+         *     `magnet:` URLs plus the info hashes of uploaded `.torrent` files;
+         *     non-magnet URLs without an embedded hash contribute nothing. The client
          *     rejecting the torrent (for example because it already exists) returns
          *     `400` with an explanatory message.
          */
@@ -630,6 +640,7 @@ export interface components {
              *     - `forbidden`: authenticated but not allowed (`403`)
              *     - `not_found`: the resource does not exist (`404`)
              *     - `conflict`: the resource already exists or is in the wrong state (`409`)
+             *     - `payload_too_large`: the request body or an uploaded `.torrent` file is too large (`413`)
              *     - `rate_limited`: too many attempts; see `Retry-After` (`429`)
              *     - `not_configured`: no torrent client is configured yet (`503`)
              *     - `upstream_unreachable`: the torrent client could not be reached or timed out (`502`)
@@ -638,7 +649,7 @@ export interface components {
              *     - `internal_error`: an unexpected proxy error (`500`)
              * @enum {string}
              */
-            code: "bad_request" | "unauthorized" | "totp_required" | "forbidden" | "not_found" | "conflict" | "rate_limited" | "not_configured" | "upstream_unreachable" | "upstream_auth" | "upstream_error" | "internal_error";
+            code: "bad_request" | "unauthorized" | "totp_required" | "forbidden" | "not_found" | "conflict" | "payload_too_large" | "rate_limited" | "not_configured" | "upstream_unreachable" | "upstream_auth" | "upstream_error" | "internal_error";
         };
         /**
          * @description Returned by torrent-client-backed endpoints before the proxy has
@@ -707,6 +718,12 @@ export interface components {
              * @example true
              */
             tags: boolean;
+            /**
+             * @description Whether `POST /api/torrents` accepts uploaded `.torrent` files in
+             *     `files`, not just magnet or torrent URLs.
+             * @example true
+             */
+            torrentFiles: boolean;
         };
         /** @description Successful qBittorrent connection check plus the effective magnet defaults. */
         ConnectionHealth: {
@@ -827,12 +844,45 @@ export interface components {
             torrents: components["schemas"]["TorrentSummary"][];
         };
         /**
-         * @description Magnets or torrent URLs to add. Category and tags are intentionally not
-         *     accepted: the proxy always applies its configured defaults.
+         * @description One raw `.torrent` metainfo file. `data` is standard base64 with padding,
+         *     not an OpenAPI `format: byte` string: OpenAPI Generator's Kotlin
+         *     `ByteArrayAdapter` decodes byte fields with UTF-8 `String(value)`, which
+         *     corrupts binary torrent bytes. Sending a plain base64 string keeps the
+         *     original bytes intact.
+         */
+        TorrentFileUpload: {
+            /**
+             * @description Original `.torrent` filename, for example `debian.torrent`. The proxy
+             *     keeps only the basename and ensures a `.torrent` suffix; when omitted
+             *     it uses `<infoHash>.torrent`.
+             * @example debian.torrent
+             */
+            filename?: string;
+            /**
+             * @description Standard base64-encoded raw `.torrent` metainfo bytes. The proxy
+             *     validates the bencode and rejects files over 10 MiB with `413`.
+             * @example ZDQ6aW5mb2Q2Omxlbmd0aGkxMDI0ZTQ6bmFtZTQ6dGVzdDEyOnBpZWNlIGxlbmd0aGkxNjM4NGU2OnBpZWNlczIwOjAxMjM0NTY3ODkwMTIzNDU2Nzg5MDpl
+             */
+            data: string;
+        };
+        /**
+         * @description Magnets, torrent URLs, or uploaded `.torrent` files to add. At least one
+         *     of `urls` or `files` must be non-empty. Category and tags are
+         *     intentionally not accepted: the proxy always applies its configured
+         *     defaults.
          */
         AddTorrentRequest: {
-            /** @description Magnet links or http(s) URLs understood by qBittorrent. */
+            /**
+             * @description Magnet links or http(s) URLs understood by the client. Optional when
+             *     `files` is non-empty.
+             * @default []
+             */
             urls: string[];
+            /**
+             * @description Raw `.torrent` files to add. Optional when `urls` is non-empty.
+             * @default []
+             */
+            files: components["schemas"]["TorrentFileUpload"][];
             /**
              * @description Add the torrents stopped instead of starting them immediately.
              * @default false
@@ -840,9 +890,15 @@ export interface components {
             paused: boolean;
         };
         AddTorrentResult: {
-            /** @description Number of submitted URLs. */
+            /**
+             * @description Number of submitted magnet/torrent URLs plus uploaded `.torrent`
+             *     files.
+             */
             added: number;
-            /** @description Info hashes extracted from submitted `magnet:` URLs. */
+            /**
+             * @description Info hashes from submitted `magnet:` URLs plus the computed info
+             *     hashes of uploaded `.torrent` files.
+             */
             hashes: string[];
             /** @description Category the proxy applied to the added torrents. */
             category: string;
@@ -1260,6 +1316,25 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
+        /**
+         * @description The request body or an uploaded `.torrent` file exceeds the limits.
+         *     Individual `.torrent` files are limited to 10 MiB and the JSON body to
+         *     16 MiB.
+         */
+        PayloadTooLarge: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "error": "An uploaded .torrent file is too large. The maximum is 10 MiB.",
+                 *       "code": "payload_too_large"
+                 *     }
+                 */
+                "application/json": components["schemas"]["Error"];
+            };
+        };
         /** @description The torrent does not exist or does not match the proxy's filter. */
         NotFound: {
             headers: {
@@ -1418,7 +1493,8 @@ export interface operations {
                      *         "pauseOnAdd": true,
                      *         "archiveDownload": true,
                      *         "categories": true,
-                     *         "tags": true
+                     *         "tags": true,
+                     *         "torrentFiles": true
                      *       },
                      *       "defaultCategory": "remagnet",
                      *       "defaultTags": [
@@ -1531,19 +1607,11 @@ export interface operations {
         };
         requestBody: {
             content: {
-                /**
-                 * @example {
-                 *       "urls": [
-                 *         "magnet:?xt=urn:btih:dc555f7a26f1acae38a18edc04e53588ade33051"
-                 *       ],
-                 *       "paused": false
-                 *     }
-                 */
                 "application/json": components["schemas"]["AddTorrentRequest"];
             };
         };
         responses: {
-            /** @description qBittorrent accepted the add request. */
+            /** @description The torrent client accepted the add request. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -1552,21 +1620,20 @@ export interface operations {
                     "application/json": components["schemas"]["AddTorrentResult"];
                 };
             };
-            /** @description No URLs were supplied or qBittorrent rejected the torrent. */
+            /**
+             * @description No URLs or files were supplied, the base64 or bencode was invalid, or
+             *     the torrent client rejected the torrent.
+             */
             400: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    /**
-                     * @example {
-                     *       "error": "qBittorrent rejected the torrent. It may already exist, or the magnet link may be invalid."
-                     *     }
-                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };
             401: components["responses"]["Unauthorized"];
+            413: components["responses"]["PayloadTooLarge"];
             502: components["responses"]["BadGateway"];
             503: components["responses"]["ServiceUnavailable"];
         };

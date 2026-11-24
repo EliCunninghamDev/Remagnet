@@ -5,7 +5,8 @@ import { openToolbarPopup } from "../../lib/action-popup";
 import { pendingMagnetItem } from "../../lib/pending-magnet";
 
 /**
- * Protocol-handler target for `magnet:` links.
+ * Protocol-handler target for `magnet:` links, and the page the toolbar
+ * popover opens to choose `.torrent` files (`?source=file`).
  *
  * The toolbar popover is the normal place to add torrents, but Firefox can
  * only navigate a handler to a page. So this page stores the magnet, opens the
@@ -15,6 +16,7 @@ import { pendingMagnetItem } from "../../lib/pending-magnet";
  */
 export default function App() {
   const [magnet, setMagnet] = createSignal(readMagnet());
+  const fileSource = readSource() === "file";
 
   onMount(() => {
     const handleHashChange = () => setMagnet(readMagnet());
@@ -28,7 +30,9 @@ export default function App() {
     <Show
       when={magnet()}
       keyed
-      fallback={<AddTorrent initialMagnet="" onClose={() => void closePage()} />}
+      fallback={
+        <AddTorrent initialMagnet="" autoFocusFile={fileSource} onClose={() => void closePage()} />
+      }
     >
       {(uri) => <AddTorrent initialMagnet={uri} onClose={() => void closePage()} />}
     </Show>
@@ -80,4 +84,9 @@ function readMagnet(): string {
   } catch {
     return raw;
   }
+}
+
+/** `?source=file` means the popover handed off its `.torrent` file chooser. */
+function readSource(): string | null {
+  return new URLSearchParams(location.search).get("source");
 }

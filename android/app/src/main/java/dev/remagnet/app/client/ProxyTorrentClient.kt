@@ -5,8 +5,10 @@ import dev.remagnet.app.data.RemagnetSettings
 import dev.remagnet.app.data.parseHttpUrl
 import dev.remagnet.app.proxy.ProxyApi
 import dev.remagnet.proxy.models.AddTorrentRequest as ProxyAddTorrentRequest
+import dev.remagnet.proxy.models.TorrentFileUpload as ProxyTorrentFileUpload
 import dev.remagnet.proxy.models.TorrentSummary as ProxyTorrentSummary
 import java.io.IOException
+import java.util.Base64
 import kotlinx.coroutines.CancellationException
 import retrofit2.Response
 
@@ -44,6 +46,7 @@ class ProxyTorrentClient(
             appVersion = body.appVersion,
             webApiVersion = body.webApiVersion,
             pauseOnAdd = body.capabilities.pauseOnAdd,
+            torrentFiles = body.capabilities.torrentFiles,
             defaultCategory = body.defaultCategory,
             defaultTags = body.defaultTags,
         )
@@ -77,14 +80,26 @@ class ProxyTorrentClient(
     override suspend fun addTorrent(request: AddTorrentRequest): QbitResult<AddTorrentResult> =
         attempt {
             requireConfiguration()
-            if (request.urls.isEmpty()) {
+            if (request.urls.isEmpty() && request.files.isEmpty()) {
                 throw ProxyException(
-                    QbitError.InvalidSettings("No magnet or torrent URL was supplied."),
+                    QbitError.InvalidSettings(
+                        "No magnet, torrent URL, or .torrent file was supplied.",
+                    ),
                 )
             }
 
+            val files = request.files.map { file ->
+                ProxyTorrentFileUpload(
+                    data = Base64.getEncoder().encodeToString(file.bytes),
+                    filename = file.filename,
+                )
+            }
             val response = api.torrents.addTorrents(
-                ProxyAddTorrentRequest(urls = request.urls, paused = request.paused),
+                ProxyAddTorrentRequest(
+                    urls = request.urls.ifEmpty { null },
+                    files = files.ifEmpty { null },
+                    paused = request.paused,
+                ),
             )
             val body = response.body()
             if (!response.isSuccessful || body == null) {
@@ -164,6 +179,11 @@ class ProxyTorrentClient(
             404 -> QbitError.Http(
                 404,
                 detail ?: "The torrent does not exist or is not owned by Remagnet.",
+                code,
+            )
+
+            413 -> QbitError.Rejected(
+                detail ?: "The .torrent file is too large for the Remagnet Proxy.",
                 code,
             )
 

@@ -1,6 +1,7 @@
 mod auth;
 mod auth_routes;
 mod backend;
+mod bencode;
 mod config;
 mod error;
 mod pairing;

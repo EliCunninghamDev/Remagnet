@@ -2,6 +2,7 @@ package dev.remagnet.app.ui
 
 import android.app.Application
 import android.app.NotificationManager
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
@@ -27,12 +28,15 @@ import dev.remagnet.app.download.ArchiveDownloadState
 import dev.remagnet.app.download.ArchiveDownloads
 import dev.remagnet.app.download.ArchiveRequest
 import dev.remagnet.app.magnet.MagnetIntake
-import dev.remagnet.app.magnet.MagnetLink
 import dev.remagnet.app.magnet.NO_HASH_MESSAGE
+import dev.remagnet.app.magnet.PendingTorrentStore
+import dev.remagnet.app.magnet.StagedTorrent
+import dev.remagnet.app.magnet.TorrentFileInfo
+import dev.remagnet.app.magnet.TorrentFileParseResult
 import dev.remagnet.app.magnet.isMagnetLink
 import dev.remagnet.app.magnet.magnetFromText
-import dev.remagnet.app.magnet.magnetLabel
 import dev.remagnet.app.magnet.parseMagnet
+import dev.remagnet.app.magnet.parseTorrentFile
 import dev.remagnet.app.proxy.ProxyApi
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -150,11 +154,18 @@ class RemagnetViewModel(
             }
         }
 
+        val pendingTorrentPath = savedState.get<String>(KEY_PENDING_TORRENT_PATH)
         val pendingMagnet = savedState.get<String>(KEY_PENDING_MAGNET)
         if (pendingMagnet != null) {
             openMagnet(
                 uri = pendingMagnet,
                 restorePaused = savedState.get<Boolean>(KEY_PENDING_PAUSED) ?: false,
+            )
+        } else if (pendingTorrentPath != null) {
+            restorePendingTorrent(
+                path = pendingTorrentPath,
+                filename = savedState.get<String>(KEY_PENDING_TORRENT_FILENAME),
+                paused = savedState.get<Boolean>(KEY_PENDING_PAUSED) ?: false,
             )
         } else {
             val draft = savedState.get<String>(KEY_PASTE_DRAFT)
@@ -164,6 +175,12 @@ class RemagnetViewModel(
                     it.copy(addSheet = AddSheetState.Paste(draft.orEmpty(), error))
                 }
             }
+        }
+
+        // A staged file from an earlier intake is an orphan: the only path the
+        // sheet may still need is the one restored above.
+        viewModelScope.launch(Dispatchers.IO) {
+            PendingTorrentStore.pruneStale(getApplication(), keepPath = pendingTorrentPath)
         }
     }
 
@@ -606,24 +623,93 @@ class RemagnetViewModel(
             ?.cancel(ArchiveDownloadService.NOTIFICATION_ID)
     }
 
-    /** Open the sheet without a magnet so one can be pasted or shared. */
+    /** Open the sheet without a torrent so one can be pasted, shared or chosen. */
     fun openAddSheet() {
         addLookupId += 1
         addSubmitId += 1
         clearPendingMagnet()
+        clearPendingTorrent()
         clearPasteDraft()
         _state.update { it.copy(addSheet = AddSheetState.Paste()) }
     }
 
     /**
-     * Accept a `VIEW magnet:` or `SEND` payload. An unusable link still opens
-     * the sheet with the draft intact, so a malformed share can be corrected.
+     * Accept a `VIEW magnet:`, `SEND` or `.torrent` payload. An unusable link
+     * still opens the sheet with the draft intact, so a malformed share can be
+     * corrected.
      */
     fun acceptIntake(intake: MagnetIntake) {
         when (intake) {
             is MagnetIntake.Magnet -> openMagnet(intake.uri)
             is MagnetIntake.Unusable -> openPaste(intake.draft, intake.message)
+            is MagnetIntake.TorrentFile -> acceptTorrentFileUri(Uri.parse(intake.uri))
             MagnetIntake.None -> Unit
+        }
+    }
+
+    /**
+     * Stage a chosen or shared `.torrent` file, parse it, and open review.
+     *
+     * The URI grant can expire while the process is alive or after it dies, so
+     * the file is copied into the app cache first. Parsing happens off the main
+     * thread with the same validator the sheet uses for magnets.
+     */
+    fun acceptTorrentFileUri(uri: Uri) {
+        val intakeId = ++addLookupId
+        addSubmitId += 1
+        val current = _state.value.addSheet
+        val draft = (current as? AddSheetState.Paste)?.draft.orEmpty()
+
+        viewModelScope.launch {
+            val staged = withContext(Dispatchers.IO) {
+                PendingTorrentStore.stageFromUri(getApplication(), uri)
+            }
+            if (intakeId != addLookupId) {
+                if (staged is StagedTorrent.Ready) {
+                    withContext(Dispatchers.IO) { PendingTorrentStore.delete(staged.path) }
+                }
+                return@launch
+            }
+
+            when (staged) {
+                is StagedTorrent.Failed -> openPaste(draft, staged.message)
+
+                is StagedTorrent.Ready -> {
+                    val parsed = withContext(Dispatchers.IO) {
+                        parseTorrentFile(staged.bytes, staged.filename)
+                    }
+                    if (intakeId != addLookupId) {
+                        withContext(Dispatchers.IO) { PendingTorrentStore.delete(staged.path) }
+                        return@launch
+                    }
+
+                    when (parsed) {
+                        is TorrentFileParseResult.Invalid -> {
+                            withContext(Dispatchers.IO) {
+                                PendingTorrentStore.delete(staged.path)
+                            }
+                            openPaste(draft, parsed.message)
+                        }
+
+                        is TorrentFileParseResult.Valid -> {
+                            val previousPath =
+                                savedState.get<String>(KEY_PENDING_TORRENT_PATH)
+                            if (previousPath != null && previousPath != staged.path) {
+                                withContext(Dispatchers.IO) {
+                                    PendingTorrentStore.delete(previousPath)
+                                }
+                            }
+                            clearPasteDraft()
+                            clearPendingMagnet()
+                            openTorrentReview(
+                                info = parsed.info,
+                                stagedPath = staged.path,
+                                paused = false,
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -666,32 +752,38 @@ class RemagnetViewModel(
         val review = _state.value.addSheet as? AddSheetState.Review ?: return
         if (review.submitting) return
         savedState[KEY_PENDING_PAUSED] = paused
-        updateReview(review.magnet.uri) { it.copy(paused = paused) }
+        updateReview(review.item.key) { it.copy(paused = paused) }
     }
 
-    /** Return to the paste form with the current link so it can be corrected. */
+    /** Return to the paste form so the current item can be replaced. */
     fun editReviewedMagnet() {
         val review = _state.value.addSheet as? AddSheetState.Review ?: return
         if (review.submitting) return
-        openPaste(review.magnet.uri, error = null)
+        when (val item = review.item) {
+            is AddItem.Magnet -> openPaste(item.link.uri, error = null)
+            // Leaving review abandons the staged copy; choosing again stages a
+            // fresh file, and closeAddSheet would delete it anyway.
+            is AddItem.TorrentFile -> openPaste("", error = null)
+        }
     }
 
     fun retryDuplicateCheck() {
         val review = _state.value.addSheet as? AddSheetState.Review ?: return
         if (review.submitting) return
-        updateReview(review.magnet.uri) {
+        updateReview(review.item.key) {
             it.copy(duplicate = DuplicateState.Checking, error = null)
         }
-        checkDuplicate(review.magnet)
+        checkDuplicate(review.item)
     }
 
     fun submitMagnet() {
         val current = _state.value
         val review = current.addSheet as? AddSheetState.Review ?: return
         if (!review.canSubmit) return
+        val item = review.item
 
         if (!current.settings.proxyConfigured) {
-            updateReview(review.magnet.uri) {
+            updateReview(item.key) {
                 it.copy(duplicate = DuplicateState.NotConfigured)
             }
             return
@@ -699,18 +791,37 @@ class RemagnetViewModel(
 
         val submitId = ++addSubmitId
         val settings = current.settings
-        val magnet = review.magnet
-        val request = addRequestFor(magnet, review.paused)
-        updateReview(magnet.uri) { it.copy(submitting = true, error = null) }
+        updateReview(item.key) { it.copy(submitting = true, error = null) }
 
         viewModelScope.launch {
+            val request = when (item) {
+                is AddItem.Magnet -> addRequestFor(item.link, review.paused)
+
+                is AddItem.TorrentFile -> {
+                    val bytes = withContext(Dispatchers.IO) {
+                        PendingTorrentStore.readStaged(item.stagedPath)
+                    }
+                    if (bytes == null) {
+                        updateReview(item.key) {
+                            it.copy(
+                                submitting = false,
+                                error = STAGED_TORRENT_MISSING,
+                            )
+                        }
+                        return@launch
+                    }
+                    addRequestFor(item.info, bytes, review.paused)
+                }
+            }
+
             val result = clientFactory(settings).addTorrent(request)
             if (submitId != addSubmitId) return@launch
 
             when (result) {
                 is QbitResult.Success -> {
-                    val name = magnetLabel(magnet)
+                    val name = item.label
                     clearPendingMagnet()
+                    clearPendingTorrent()
                     // The proxy applies its configured category and tags, so
                     // the summary shows what it actually used rather than any
                     // value this device guessed.
@@ -728,13 +839,13 @@ class RemagnetViewModel(
                 }
 
                 is QbitResult.Failure -> {
-                    updateReview(magnet.uri) {
+                    updateReview(item.key) {
                         it.copy(submitting = false, error = result.error.message)
                     }
                     // qBittorrent rejects a duplicate even when the lookup said
                     // the hash was clear, for example if another client added
                     // it first. Re-check so the sheet explains why.
-                    if (result.error is QbitError.Rejected) checkDuplicate(magnet)
+                    if (result.error is QbitError.Rejected) checkDuplicate(item)
                 }
             }
         }
@@ -756,6 +867,7 @@ class RemagnetViewModel(
         addLookupId += 1
         addSubmitId += 1
         clearPendingMagnet()
+        clearPendingTorrent()
         clearPasteDraft()
         _state.update { it.copy(addSheet = AddSheetState.Closed) }
     }
@@ -767,15 +879,17 @@ class RemagnetViewModel(
             return
         }
 
+        val item = AddItem.Magnet(link)
         // Activity recreation can deliver the same intent that is already
         // restored from saved state. Do not restart the lookup for it.
         val current = _state.value.addSheet
-        if (current is AddSheetState.Review && current.magnet.uri == link.uri) return
+        if (current is AddSheetState.Review && current.item.key == item.key) return
 
         val paused = restorePaused
             ?: (current as? AddSheetState.Review)?.paused
             ?: false
         clearPasteDraft()
+        clearPendingTorrent()
         savedState[KEY_PENDING_MAGNET] = link.uri
         savedState[KEY_PENDING_PAUSED] = paused
         addLookupId += 1
@@ -783,19 +897,82 @@ class RemagnetViewModel(
         _state.update {
             it.copy(
                 addSheet = AddSheetState.Review(
-                    magnet = link,
+                    item = item,
                     paused = paused,
                     duplicate = DuplicateState.Checking,
                 ),
             )
         }
-        checkDuplicate(link)
+        checkDuplicate(item)
+    }
+
+    /** Restore a staged `.torrent` after process death, if it is still readable. */
+    private fun restorePendingTorrent(path: String, filename: String?, paused: Boolean) {
+        addLookupId += 1
+        addSubmitId += 1
+        val restoreId = addLookupId
+
+        viewModelScope.launch {
+            val parsed = withContext(Dispatchers.IO) {
+                PendingTorrentStore.readStaged(path)?.let { bytes ->
+                    parseTorrentFile(bytes, filename)
+                }
+            }
+            if (restoreId != addLookupId) return@launch
+
+            when (parsed) {
+                null -> {
+                    clearPendingTorrent()
+                    openPaste("", STAGED_TORRENT_MISSING)
+                }
+
+                is TorrentFileParseResult.Invalid -> {
+                    clearPendingTorrent()
+                    openPaste("", parsed.message)
+                }
+
+                is TorrentFileParseResult.Valid -> {
+                    openTorrentReview(
+                        info = parsed.info,
+                        stagedPath = path,
+                        paused = paused,
+                    )
+                }
+            }
+        }
+    }
+
+    /** Persist a parsed `.torrent` and open its review with a duplicate check. */
+    private fun openTorrentReview(
+        info: TorrentFileInfo,
+        stagedPath: String,
+        paused: Boolean,
+    ) {
+        savedState.remove<String>(KEY_PENDING_MAGNET)
+        savedState[KEY_PENDING_TORRENT_PATH] = stagedPath
+        savedState[KEY_PENDING_TORRENT_FILENAME] = info.filename
+        savedState[KEY_PENDING_PAUSED] = paused
+        addLookupId += 1
+        addSubmitId += 1
+
+        val item = AddItem.TorrentFile(info, stagedPath)
+        _state.update {
+            it.copy(
+                addSheet = AddSheetState.Review(
+                    item = item,
+                    paused = paused,
+                    duplicate = DuplicateState.Checking,
+                ),
+            )
+        }
+        checkDuplicate(item)
     }
 
     private fun openPaste(draft: String, error: String?) {
         addLookupId += 1
         addSubmitId += 1
         clearPendingMagnet()
+        clearPendingTorrent()
         if (draft.isBlank()) {
             savedState.remove<String>(KEY_PASTE_DRAFT)
         } else {
@@ -815,11 +992,11 @@ class RemagnetViewModel(
         _state.update { it.copy(addSheet = current.copy(error = message)) }
     }
 
-    private fun checkDuplicate(magnet: MagnetLink) {
-        val hash = magnet.infoHash ?: return
+    private fun checkDuplicate(item: AddItem) {
+        val hash = item.infoHash ?: return
 
         if (!_state.value.settings.proxyConfigured) {
-            updateReview(magnet.uri) {
+            updateReview(item.key) {
                 it.copy(duplicate = DuplicateState.NotConfigured)
             }
             return
@@ -831,17 +1008,17 @@ class RemagnetViewModel(
             val result = clientFactory(settings).getTorrent(hash)
             if (lookupId != addLookupId) return@launch
             val duplicate = duplicateStateFor(result)
-            updateReview(magnet.uri) { it.copy(duplicate = duplicate) }
+            updateReview(item.key) { it.copy(duplicate = duplicate) }
         }
     }
 
     private fun updateReview(
-        uri: String,
+        key: String,
         transform: (AddSheetState.Review) -> AddSheetState.Review,
     ) {
         _state.update { current ->
             val sheet = current.addSheet
-            if (sheet is AddSheetState.Review && sheet.magnet.uri == uri) {
+            if (sheet is AddSheetState.Review && sheet.item.key == key) {
                 current.copy(addSheet = transform(sheet))
             } else {
                 current
@@ -851,6 +1028,22 @@ class RemagnetViewModel(
 
     private fun clearPendingMagnet() {
         savedState.remove<String>(KEY_PENDING_MAGNET)
+        savedState.remove<Boolean>(KEY_PENDING_PAUSED)
+    }
+
+    /**
+     * Forget the staged `.torrent`, deleting its cache copy by default so it
+     * does not outlive the review that referenced it.
+     */
+    private fun clearPendingTorrent(deleteFile: Boolean = true) {
+        val path = savedState.get<String>(KEY_PENDING_TORRENT_PATH)
+        if (deleteFile && path != null) {
+            viewModelScope.launch(Dispatchers.IO) {
+                PendingTorrentStore.delete(path)
+            }
+        }
+        savedState.remove<String>(KEY_PENDING_TORRENT_PATH)
+        savedState.remove<String>(KEY_PENDING_TORRENT_FILENAME)
         savedState.remove<Boolean>(KEY_PENDING_PAUSED)
     }
 
@@ -887,8 +1080,13 @@ class RemagnetViewModel(
     private companion object {
         const val KEY_PENDING_MAGNET = "pending-magnet"
         const val KEY_PENDING_PAUSED = "pending-magnet-paused"
+        const val KEY_PENDING_TORRENT_PATH = "pending-torrent-path"
+        const val KEY_PENDING_TORRENT_FILENAME = "pending-torrent-filename"
         const val KEY_PASTE_DRAFT = "pending-magnet-draft"
         const val KEY_PASTE_ERROR = "pending-magnet-error"
+
+        const val STAGED_TORRENT_MISSING =
+            "The selected .torrent file is no longer available. Choose it again."
 
         const val POLL_INTERVAL_MS = 5_000L
     }

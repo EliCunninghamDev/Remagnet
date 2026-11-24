@@ -1,10 +1,11 @@
 import {
+  type components,
   createProxyClient,
   type ProxyClient,
   proxyError,
   toProxyError,
 } from "@remagnet/proxy-client";
-import type { AddTorrentsResult, ConnectionTestResult } from "./messages";
+import type { AddTorrentsResult, ConnectionTestResult, TorrentFileUploadInput } from "./messages";
 import { getSettings, requireProxySettings } from "./settings";
 import type { TorrentSummary } from "./torrents";
 
@@ -40,7 +41,10 @@ export async function testConnection(): Promise<ConnectionTestResult> {
       clientLabel: data.clientLabel,
       appVersion: data.appVersion,
       webApiVersion: data.webApiVersion,
-      capabilities: { pauseOnAdd: data.capabilities.pauseOnAdd },
+      capabilities: {
+        pauseOnAdd: data.capabilities.pauseOnAdd,
+        torrentFiles: data.capabilities.torrentFiles,
+      },
       defaultCategory: data.defaultCategory,
       defaultTags: data.defaultTags,
     };
@@ -71,12 +75,19 @@ export async function getTorrent(hash: string): Promise<TorrentSummary | null> {
 }
 
 export async function addTorrents(input: {
-  urls: string[];
+  urls?: string[];
+  files?: TorrentFileUploadInput[];
   paused?: boolean;
 }): Promise<AddTorrentsResult> {
   return withProxy(async (client) => {
     const { data, error, response } = await client.POST("/api/torrents", {
-      body: { urls: input.urls, paused: input.paused ?? false },
+      // The generated schema marks `urls` and `files` as required because they
+      // have OpenAPI defaults, but the proxy accepts either one on its own.
+      body: {
+        ...(input.urls?.length ? { urls: input.urls } : {}),
+        ...(input.files?.length ? { files: input.files } : {}),
+        paused: input.paused ?? false,
+      } as components["schemas"]["AddTorrentRequest"],
     });
 
     if (error || !data) throw proxyError(response, error);

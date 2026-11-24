@@ -3,7 +3,8 @@ import AddedSummary from "../components/AddedSummary";
 import type { FlowStatus } from "../components/flow-status";
 import MagnetForm from "../components/MagnetForm";
 import MagnetReview from "../components/MagnetReview";
-import { existingTorrent, galleryMagnet, galleryMagnetUri } from "./fixtures";
+import type { ParsedTorrentFile } from "../lib/torrent-file";
+import { existingTorrent, galleryMagnet, galleryMagnetUri, galleryTorrentFile } from "./fixtures";
 import { Section, Specimen } from "./Section";
 
 const invalid: FlowStatus = {
@@ -38,11 +39,13 @@ function InteractiveMagnetReview(props: {
   existing?: boolean;
   busy?: boolean;
   status?: FlowStatus;
+  file?: ParsedTorrentFile;
 }) {
   const [paused, setPaused] = createSignal(false);
   return (
     <MagnetReview
-      link={galleryMagnet}
+      link={props.file ? undefined : galleryMagnet}
+      file={props.file}
       existing={props.existing ? existingTorrent : undefined}
       paused={paused()}
       busy={Boolean(props.busy)}
@@ -88,6 +91,15 @@ export default function AddFlow() {
         <Specimen label="Review" note="Parsed name, hash, size, trackers and web seeds.">
           <PopupSpecimen>
             <InteractiveMagnetReview />
+          </PopupSpecimen>
+        </Specimen>
+
+        <Specimen
+          label="Torrent file"
+          note="A multi-file, private .torrent shows its file count and privacy flag."
+        >
+          <PopupSpecimen>
+            <InteractiveMagnetReview file={galleryTorrentFile} />
           </PopupSpecimen>
         </Specimen>
 

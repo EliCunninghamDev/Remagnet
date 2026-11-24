@@ -7,21 +7,22 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
-import androidx.compose.ui.test.printToString
 import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.remagnet.app.client.TorrentState
 import dev.remagnet.app.client.TorrentSummary
 import dev.remagnet.app.data.RemagnetSettings
 import dev.remagnet.app.magnet.MagnetLink
+import dev.remagnet.app.magnet.TorrentFileInfo
 import dev.remagnet.app.ui.theme.RemagnetTheme
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
 
-/** Compose UI tests for the magnet review sheet. */
+/** Compose UI tests for the torrent review sheet. */
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [35], qualifiers = "w411dp-h891dp")
 class AddMagnetSheetUiTest {
@@ -41,11 +42,25 @@ class AddMagnetSheetUiTest {
         trackers = listOf("udp://tracker.example:1337"),
     )
 
+    private val torrentFile = TorrentFileInfo(
+        filename = "ubuntu.torrent",
+        infoHash = "b".repeat(40),
+        displayName = "Ubuntu 24.04",
+        sizeBytes = 5L * 1024 * 1024,
+        fileCount = 3,
+        trackers = listOf(
+            "udp://tracker.example:1337/announce",
+            "https://backup.example/announce",
+        ),
+        isPrivate = true,
+    )
+
     private fun render(
         state: AddSheetState,
         onSubmit: () -> Unit = {},
         onDismiss: () -> Unit = {},
         onDraftChange: (String) -> Unit = {},
+        onPickTorrentFile: () -> Unit = {},
     ) {
         compose.setContent {
             RemagnetTheme {
@@ -61,6 +76,7 @@ class AddMagnetSheetUiTest {
                     onEdit = {},
                     onAddAnother = {},
                     onOpenSettings = {},
+                    onPickTorrentFile = onPickTorrentFile,
                 )
             }
         }
@@ -70,13 +86,17 @@ class AddMagnetSheetUiTest {
     fun reviewShowsMagnetDetailsAndAllowsSend() {
         var sent = false
         render(
-            state = AddSheetState.Review(magnet = magnet, duplicate = DuplicateState.Clear),
+            state = AddSheetState.Review(
+                item = AddItem.Magnet(magnet),
+                duplicate = DuplicateState.Clear,
+            ),
             onSubmit = { sent = true },
         )
 
         compose.onNodeWithText("Test ISO").assertIsDisplayed()
         compose.onNodeWithText("a".repeat(40)).assertIsDisplayed()
         compose.onNodeWithText("700 MB").assertIsDisplayed()
+        compose.onNodeWithText("Edit").assertIsDisplayed()
         compose.onNodeWithText("Not in qBittorrent yet.").assertIsDisplayed()
         compose.onNodeWithText("Send to qBittorrent")
             .performScrollTo()
@@ -88,10 +108,53 @@ class AddMagnetSheetUiTest {
     }
 
     @Test
+    fun reviewShowsTorrentFileDetailsAndAllowsSend() {
+        var sent = false
+        render(
+            state = AddSheetState.Review(
+                item = AddItem.TorrentFile(torrentFile, stagedPath = "/tmp/ubuntu.torrent"),
+                duplicate = DuplicateState.Clear,
+            ),
+            onSubmit = { sent = true },
+        )
+
+        compose.onNodeWithText("Ubuntu 24.04").assertIsDisplayed()
+        compose.onNodeWithText("b".repeat(40)).assertIsDisplayed()
+        compose.onNodeWithText("5 MB").assertIsDisplayed()
+        compose.onNodeWithText("3 files").assertIsDisplayed()
+        compose.onNodeWithText("Yes").assertIsDisplayed()
+        compose.onNodeWithText("Change").assertIsDisplayed()
+        compose.onNodeWithText("TRACKERS (2)").assertIsDisplayed()
+        compose.onNodeWithText("Send to qBittorrent")
+            .performScrollTo()
+            .assertIsDisplayed()
+            .assertIsEnabled()
+            .performClick()
+
+        assertEquals(true, sent)
+    }
+
+    @Test
+    fun aSingleFileTorrentHidesTheFileCountRow() {
+        render(
+            state = AddSheetState.Review(
+                item = AddItem.TorrentFile(
+                    torrentFile.copy(fileCount = 1),
+                    stagedPath = "/tmp/ubuntu.torrent",
+                ),
+                duplicate = DuplicateState.Clear,
+            ),
+        )
+
+        compose.onNodeWithText("FILES").assertDoesNotExist()
+        compose.onNodeWithText("1 files").assertDoesNotExist()
+    }
+
+    @Test
     fun existingTorrentBlocksSend() {
         render(
             AddSheetState.Review(
-                magnet = magnet,
+                item = AddItem.Magnet(magnet),
                 duplicate = DuplicateState.Existing(
                     TorrentSummary(
                         hash = magnet.infoHash!!,
@@ -124,7 +187,7 @@ class AddMagnetSheetUiTest {
     fun lookupFailureStillAllowsRetryingTheAdd() {
         render(
             AddSheetState.Review(
-                magnet = magnet,
+                item = AddItem.Magnet(magnet),
                 duplicate = DuplicateState.Failed("Timed out."),
             ),
         )
@@ -150,6 +213,23 @@ class AddMagnetSheetUiTest {
     }
 
     @Test
+    fun pasteSheetOffersTheTorrentFilePicker() {
+        var picked = false
+        render(
+            state = AddSheetState.Paste(),
+            onPickTorrentFile = { picked = true },
+        )
+
+        compose.onNodeWithText("ADD TORRENT").assertIsDisplayed()
+        compose.onNodeWithText("Choose .torrent file")
+            .performScrollTo()
+            .assertIsDisplayed()
+            .performClick()
+
+        assertTrue(picked)
+    }
+
+    @Test
     fun addedSheetReportsSuccess() {
         var dismissed = false
         render(
@@ -161,7 +241,7 @@ class AddMagnetSheetUiTest {
             onDismiss = { dismissed = true },
         )
 
-        compose.onNodeWithText("Remagnet Proxy sent the magnet to qBittorrent.")
+        compose.onNodeWithText("Remagnet Proxy sent the torrent to qBittorrent.")
             .assertIsDisplayed()
         compose.onNodeWithText("Done").performClick()
 
@@ -169,10 +249,10 @@ class AddMagnetSheetUiTest {
     }
 
     @Test
-    fun submitErrorKeepsTheMagnetInTheSheet() {
+    fun submitErrorKeepsTheTorrentInTheSheet() {
         render(
             AddSheetState.Review(
-                magnet = magnet,
+                item = AddItem.Magnet(magnet),
                 duplicate = DuplicateState.Clear,
                 error = "qBittorrent rejected the magnet.",
             ),

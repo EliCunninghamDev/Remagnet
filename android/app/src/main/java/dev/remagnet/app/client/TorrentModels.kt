@@ -78,13 +78,29 @@ data class ConnectionDetails(
     val appVersion: String,
     val webApiVersion: String,
     val pauseOnAdd: Boolean = false,
+    val torrentFiles: Boolean = false,
     val defaultCategory: String = "",
     val defaultTags: List<String> = emptyList(),
 )
 
-/** A request to add one or more magnet links or torrent URLs. */
+/** Raw `.torrent` bytes to upload through the proxy. */
+data class TorrentFileUpload(
+    val filename: String? = null,
+    val bytes: ByteArray,
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is TorrentFileUpload) return false
+        return filename == other.filename && bytes.contentEquals(other.bytes)
+    }
+
+    override fun hashCode(): Int = 31 * (filename?.hashCode() ?: 0) + bytes.contentHashCode()
+}
+
+/** A request to add one or more magnet links, torrent URLs or `.torrent` files. */
 data class AddTorrentRequest(
-    val urls: List<String>,
+    val urls: List<String> = emptyList(),
+    val files: List<TorrentFileUpload> = emptyList(),
     val paused: Boolean = false,
 )
 

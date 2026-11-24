@@ -8,7 +8,8 @@ use tokio::sync::RwLock;
 use crate::{
     backend::{
         extract_magnet_hashes, AddTorrentResult, ArchiveFile, ArchiveTorrent, BackendHealth,
-        ClientKind, FileByteStream, TorrentCapabilities, TorrentSummary, VolumeMapper,
+        ClientKind, FileByteStream, TorrentCapabilities, TorrentFilePayload, TorrentSummary,
+        VolumeMapper,
     },
     config::{normalize_tags, Config},
     error::AppError,
@@ -115,6 +116,7 @@ impl TransmissionClient {
                 archive_download: self.volume.is_configured(),
                 categories: false,
                 tags: true,
+                torrent_files: true,
             },
         })
     }
@@ -143,13 +145,14 @@ impl TransmissionClient {
     pub async fn add_torrent(
         &self,
         urls: &[String],
+        files: &[TorrentFilePayload],
         category: &str,
         tags: &[String],
         paused: bool,
     ) -> Result<AddTorrentResult, AppError> {
-        if urls.is_empty() {
+        if urls.is_empty() && files.is_empty() {
             return Err(AppError::BadRequest(
-                "No magnet or torrent URL was supplied.".to_string(),
+                "No magnet, torrent URL, or .torrent file was supplied.".to_string(),
             ));
         }
 
@@ -190,8 +193,34 @@ impl TransmissionClient {
             }
         }
 
+        for file in files {
+            let mut arguments = json!({
+                "metainfo": file.base64,
+                "paused": paused,
+            });
+            if !labels.is_empty() {
+                arguments["labels"] = json!(labels);
+            }
+
+            let response = self.rpc("torrent-add", arguments).await?;
+            if response.get("torrent-duplicate").is_some() {
+                return Err(AppError::BadRequest(
+                    "Transmission already has this torrent.".to_string(),
+                ));
+            }
+
+            match response
+                .get("torrent-added")
+                .and_then(|added| added.get("hashString"))
+                .and_then(Value::as_str)
+            {
+                Some(hash) => hashes.push(hash.to_ascii_lowercase()),
+                None => hashes.push(file.info_hash.clone()),
+            }
+        }
+
         Ok(AddTorrentResult {
-            added: urls.len(),
+            added: urls.len() + files.len(),
             hashes,
             category: String::new(),
             tags: labels,
@@ -809,6 +838,7 @@ mod tests {
                 archive_download: false,
                 categories: false,
                 tags: true,
+                torrent_files: true,
             }
         );
     }
@@ -1013,6 +1043,7 @@ mod tests {
         let result = client
             .add_torrent(
                 std::slice::from_ref(&magnet),
+                &[],
                 "",
                 &["remagnet".to_string(), "nas".to_string()],
                 true,
@@ -1040,6 +1071,7 @@ mod tests {
         let result = client
             .add_torrent(
                 &["magnet:?xt=urn:btih:ABC".to_string()],
+                &[],
                 " films ",
                 &[],
                 false,
@@ -1071,6 +1103,7 @@ mod tests {
         let error = client
             .add_torrent(
                 &[format!("magnet:?xt=urn:btih:{HASH}")],
+                &[],
                 "remagnet",
                 &[],
                 false,
@@ -1092,18 +1125,101 @@ mod tests {
         let server = start_fake(fake.clone()).await;
         let client = TransmissionClient::new(&config(&server.base_url, "")).unwrap();
         let magnet = format!("magnet:?xt=urn:btih:{HASH}&dn=Example");
-        let result = client.add_torrent(&[magnet], "", &[], false).await.unwrap();
+        let result = client
+            .add_torrent(&[magnet], &[], "", &[], false)
+            .await
+            .unwrap();
         assert_eq!(result.hashes, vec![HASH.to_string()]);
     }
 
     #[tokio::test]
-    async fn add_requires_at_least_one_url() {
+    async fn add_requires_at_least_one_url_or_file() {
         let fake = FakeTransmission::new(Vec::new());
         let server = start_fake(fake).await;
         let client = TransmissionClient::new(&config(&server.base_url, "")).unwrap();
 
-        let error = client.add_torrent(&[], "", &[], false).await.unwrap_err();
+        let error = client
+            .add_torrent(&[], &[], "", &[], false)
+            .await
+            .unwrap_err();
         assert!(matches!(error, AppError::BadRequest(_)));
+    }
+
+    fn torrent_file(filename: &str, marker: &[u8]) -> TorrentFilePayload {
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
+
+        TorrentFilePayload {
+            filename: filename.to_string(),
+            bytes: marker.to_vec(),
+            base64: STANDARD.encode(marker),
+            info_hash: HASH.to_string(),
+        }
+    }
+
+    #[tokio::test]
+    async fn uploads_torrent_metainfo_with_labels_and_paused_state() {
+        let fake = FakeTransmission::new(Vec::new());
+        {
+            let mut state = fake.state.lock().unwrap();
+            state.add_response = json!({ "result": "success", "arguments": {} });
+        }
+        let server = start_fake(fake.clone()).await;
+        let client = TransmissionClient::new(&config(&server.base_url, "")).unwrap();
+        let file = torrent_file("debian.torrent", b"d4:infod4:name4:testee");
+
+        let result = client
+            .add_torrent(
+                &[],
+                std::slice::from_ref(&file),
+                "",
+                &["remagnet".to_string(), "nas".to_string()],
+                true,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(result.added, 1);
+        assert_eq!(result.hashes, vec![HASH.to_string()]);
+        assert_eq!(result.tags, vec!["remagnet", "nas"]);
+
+        let request = fake.request("torrent-add");
+        assert_eq!(request["arguments"]["metainfo"], file.base64);
+        assert_eq!(request["arguments"]["paused"], true);
+        assert_eq!(request["arguments"]["labels"], json!(["remagnet", "nas"]));
+        assert!(request["arguments"].get("filename").is_none());
+    }
+
+    #[tokio::test]
+    async fn rejects_duplicate_torrent_file_uploads() {
+        let fake = FakeTransmission::new(Vec::new());
+        {
+            let mut state = fake.state.lock().unwrap();
+            state.add_response = json!({
+                "result": "success",
+                "arguments": {
+                    "torrent-duplicate": { "hashString": HASH, "name": "Example" }
+                }
+            });
+        }
+        let server = start_fake(fake).await;
+        let client = TransmissionClient::new(&config(&server.base_url, "")).unwrap();
+
+        let error = client
+            .add_torrent(
+                &[],
+                &[torrent_file("debian.torrent", b"d4:infod4:name4:testee")],
+                "remagnet",
+                &[],
+                false,
+            )
+            .await
+            .unwrap_err();
+        match error {
+            AppError::BadRequest(message) => {
+                assert_eq!(message, "Transmission already has this torrent.")
+            }
+            other => panic!("expected BadRequest, got {other:?}"),
+        }
     }
 
     #[tokio::test]

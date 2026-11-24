@@ -67,6 +67,7 @@ async function handleRequest(request: BackgroundRequest): Promise<BackgroundResp
       case "torrents:add": {
         const result: AddTorrentsResult = await addTorrents({
           urls: request.urls,
+          files: request.files,
           paused: request.paused,
         });
         await trackAddedHashes(result.hashes);

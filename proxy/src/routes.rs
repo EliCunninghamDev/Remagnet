@@ -5,7 +5,7 @@ use std::{
 
 use axum::{
     body::Body,
-    extract::{Path, Query, State},
+    extract::{DefaultBodyLimit, Path, Query, State},
     http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     routing::{delete, get, post},
@@ -20,8 +20,8 @@ use crate::{
     auth,
     auth_routes::{require_admin, require_archive_auth, require_device_or_admin},
     backend::{
-        matches_torrent_filter, torrent_completed, AddTorrentRequest, AddTorrentResult,
-        TorrentBackend, TorrentList, TorrentSummary,
+        decode_torrent_files, matches_torrent_filter, torrent_completed, AddTorrentRequest,
+        AddTorrentResult, TorrentBackend, TorrentList, TorrentSummary,
     },
     config::{save, ConfigUpdate, PublicConfig},
     error::AppError,
@@ -47,7 +47,13 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/pair", post(create_pairing))
         .route("/api/pair/claim", post(claim_pairing))
         .route("/api/pair/{id}", delete(revoke_pairing))
-        .route("/api/torrents", get(list_torrents).post(add_torrent))
+        .route(
+            "/api/torrents",
+            get(list_torrents)
+                .post(add_torrent)
+                // `.torrent` bodies are base64 and can exceed Axum's 2 MiB default.
+                .layer(DefaultBodyLimit::max(16 * 1024 * 1024)),
+        )
         .route(
             "/api/torrents/{hash}",
             get(get_torrent).delete(delete_torrent),
@@ -382,11 +388,19 @@ async fn add_torrent(
     let (default_category, default_tags) = magnet_defaults(&state).await;
     let backend = require_backend(&state).await?;
 
+    let files = decode_torrent_files(&request.files)?;
+    if request.urls.is_empty() && files.is_empty() {
+        return Err(AppError::BadRequest(
+            "Add at least one magnet, torrent URL, or .torrent file.".to_string(),
+        ));
+    }
+
     // Clients cannot choose a category or tag: the proxy always applies its
     // configured defaults so every client agrees on what Remagnet owns.
     let result = backend
         .add_torrents(
             &request.urls,
+            &files,
             &default_category,
             &default_tags,
             request.paused,
@@ -840,6 +854,7 @@ mod tests {
                 }))
                 .into_response()
             }
+            "torrent-add" => Json(json!({ "result": "success", "arguments": {} })).into_response(),
             "torrent-remove" => {
                 Json(json!({ "result": "success", "arguments": {} })).into_response()
             }
@@ -1649,16 +1664,176 @@ mod tests {
         assert_eq!(body["tags"], json!(["remagnet", "nas"]));
     }
 
+    fn bencode_text(value: &str) -> Vec<u8> {
+        let mut encoded = format!("{}:", value.len()).into_bytes();
+        encoded.extend_from_slice(value.as_bytes());
+        encoded
+    }
+
+    fn bencode_bytes(value: &[u8]) -> Vec<u8> {
+        let mut encoded = format!("{}:", value.len()).into_bytes();
+        encoded.extend_from_slice(value);
+        encoded
+    }
+
+    /// A minimal valid v1 torrent plus the info hash the proxy should compute.
+    fn torrent_fixture(name: &str) -> (Vec<u8>, String) {
+        use sha1::{Digest as _, Sha1};
+
+        let mut info = vec![b'd'];
+        info.extend(bencode_text("length"));
+        info.extend_from_slice(b"i4096e");
+        info.extend(bencode_text("name"));
+        info.extend(bencode_text(name));
+        info.extend(bencode_text("piece length"));
+        info.extend_from_slice(b"i16384e");
+        info.extend(bencode_text("pieces"));
+        info.extend(bencode_bytes(b"01234567890123456789"));
+        info.push(b'e');
+
+        let mut torrent = vec![b'd'];
+        torrent.extend(bencode_text("info"));
+        torrent.extend_from_slice(&info);
+        torrent.push(b'e');
+
+        let hash = Sha1::digest(&info)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        (torrent, hash)
+    }
+
+    fn torrent_body(files: serde_json::Value, paused: bool) -> serde_json::Value {
+        json!({ "files": files, "paused": paused })
+    }
+
     #[tokio::test]
-    async fn adding_without_urls_is_rejected() {
+    async fn adds_a_torrent_file_through_qbittorrent() {
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
+
         let app = app(true).await;
+        let (bytes, hash) = torrent_fixture("debian");
+
         let response = app
             .router
             .clone()
-            .oneshot(app.admin_json("POST", "/api/torrents", json!({ "urls": [] })))
+            .oneshot(app.device_json(
+                "POST",
+                "/api/torrents",
+                torrent_body(
+                    json!([{
+                        "filename": "debian.torrent",
+                        "data": STANDARD.encode(&bytes),
+                    }]),
+                    true,
+                ),
+            ))
             .await
             .unwrap();
-        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["added"], 1);
+        assert_eq!(body["hashes"], json!([hash]));
+    }
+
+    #[tokio::test]
+    async fn adds_a_torrent_file_through_transmission() {
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
+
+        let (_directory, downloads) = fixture_downloads();
+        let app = app_with_transmission(&downloads, "remagnet", &["remagnet"]).await;
+        let (bytes, hash) = torrent_fixture("debian");
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.device_json(
+                "POST",
+                "/api/torrents",
+                torrent_body(
+                    json!([{
+                        "filename": "debian.torrent",
+                        "data": STANDARD.encode(&bytes),
+                    }]),
+                    true,
+                ),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["added"], 1);
+        assert_eq!(body["hashes"], json!([hash]));
+    }
+
+    #[tokio::test]
+    async fn accepts_a_torrent_upload_larger_than_two_mib() {
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
+
+        let app = app(true).await;
+        let (info_torrent, _) = torrent_fixture("debian");
+        // Rebuild the root with a 2 MiB comment so the JSON body exceeds Axum's
+        // 2 MiB default limit while the info dictionary itself stays small.
+        let mut torrent = vec![b'd'];
+        torrent.extend(bencode_text("comment"));
+        torrent.extend(bencode_bytes(&vec![b'x'; 2 * 1024 * 1024]));
+        torrent.extend_from_slice(&info_torrent[1..]);
+        let encoded = STANDARD.encode(&torrent);
+        let body = torrent_body(
+            json!([{ "filename": "large.torrent", "data": encoded }]),
+            false,
+        );
+        assert!(serde_json::to_vec(&body).unwrap().len() > 2 * 1024 * 1024);
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.device_json("POST", "/api/torrents", body))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn adding_without_urls_or_files_is_rejected() {
+        let app = app(true).await;
+        for body in [json!({ "urls": [] }), json!({ "urls": [], "files": [] })] {
+            let response = app
+                .router
+                .clone()
+                .oneshot(app.admin_json("POST", "/api/torrents", body))
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        }
+    }
+
+    #[tokio::test]
+    async fn rejects_invalid_base64_and_bencode_torrent_uploads() {
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
+
+        let app = app(true).await;
+        let cases = [
+            json!([{ "filename": "bad.torrent", "data": "not base64!!" }]),
+            json!([{
+                "filename": "bad.torrent",
+                "data": STANDARD.encode(b"this is not bencode"),
+            }]),
+        ];
+
+        for files in cases {
+            let response = app
+                .router
+                .clone()
+                .oneshot(app.device_json("POST", "/api/torrents", torrent_body(files, false)))
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        }
     }
 
     #[tokio::test]

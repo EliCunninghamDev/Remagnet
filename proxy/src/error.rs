@@ -26,6 +26,7 @@ pub enum AppError {
     TotpRequired,
     NotFound(String),
     Conflict(String),
+    PayloadTooLarge(String),
     ServiceUnavailable(String),
     UpstreamUnreachable(String),
     UpstreamAuth(String),
@@ -94,6 +95,7 @@ impl AppError {
             Self::Forbidden(_) => "forbidden",
             Self::NotFound(_) => "not_found",
             Self::Conflict(_) => "conflict",
+            Self::PayloadTooLarge(_) => "payload_too_large",
             Self::TooManyRequests { .. } => "rate_limited",
             Self::TotpRequired => "totp_required",
             Self::ServiceUnavailable(_) => "not_configured",
@@ -112,6 +114,7 @@ impl AppError {
             Self::Forbidden(_) => StatusCode::FORBIDDEN,
             Self::NotFound(_) => StatusCode::NOT_FOUND,
             Self::Conflict(_) => StatusCode::CONFLICT,
+            Self::PayloadTooLarge(_) => StatusCode::PAYLOAD_TOO_LARGE,
             Self::TooManyRequests { .. } => StatusCode::TOO_MANY_REQUESTS,
             Self::ServiceUnavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
             Self::UpstreamUnreachable(_) | Self::UpstreamAuth(_) | Self::Upstream(_) => {
@@ -129,6 +132,7 @@ impl std::fmt::Display for AppError {
             | Self::Forbidden(message)
             | Self::NotFound(message)
             | Self::Conflict(message)
+            | Self::PayloadTooLarge(message)
             | Self::ServiceUnavailable(message)
             | Self::UpstreamUnreachable(message)
             | Self::UpstreamAuth(message)
@@ -164,6 +168,7 @@ impl IntoResponse for AppError {
             | Self::Forbidden(message)
             | Self::NotFound(message)
             | Self::Conflict(message)
+            | Self::PayloadTooLarge(message)
             | Self::ServiceUnavailable(message)
             | Self::UpstreamUnreachable(message)
             | Self::UpstreamAuth(message)
@@ -288,6 +293,11 @@ mod tests {
                 AppError::Conflict("Already exists.".to_string()),
                 StatusCode::CONFLICT,
                 "conflict",
+            ),
+            (
+                AppError::PayloadTooLarge("Too big.".to_string()),
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "payload_too_large",
             ),
             (
                 AppError::TooManyRequests {

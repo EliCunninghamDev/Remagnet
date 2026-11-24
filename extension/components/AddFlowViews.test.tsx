@@ -1,22 +1,37 @@
 import { fireEvent, render, screen } from "@solidjs/testing-library";
 import { createSignal } from "solid-js";
 import { describe, expect, test, vi } from "vitest";
-import { existingTorrent, galleryMagnet, galleryMagnetUri } from "../gallery/fixtures";
+import {
+  existingTorrent,
+  galleryMagnet,
+  galleryMagnetUri,
+  galleryTorrentFile,
+} from "../gallery/fixtures";
+import type { ParsedTorrentFile } from "../lib/torrent-file";
 import AddedSummary from "./AddedSummary";
 import type { FlowStatus } from "./flow-status";
 import MagnetForm from "./MagnetForm";
 import MagnetReview from "./MagnetReview";
 
-function FormHarness(props: { status?: FlowStatus; canCancel?: boolean }) {
+function FormHarness(props: {
+  status?: FlowStatus;
+  canCancel?: boolean;
+  embedded?: boolean;
+  onFileSelect?: (file: File) => void;
+  onOpenFilePickerSurface?: () => void;
+}) {
   const [draft, setDraft] = createSignal("");
   return (
     <MagnetForm
       draft={draft()}
       status={props.status}
       canCancel={Boolean(props.canCancel)}
+      embedded={Boolean(props.embedded)}
       onDraftChange={setDraft}
       onSubmit={(event) => event.preventDefault()}
       onCancel={() => setDraft("")}
+      onFileSelect={props.onFileSelect}
+      onOpenFilePickerSurface={props.onOpenFilePickerSurface}
     />
   );
 }
@@ -25,12 +40,14 @@ function ReviewHarness(props: {
   existing?: boolean;
   busy?: boolean;
   status?: FlowStatus;
+  file?: ParsedTorrentFile;
   onPausedChange?: (paused: boolean) => void;
 }) {
   const [paused, setPaused] = createSignal(false);
   return (
     <MagnetReview
-      link={galleryMagnet}
+      link={props.file ? undefined : galleryMagnet}
+      file={props.file}
       existing={props.existing ? existingTorrent : undefined}
       paused={paused()}
       busy={Boolean(props.busy)}
@@ -69,6 +86,57 @@ describe("MagnetForm", () => {
     expect(screen.getByText("That magnet link has no usable BitTorrent info hash.")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Cancel" })).toBeTruthy();
   });
+
+  test("passes a chosen .torrent file to onFileSelect and clears the input", () => {
+    const onFileSelect = vi.fn();
+    const { container } = render(() => <FormHarness onFileSelect={onFileSelect} />);
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(["dummy"], "sample.torrent", {
+      type: "application/x-bittorrent",
+    });
+
+    expect(input.accept).toBe(".torrent,application/x-bittorrent");
+    fireEvent.change(input, { target: { files: [file] } });
+
+    expect(onFileSelect).toHaveBeenCalledOnce();
+    expect(onFileSelect).toHaveBeenCalledWith(file);
+    expect(input.value).toBe("");
+  });
+
+  test("accepts a dropped .torrent file", () => {
+    const onFileSelect = vi.fn();
+    const { container } = render(() => <FormHarness onFileSelect={onFileSelect} />);
+    const dropzone = container.querySelector(".dropzone") as HTMLElement;
+    const file = new File(["dummy"], "dropped.torrent");
+
+    fireEvent.dragOver(dropzone, { dataTransfer: { files: [file] } });
+    expect(dropzone.classList.contains("dropzone-active")).toBe(true);
+
+    fireEvent.drop(dropzone, { dataTransfer: { files: [file] } });
+    expect(dropzone.classList.contains("dropzone-active")).toBe(false);
+    expect(onFileSelect).toHaveBeenCalledOnce();
+    expect(onFileSelect).toHaveBeenCalledWith(file);
+  });
+
+  test("hands file picking to the full page when embedded", () => {
+    const onFileSelect = vi.fn();
+    const onOpenFilePickerSurface = vi.fn();
+    const { container } = render(() => (
+      <FormHarness
+        embedded
+        onFileSelect={onFileSelect}
+        onOpenFilePickerSurface={onOpenFilePickerSurface}
+      />
+    ));
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const click = vi.spyOn(input, "click");
+
+    fireEvent.click(screen.getByRole("button", { name: "Choose .torrent file…" }));
+
+    expect(onOpenFilePickerSurface).toHaveBeenCalledOnce();
+    expect(click).not.toHaveBeenCalled();
+    expect(onFileSelect).not.toHaveBeenCalled();
+  });
 });
 
 describe("MagnetReview", () => {
@@ -92,6 +160,20 @@ describe("MagnetReview", () => {
       "disabled",
       true,
     );
+  });
+
+  test("shows the metadata a .torrent file adds beyond a magnet", () => {
+    render(() => <ReviewHarness file={galleryTorrentFile} />);
+
+    expect(screen.getByRole("heading", { name: "ubuntu-26.04-live-server-amd64" })).toBeTruthy();
+    expect(screen.getByText(galleryTorrentFile.infoHash)).toBeTruthy();
+    expect(screen.getByText("2 GB")).toBeTruthy();
+    expect(screen.getByText("12 files")).toBeTruthy();
+    expect(screen.getByText("Yes")).toBeTruthy();
+    expect(screen.getByText(/2 · tracker\.example\.org, tracker\.example\.net/)).toBeTruthy();
+    expect(screen.getByText("Show tracker URLs")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Change" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Send to Remagnet Proxy" })).toBeTruthy();
   });
 
   test("reports progress and errors on the submit action", () => {

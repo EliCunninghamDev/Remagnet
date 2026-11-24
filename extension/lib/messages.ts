@@ -3,9 +3,19 @@ import type { TorrentSummary } from "./torrents";
 
 export { COMPLETE_PROGRESS } from "./torrents";
 
+export interface TorrentFileUploadInput {
+  filename?: string;
+  data: string;
+}
+
 export type BackgroundRequest =
   | { type: "connection:test" }
-  | { type: "torrents:add"; urls: string[]; paused?: boolean }
+  | {
+      type: "torrents:add";
+      urls?: string[];
+      files?: TorrentFileUploadInput[];
+      paused?: boolean;
+    }
   | { type: "torrents:list" }
   | { type: "torrents:get"; hash: string }
   | { type: "torrents:remove"; hashes: string[]; deleteFiles?: boolean }
@@ -17,6 +27,7 @@ export interface ConnectionTestResult {
   webApiVersion: string;
   capabilities: {
     pauseOnAdd: boolean;
+    torrentFiles: boolean;
   };
   defaultCategory: string;
   defaultTags: string[];
@@ -83,6 +94,7 @@ export function isBackgroundRequest(value: unknown): value is BackgroundRequest 
   const candidate = value as {
     type?: unknown;
     urls?: unknown;
+    files?: unknown;
     paused?: unknown;
     hash?: unknown;
     name?: unknown;
@@ -110,12 +122,38 @@ export function isBackgroundRequest(value: unknown): value is BackgroundRequest 
         (candidate.name === undefined || typeof candidate.name === "string")
       );
     case "torrents:add":
-      return (
-        Array.isArray(candidate.urls) &&
-        candidate.urls.every((url) => typeof url === "string") &&
-        (candidate.paused === undefined || typeof candidate.paused === "boolean")
-      );
+      return isTorrentAddRequest(candidate);
     default:
       return false;
   }
+}
+
+function isTorrentAddRequest(candidate: {
+  urls?: unknown;
+  files?: unknown;
+  paused?: unknown;
+}): boolean {
+  const urls = candidate.urls;
+  const files = candidate.files;
+
+  const validUrls =
+    urls === undefined || (Array.isArray(urls) && urls.every((url) => typeof url === "string"));
+  const validFiles =
+    files === undefined || (Array.isArray(files) && files.every(isTorrentFileUploadInput));
+
+  if (!validUrls || !validFiles) return false;
+  if (candidate.paused !== undefined && typeof candidate.paused !== "boolean") return false;
+
+  return (Array.isArray(urls) && urls.length > 0) || (Array.isArray(files) && files.length > 0);
+}
+
+function isTorrentFileUploadInput(value: unknown): value is TorrentFileUploadInput {
+  if (typeof value !== "object" || value === null) return false;
+
+  const file = value as { filename?: unknown; data?: unknown };
+  return (
+    (file.filename === undefined || typeof file.filename === "string") &&
+    typeof file.data === "string" &&
+    file.data.length > 0
+  );
 }

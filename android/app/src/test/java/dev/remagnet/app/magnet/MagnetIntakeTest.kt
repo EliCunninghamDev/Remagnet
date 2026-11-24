@@ -103,6 +103,70 @@ class MagnetIntakeTest {
     }
 
     @Test
+    fun viewOfAContentTorrentBecomesATorrentFileIntake() {
+        val uri = "content://com.android.providers.downloads/document/42"
+
+        assertEquals(
+            MagnetIntake.TorrentFile(uri),
+            extractMagnetIntake(ACTION_VIEW, uri, text = null, mimeType = "application/x-bittorrent"),
+        )
+    }
+
+    @Test
+    fun viewOfAFileTorrentBecomesATorrentFileIntake() {
+        val uri = "file:///storage/emulated/0/Download/debian.torrent"
+
+        assertEquals(
+            MagnetIntake.TorrentFile(uri),
+            extractMagnetIntake(ACTION_VIEW, uri, text = null, mimeType = "application/x-bittorrent"),
+        )
+    }
+
+    @Test
+    fun viewOfAMagnetStillWinsOverTheFileRules() {
+        assertEquals(
+            MagnetIntake.Magnet(magnet),
+            extractMagnetIntake(ACTION_VIEW, magnet, text = null),
+        )
+    }
+
+    @Test
+    fun shareOfAStreamBecomesATorrentFileIntake() {
+        val uri = "content://com.android.providers.downloads/document/42"
+
+        assertEquals(
+            MagnetIntake.TorrentFile(uri),
+            extractMagnetIntake(
+                ACTION_SEND,
+                data = null,
+                text = "Here is the torrent",
+                streamUri = uri,
+                mimeType = "application/x-bittorrent",
+            ),
+        )
+    }
+
+    @Test
+    fun aMagnetInShareTextWinsOverAStream() {
+        val uri = "content://com.android.providers.downloads/document/42"
+
+        assertEquals(
+            MagnetIntake.Magnet(magnet),
+            extractMagnetIntake(ACTION_SEND, data = null, text = magnet, streamUri = uri),
+        )
+    }
+
+    @Test
+    fun sendMultipleFindsAStream() {
+        val uri = "content://com.android.providers.downloads/document/42"
+
+        assertEquals(
+            MagnetIntake.TorrentFile(uri),
+            extractMagnetIntake(ACTION_SEND_MULTIPLE, data = null, text = null, streamUri = uri),
+        )
+    }
+
+    @Test
     fun blankShareTextHasNoIntake() {
         assertEquals(
             MagnetIntake.None,

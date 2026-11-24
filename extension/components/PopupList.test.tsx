@@ -57,6 +57,14 @@ describe("PopupList", () => {
     expect(handlers.onAdd).toHaveBeenCalledOnce();
   });
 
+  test("names both add sources in the header tooltip", () => {
+    renderList();
+
+    expect(screen.getByRole("button", { name: "Add" }).getAttribute("title")).toBe(
+      "Add a magnet or .torrent file",
+    );
+  });
+
   test("opens settings from the header", () => {
     const handlers = renderList();
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
@@ -68,7 +76,9 @@ describe("PopupList", () => {
 
     expect(screen.getByRole("heading", { name: "Get started" })).toBeTruthy();
     expect(screen.getByText(/Remagnet connects through your Remagnet Proxy/)).toBeTruthy();
-    expect(screen.queryByText("No Remagnet torrents yet. Add a magnet to see it here.")).toBeNull();
+    expect(
+      screen.queryByText("No Remagnet torrents yet. Add a magnet or .torrent file to see it here."),
+    ).toBeNull();
     expect(screen.queryByText("Loading torrents…")).toBeNull();
 
     const add = screen.getByRole("button", { name: "Add" }) as HTMLButtonElement;
@@ -80,7 +90,9 @@ describe("PopupList", () => {
 
   test("keeps the empty list text concise", () => {
     renderList({ torrents: [] });
-    expect(screen.getByText("No Remagnet torrents yet. Add a magnet to see it here.")).toBeTruthy();
+    expect(
+      screen.getByText("No Remagnet torrents yet. Add a magnet or .torrent file to see it here."),
+    ).toBeTruthy();
   });
 
   test("shows a loading line before the first response", () => {

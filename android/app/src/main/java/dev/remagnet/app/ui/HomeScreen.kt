@@ -100,7 +100,7 @@ fun HomeScreen(
 
         item {
             PrimaryButton(
-                text = "Add magnet",
+                text = "Add torrent",
                 onClick = onAddMagnet,
                 modifier = Modifier.fillMaxWidth(),
             )

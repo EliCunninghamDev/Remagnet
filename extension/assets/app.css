@@ -446,6 +446,47 @@ fieldset.field {
   font-size: 12px;
 }
 
+/* `.torrent` chooser under the magnet field. The popover and the add page
+   share the same drop target; only the popover tightens the padding. */
+.dropzone {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px 10px;
+  border: 1px dashed var(--border);
+  border-radius: 0;
+  padding: 10px 12px;
+  background: transparent;
+  transition:
+    border-color 120ms ease,
+    background-color 120ms ease;
+}
+
+.dropzone-hint {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.dropzone-active {
+  border-color: var(--accent);
+  background: var(--track);
+}
+
+.dropzone-active .dropzone-hint {
+  color: var(--text);
+}
+
+.dropzone button {
+  flex-shrink: 0;
+  padding: 5px 10px;
+  font-size: 12px;
+}
+
+.popup .dropzone {
+  padding: 8px 10px;
+}
+
 .kv {
   display: grid;
   gap: 8px;

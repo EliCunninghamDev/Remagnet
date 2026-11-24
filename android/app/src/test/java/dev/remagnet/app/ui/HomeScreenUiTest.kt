@@ -100,11 +100,11 @@ class HomeScreenUiTest {
     }
 
     @Test
-    fun addMagnetActionOpensTheSheet() {
+    fun addTorrentActionOpensTheSheet() {
         var opened = false
         render(RemagnetUiState(loaded = true), onAddMagnet = { opened = true })
 
-        compose.onNodeWithText("Add magnet").performClick()
+        compose.onNodeWithText("Add torrent").performClick()
 
         assertEquals(true, opened)
     }

@@ -55,6 +55,12 @@ fun RemagnetApp(viewModel: RemagnetViewModel = viewModel()) {
             scanResult = contents
         }
     }
+    // The manifest claims only application/x-bittorrent, but many providers tag
+    // .torrent files as octet-stream. The parser rejects anything that is not
+    // bencoded torrent metadata, so the picker can accept both.
+    val torrentFileLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri -> if (uri != null) viewModel.acceptTorrentFileUri(uri) }
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
@@ -184,6 +190,11 @@ fun RemagnetApp(viewModel: RemagnetViewModel = viewModel()) {
                 screen = Screen.Settings
             },
             onReportIssue = ::openReport,
+            onPickTorrentFile = {
+                torrentFileLauncher.launch(
+                    arrayOf("application/x-bittorrent", "application/octet-stream"),
+                )
+            },
         )
     }
 

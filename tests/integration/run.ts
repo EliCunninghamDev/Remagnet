@@ -21,6 +21,7 @@ const ADMIN_PASS = "remagnet-integration-password-123";
 const ownedFixture = await buildTorrentFixture("remagnet-fixture.bin", "remagnet-owned");
 const unrelatedFixture = await buildTorrentFixture("unrelated-fixture.bin", "remagnet-unrelated");
 const magnetFixture = await buildTorrentFixture("remagnet-magnet.bin", "remagnet-magnet-only");
+const uploadFixture = await buildTorrentFixture("remagnet-upload.bin", "remagnet-uploaded-file");
 
 async function main() {
   console.log(`\n=== Running Remagnet integration suite for ${client} ===`);
@@ -100,13 +101,18 @@ async function main() {
       proxyVersion: string;
       clientLabel: string;
       appVersion: string;
-      capabilities: { pauseOnAdd: boolean; archiveDownload: boolean };
+      capabilities: {
+        pauseOnAdd: boolean;
+        archiveDownload: boolean;
+        torrentFiles: boolean;
+      };
     };
   });
   assert.equal(health.ok, true);
   assert.equal(health.apiVersion, 1);
   assert.equal(health.capabilities.pauseOnAdd, true);
   assert.equal(health.capabilities.archiveDownload, true);
+  assert.equal(health.capabilities.torrentFiles, true);
   console.log(
     `✓ Connected to ${health.clientLabel} ${health.appVersion} (archiveDownload=${health.capabilities.archiveDownload})`,
   );
@@ -179,6 +185,58 @@ async function main() {
   );
   assert.equal(deletedMagnet.status, 204);
   console.log("✓ Paused magnet add, list, and scoped delete verified");
+
+  // 6b. Upload a paused `.torrent` file, verify its info hash, then delete it.
+  const uploadBody = {
+    files: [
+      {
+        filename: "remagnet-upload.torrent",
+        data: Buffer.from(uploadFixture.torrentBytes).toString("base64"),
+      },
+    ],
+    paused: true,
+  };
+  const uploaded = await jsonFetch<{ added: number; hashes: string[] }>(
+    `${proxyBase}/api/torrents`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${deviceToken}` },
+      body: JSON.stringify(uploadBody),
+    },
+  );
+  assert.equal(uploaded.status, 200);
+  assert.equal(uploaded.body.added, 1);
+  assert.ok(
+    uploaded.body.hashes.includes(uploadFixture.infoHash),
+    "Uploaded .torrent hash must match its info hash",
+  );
+
+  const listedUpload = await waitFor("paused .torrent in GET /api/torrents", async () => {
+    const res = await jsonFetch<{ torrents: Array<{ hash: string; state: string }> }>(
+      `${proxyBase}/api/torrents`,
+      { headers: { Authorization: `Bearer ${deviceToken}` } },
+    );
+    assert.equal(res.status, 200);
+    return res.body.torrents.find((entry) => entry.hash === uploadFixture.infoHash) ?? null;
+  });
+  assert.equal(listedUpload.state, "stopped");
+
+  const duplicateUpload = await jsonFetch(`${proxyBase}/api/torrents`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${deviceToken}` },
+    body: JSON.stringify(uploadBody),
+  });
+  assert.equal(duplicateUpload.status, 400);
+
+  const deletedUpload = await fetch(
+    `${proxyBase}/api/torrents/${uploadFixture.infoHash}?deleteFiles=true`,
+    {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${deviceToken}` },
+    },
+  );
+  assert.equal(deletedUpload.status, 204);
+  console.log("✓ Paused .torrent upload, duplicate rejection, list, and delete verified");
 
   // 7. Seed an unrelated torrent (no Remagnet tags) directly in the client and verify isolation.
   await seedFixtureDirectly(client, unrelatedFixture.torrentBytes, false);

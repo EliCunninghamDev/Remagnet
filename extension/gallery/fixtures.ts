@@ -1,4 +1,5 @@
 import { type MagnetLink, parseMagnet } from "../lib/magnet";
+import type { ParsedTorrentFile } from "../lib/torrent-file";
 import type { TorrentSummary } from "../lib/torrents";
 
 /** Deterministic placeholder hashes keep gallery snapshots stable. */
@@ -183,6 +184,22 @@ export const galleryMagnet: MagnetLink = (() => {
   if (!link) throw new Error("Gallery magnet fixture is not a valid magnet URI");
   return link;
 })();
+
+/**
+ * A parsed `.torrent` file with the metadata a magnet cannot carry: a file
+ * list and a private flag. Bytes are a placeholder; nothing uploads a fixture.
+ */
+export const galleryTorrentFile: ParsedTorrentFile = {
+  filename: "ubuntu-26.04-live-server-amd64.torrent",
+  dataBase64: "ZHVtbXk=",
+  infoHash: hash("f9"),
+  displayName: "ubuntu-26.04-live-server-amd64",
+  size: 2_147_483_648,
+  fileCount: 12,
+  trackers: ["https://tracker.example.org:443/announce", "udp://tracker.example.net:1337/announce"],
+  webSeeds: ["https://mirror.example.org/ubuntu/"],
+  isPrivate: true,
+};
 
 /** The same magnet as a torrent already known to the client. */
 export const existingTorrent = torrent("e75", "debian-13.8.0-amd64-netinst.iso", {

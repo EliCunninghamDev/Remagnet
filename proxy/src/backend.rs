@@ -1,12 +1,19 @@
 use std::{collections::HashSet, path::PathBuf, pin::Pin};
 
 use axum::body::Bytes;
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use futures_lite::Stream;
 use serde::{Deserialize, Serialize};
 use tokio_util::io::ReaderStream;
 use url::Url;
 
-use crate::{config::Config, error::AppError, qbit::QbitClient, transmission::TransmissionClient};
+use crate::{
+    bencode::{extract_info_hash, MAX_TORRENT_FILE_BYTES},
+    config::Config,
+    error::AppError,
+    qbit::QbitClient,
+    transmission::TransmissionClient,
+};
 
 const COMPLETE_EPSILON: f64 = 0.999_999;
 
@@ -65,6 +72,7 @@ pub struct TorrentCapabilities {
     pub archive_download: bool,
     pub categories: bool,
     pub tags: bool,
+    pub torrent_files: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -73,12 +81,105 @@ pub struct TorrentList {
     pub torrents: Vec<TorrentSummary>,
 }
 
+/// One uploaded `.torrent` file, as sent by a client.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TorrentFileUpload {
+    #[serde(default)]
+    pub filename: Option<String>,
+    pub data: String,
+}
+
+/// A validated `.torrent` upload ready for a torrent client.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TorrentFilePayload {
+    pub filename: String,
+    pub bytes: Vec<u8>,
+    pub base64: String,
+    pub info_hash: String,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AddTorrentRequest {
+    #[serde(default)]
     pub urls: Vec<String>,
     #[serde(default)]
+    pub files: Vec<TorrentFileUpload>,
+    #[serde(default)]
     pub paused: bool,
+}
+
+/// Decode and validate uploaded `.torrent` files.
+///
+/// `data` is standard base64 (not a `format: byte` field) so binary metainfo
+/// bytes survive the generated Kotlin client unchanged.
+pub fn decode_torrent_files(
+    files: &[TorrentFileUpload],
+) -> Result<Vec<TorrentFilePayload>, AppError> {
+    files
+        .iter()
+        .map(|file| {
+            let data = file.data.trim();
+            if data.is_empty() {
+                return Err(AppError::BadRequest(
+                    "An uploaded .torrent file has no data.".to_string(),
+                ));
+            }
+
+            let bytes = STANDARD.decode(data).map_err(|_| {
+                AppError::BadRequest("An uploaded .torrent file is not valid base64.".to_string())
+            })?;
+            if bytes.is_empty() {
+                return Err(AppError::BadRequest(
+                    "An uploaded .torrent file is empty.".to_string(),
+                ));
+            }
+            if bytes.len() > MAX_TORRENT_FILE_BYTES {
+                return Err(AppError::PayloadTooLarge(format!(
+                    "An uploaded .torrent file is too large. The maximum is {} MiB.",
+                    MAX_TORRENT_FILE_BYTES / (1024 * 1024)
+                )));
+            }
+
+            let info_hash = extract_info_hash(&bytes)?;
+            let filename = sanitize_torrent_filename(file.filename.as_deref(), &info_hash);
+            let base64 = STANDARD.encode(&bytes);
+
+            Ok(TorrentFilePayload {
+                filename,
+                bytes,
+                base64,
+                info_hash,
+            })
+        })
+        .collect()
+}
+
+/// Keep only a safe basename for the multipart filename.
+fn sanitize_torrent_filename(filename: Option<&str>, info_hash: &str) -> String {
+    let basename = filename
+        .unwrap_or_default()
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or_default()
+        .chars()
+        .filter(|character| !character.is_control() && *character != '/' && *character != '\\')
+        .collect::<String>()
+        .trim()
+        .to_string();
+
+    let basename = if basename.is_empty() || basename == "." || basename == ".." {
+        format!("{info_hash}.torrent")
+    } else {
+        basename
+    };
+
+    if basename.to_ascii_lowercase().ends_with(".torrent") {
+        basename
+    } else {
+        format!("{basename}.torrent")
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -495,13 +596,22 @@ impl TorrentBackend {
     pub async fn add_torrents(
         &self,
         urls: &[String],
+        files: &[TorrentFilePayload],
         category: &str,
         tags: &[String],
         paused: bool,
     ) -> Result<AddTorrentResult, AppError> {
         match self {
-            Self::Qbittorrent(client) => client.add_torrent(urls, category, tags, paused).await,
-            Self::Transmission(client) => client.add_torrent(urls, category, tags, paused).await,
+            Self::Qbittorrent(client) => {
+                client
+                    .add_torrent(urls, files, category, tags, paused)
+                    .await
+            }
+            Self::Transmission(client) => {
+                client
+                    .add_torrent(urls, files, category, tags, paused)
+                    .await
+            }
         }
     }
 
@@ -642,6 +752,65 @@ mod tests {
             extract_magnet_hashes(&urls),
             vec![hex.to_string(), hex.to_string(), hex.to_string(), v2,]
         );
+    }
+
+    fn torrent_upload(filename: Option<&str>, bytes: &[u8]) -> TorrentFileUpload {
+        TorrentFileUpload {
+            filename: filename.map(str::to_string),
+            data: STANDARD.encode(bytes),
+        }
+    }
+
+    fn valid_torrent() -> Vec<u8> {
+        let info =
+            b"d6:lengthi4096e4:name4:test12:piece lengthi16384e6:pieces20:01234567890123456789e";
+        let mut torrent = b"d4:info".to_vec();
+        torrent.extend_from_slice(info);
+        torrent.push(b'e');
+        torrent
+    }
+
+    #[test]
+    fn decodes_and_sanitizes_torrent_uploads() {
+        let bytes = valid_torrent();
+        let expected_hash = crate::bencode::extract_info_hash(&bytes).unwrap();
+
+        let decoded = decode_torrent_files(&[
+            torrent_upload(Some("../unsafe/My Torrent.torrent"), &bytes),
+            torrent_upload(None, &bytes),
+        ])
+        .unwrap();
+
+        assert_eq!(decoded.len(), 2);
+        assert_eq!(decoded[0].filename, "My Torrent.torrent");
+        assert_eq!(decoded[0].info_hash, expected_hash);
+        assert_eq!(decoded[0].bytes, bytes);
+        assert_eq!(decoded[0].base64, STANDARD.encode(&bytes));
+        assert_eq!(decoded[1].filename, format!("{expected_hash}.torrent"));
+        assert_eq!(decoded[1].info_hash, expected_hash);
+    }
+
+    #[test]
+    fn rejects_empty_invalid_and_oversized_torrent_uploads() {
+        let empty = decode_torrent_files(&[torrent_upload(Some("empty"), b"")]).unwrap_err();
+        assert!(matches!(empty, AppError::BadRequest(_)), "{empty:?}");
+
+        let invalid = decode_torrent_files(&[TorrentFileUpload {
+            filename: None,
+            data: "not base64!!".to_string(),
+        }])
+        .unwrap_err();
+        assert!(matches!(invalid, AppError::BadRequest(_)), "{invalid:?}");
+
+        let not_bencode = decode_torrent_files(&[torrent_upload(None, b"hello")]).unwrap_err();
+        assert!(
+            matches!(not_bencode, AppError::BadRequest(_)),
+            "{not_bencode:?}"
+        );
+
+        let oversized = vec![0u8; MAX_TORRENT_FILE_BYTES + 1];
+        let error = decode_torrent_files(&[torrent_upload(None, &oversized)]).unwrap_err();
+        assert!(matches!(error, AppError::PayloadTooLarge(_)), "{error:?}");
     }
 
     #[test]

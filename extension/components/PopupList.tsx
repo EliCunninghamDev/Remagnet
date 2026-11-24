@@ -56,7 +56,9 @@ export default function PopupList(props: PopupListProps) {
             class="add-button"
             type="button"
             title={
-              props.configured ? "Add a magnet link" : "Configure Remagnet Proxy before adding"
+              props.configured
+                ? "Add a magnet or .torrent file"
+                : "Configure Remagnet Proxy before adding"
             }
             disabled={!props.configured}
             onClick={props.onAdd}
@@ -146,7 +148,9 @@ export default function PopupList(props: PopupListProps) {
             <Show
               when={props.torrents.length > 0}
               fallback={
-                <p class="muted empty">No Remagnet torrents yet. Add a magnet to see it here.</p>
+                <p class="muted empty">
+                  No Remagnet torrents yet. Add a magnet or .torrent file to see it here.
+                </p>
               }
             >
               <ul class="torrent-list">
