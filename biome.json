@@ -9,6 +9,7 @@
       "!**/.dev",
       "!**/dist",
       "!**/target",
+      "!proxy/src/ui.html",
       "!**/packages/proxy-client/src/schema.d.ts",
       "!**/*.zip",
       "!**/demo/.build",

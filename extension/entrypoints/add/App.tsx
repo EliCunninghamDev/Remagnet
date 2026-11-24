@@ -31,7 +31,12 @@ export default function App() {
       when={magnet()}
       keyed
       fallback={
-        <AddTorrent initialMagnet="" autoFocusFile={fileSource} onClose={() => void closePage()} />
+        <AddTorrent
+          initialMagnet=""
+          fileOnly={fileSource}
+          autoFocusFile={fileSource}
+          onClose={() => void closePage()}
+        />
       }
     >
       {(uri) => <AddTorrent initialMagnet={uri} onClose={() => void closePage()} />}

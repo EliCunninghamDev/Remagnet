@@ -41,6 +41,8 @@ import com.google.gson.annotations.SerializedName
  * @param clientDownloadsDir Optional prefix of torrent download paths as seen by the torrent client, used to map them under `downloadsDir`.
  * @param defaultCategory Category applied to new magnets and used for filtering.
  * @param defaultTags Tags applied to new magnets and used for filtering. Transmission exposes tags as labels.
+ * @param configured Whether enough torrent client settings are saved to talk to the client. When false, client-backed endpoints return `503` and the UI should ask the administrator to finish setup.
+ * @param envLocked camelCase names of fields overridden by environment variables and therefore read-only in the config UI. Any value sent for these fields in `PUT /api/config` is ignored.
  */
 
 
@@ -87,7 +89,15 @@ data class PublicConfig (
 
     /* Tags applied to new magnets and used for filtering. Transmission exposes tags as labels.  */
     @SerializedName("defaultTags")
-    val defaultTags: kotlin.collections.List<kotlin.String>
+    val defaultTags: kotlin.collections.List<kotlin.String>,
+
+    /* Whether enough torrent client settings are saved to talk to the client. When false, client-backed endpoints return `503` and the UI should ask the administrator to finish setup.  */
+    @SerializedName("configured")
+    val configured: kotlin.Boolean,
+
+    /* camelCase names of fields overridden by environment variables and therefore read-only in the config UI. Any value sent for these fields in `PUT /api/config` is ignored.  */
+    @SerializedName("envLocked")
+    val envLocked: kotlin.collections.List<kotlin.String>
 
 ) {
 

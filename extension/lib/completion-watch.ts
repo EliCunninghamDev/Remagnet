@@ -48,7 +48,8 @@ export async function checkCompletions(): Promise<void> {
 
   try {
     // Polling without a configured proxy is expected; stay quiet until setup.
-    if (!isProxyConfigured(await getSettings())) return;
+    const settings = await getSettings();
+    if (!isProxyConfigured(settings) || !settings.downloadNotifications) return;
 
     const torrents = await listTorrents();
     const previous = await watchItem.getValue();
@@ -72,6 +73,7 @@ export async function checkCompletions(): Promise<void> {
  */
 export async function trackAddedHashes(hashes: string[]): Promise<void> {
   if (hashes.length === 0) return;
+  if (!(await getSettings()).downloadNotifications) return;
 
   const state = await watchItem.getValue();
   let changed = false;

@@ -132,7 +132,14 @@ export const tokens = {
     $description: "Font stacks and type scale used by the extension.",
     family: {
       $type: "fontFamily",
-      sans: value(["ui-sans-serif", "system-ui", "-apple-system", "Segoe UI", "sans-serif"]),
+      sans: value([
+        "Inter",
+        "ui-sans-serif",
+        "system-ui",
+        "-apple-system",
+        "Segoe UI",
+        "sans-serif",
+      ]),
       mono: value(["ui-monospace", "SFMono-Regular", "Menlo", "Consolas", "monospace"]),
       geistMono: value([
         "Geist Mono",

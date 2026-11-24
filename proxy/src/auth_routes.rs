@@ -766,6 +766,7 @@ mod tests {
         Arc::new(AppState {
             config_path,
             config: RwLock::new(config),
+            env_overrides: crate::config::EnvOverrides::default(),
             backend: RwLock::new(None),
             auth_path,
             auth: RwLock::new(AuthData::default()),

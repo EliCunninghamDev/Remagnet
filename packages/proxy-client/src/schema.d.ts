@@ -85,14 +85,28 @@ export interface paths {
          *     read-only downloads mount and the category/tags applied to magnets.
          *     Secret values are never returned, and this endpoint does not contact the
          *     torrent client.
+         *
+         *     Values supplied through environment variables (`CLIENT_KIND`,
+         *     `CLIENT_BASE_URL`/`QBIT_BASE_URL`/`TRANSMISSION_BASE_URL`, `QBIT_API_KEY`,
+         *     `CLIENT_USERNAME`/`QBIT_USERNAME`, `CLIENT_PASSWORD`/`QBIT_PASSWORD`,
+         *     `DOWNLOADS_DIR`, `CLIENT_DOWNLOADS_DIR`, `REMAGNET_CATEGORY`, and
+         *     `REMAGNET_TAGS`) override `config.json` and are listed in `envLocked`.
+         *     Leave those fields disabled in the UI: a subsequent `PUT /api/config`
+         *     keeps the environment value even if it sends a different one.
          */
         get: operations["getConfig"];
         /**
          * Update the torrent client connection and magnet defaults
          * @description Replaces the saved torrent client settings and returns the new public
-         *     configuration. `baseUrl` is required and is normalized by trimming
-         *     whitespace and trailing slashes; credentials in the URL, query strings
-         *     and fragments are rejected. `qbitBaseUrl` is accepted as an alias.
+         *     configuration. `baseUrl` is required unless the proxy is already
+         *     configured or `baseUrl` is locked by an environment variable; omitting
+         *     it keeps the current URL. It is normalized by trimming whitespace and
+         *     trailing slashes; credentials in the URL, query strings and fragments
+         *     are rejected. `qbitBaseUrl` is accepted as an alias.
+         *
+         *     Fields listed in `envLocked` are read-only: a value sent for one is
+         *     ignored and the environment value stays in effect. Environment-provided
+         *     API keys and passwords are never written to `config.json`.
          *
          *     For the secret fields (`apiKey`, `username`, `password`, plus the
          *     `qbit*` aliases), omitting a field keeps the saved value and sending an
@@ -605,11 +619,13 @@ export interface paths {
          *     Unrelated and unknown hashes return `404`, whether the caller uses a
          *     token, a session or a ticket.
          *
-         *     The response has no `Content-Length` because the archive is produced
-         *     while it is downloaded. If an upstream file stream fails after the
-         *     response has started, the connection is aborted instead of ending
-         *     cleanly, so browsers do not save a truncated ZIP as a completed
-         *     download.
+         *     The response carries an exact `Content-Length`, computed from the stored
+         *     ZIP layout (entry names, headers, data descriptors and the central
+         *     directory) before the first upstream byte is read, including ZIP64
+         *     records when sizes or offsets exceed 4 GiB. If an upstream file stream
+         *     fails after the response has started, the connection is aborted instead
+         *     of ending cleanly, so browsers do not save a truncated ZIP as a
+         *     completed download.
          */
         get: operations["downloadArchive"];
         put?: never;
@@ -959,10 +975,31 @@ export interface components {
              *     ]
              */
             defaultTags: string[];
+            /**
+             * @description Whether enough torrent client settings are saved to talk to the
+             *     client. When false, client-backed endpoints return `503` and the UI
+             *     should ask the administrator to finish setup.
+             * @example true
+             */
+            configured: boolean;
+            /**
+             * @description camelCase names of fields overridden by environment variables and
+             *     therefore read-only in the config UI. Any value sent for these fields
+             *     in `PUT /api/config` is ignored.
+             * @example [
+             *       "apiKey",
+             *       "downloadsDir"
+             *     ]
+             */
+            envLocked: string[];
         };
         /**
          * @description Fields the config page may change. A missing field keeps the saved value.
          *     For secret fields, sending an empty string clears the value.
+         *
+         *     `baseUrl` is required only when no URL is saved yet and the field is not
+         *     locked by an environment variable; otherwise omitting it keeps the
+         *     current URL. Fields reported in `envLocked` are ignored when sent.
          */
         ConfigUpdate: {
             clientKind?: components["schemas"]["ClientKind"];
@@ -973,7 +1010,7 @@ export interface components {
              *     trailing slashes. `qbitBaseUrl` is accepted as an alias.
              * @example http://gluetun:8080
              */
-            baseUrl: string;
+            baseUrl?: string;
             /**
              * Format: uri
              * @description Alias for `baseUrl`, kept for older clients. Do not send both
@@ -1539,6 +1576,11 @@ export interface operations {
                      *       "defaultCategory": "remagnet",
                      *       "defaultTags": [
                      *         "remagnet"
+                     *       ],
+                     *       "configured": true,
+                     *       "envLocked": [
+                     *         "apiKey",
+                     *         "downloadsDir"
                      *       ]
                      *     }
                      */
@@ -2271,6 +2313,8 @@ export interface operations {
              */
             200: {
                 headers: {
+                    /** @description Exact size in bytes of the stored ZIP archive. */
+                    "Content-Length"?: number;
                     /**
                      * @description Attachment filename with an ASCII fallback and RFC 5987 form.
                      * @example attachment; filename="Example Torrent.zip"; filename*=UTF-8''Example%20Torrent.zip

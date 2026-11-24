@@ -28,10 +28,10 @@ import dev.remagnet.proxy.models.ClientKind
 import com.google.gson.annotations.SerializedName
 
 /**
- * Fields the config page may change. A missing field keeps the saved value. For secret fields, sending an empty string clears the value.
+ * Fields the config page may change. A missing field keeps the saved value. For secret fields, sending an empty string clears the value.  `baseUrl` is required only when no URL is saved yet and the field is not locked by an environment variable; otherwise omitting it keeps the current URL. Fields reported in `envLocked` are ignored when sent.
  *
- * @param baseUrl Torrent client URL. Must use `http://` or `https://`, must not contain credentials, a query or a fragment, and is stored without trailing slashes. `qbitBaseUrl` is accepted as an alias.
  * @param clientKind
+ * @param baseUrl Torrent client URL. Must use `http://` or `https://`, must not contain credentials, a query or a fragment, and is stored without trailing slashes. `qbitBaseUrl` is accepted as an alias.
  * @param qbitBaseUrl Alias for `baseUrl`, kept for older clients. Do not send both fields in one request.
  * @param apiKey qBittorrent 5.2+ API key. Omit to keep the saved key; send an empty string to clear it. `qbitApiKey` is accepted as an alias.
  * @param qbitApiKey Alias for `apiKey`, kept for older clients.
@@ -48,12 +48,12 @@ import com.google.gson.annotations.SerializedName
 
 data class ConfigUpdate (
 
-    /* Torrent client URL. Must use `http://` or `https://`, must not contain credentials, a query or a fragment, and is stored without trailing slashes. `qbitBaseUrl` is accepted as an alias.  */
-    @SerializedName("baseUrl")
-    val baseUrl: java.net.URI,
-
     @SerializedName("clientKind")
     val clientKind: ClientKind? = null,
+
+    /* Torrent client URL. Must use `http://` or `https://`, must not contain credentials, a query or a fragment, and is stored without trailing slashes. `qbitBaseUrl` is accepted as an alias.  */
+    @SerializedName("baseUrl")
+    val baseUrl: java.net.URI? = null,
 
     /* Alias for `baseUrl`, kept for older clients. Do not send both fields in one request.  */
     @SerializedName("qbitBaseUrl")

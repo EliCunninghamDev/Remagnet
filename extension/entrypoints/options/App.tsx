@@ -17,8 +17,11 @@ import {
   DEFAULT_SETTINGS,
   getSettings,
   isProxyConfigured,
+  type PublicSettings,
   type Settings,
+  savePublicSettings,
   saveSettings,
+  type TorrentFileSurface,
   validateProxyBaseUrl,
   validateProxySettings,
 } from "../../lib/settings";
@@ -55,6 +58,8 @@ export default function App() {
   const [manualStatus, setManualStatus] = createSignal<Status>();
   const [manualContext, setManualContext] = createSignal<IssueReportContext>();
 
+  const [preferenceStatus, setPreferenceStatus] = createSignal<string>();
+
   // One shared dialog: the trigger passes the context for the status it sits
   // beside, while the footer opens it with no context at all.
   const [reportOpen, setReportOpen] = createSignal(false);
@@ -73,6 +78,19 @@ export default function App() {
 
   function update<K extends keyof Settings>(key: K, value: Settings[K]) {
     setSettings((current) => ({ ...current, [key]: value }));
+  }
+
+  /** Public preferences save on their own; the encrypted token never moves. */
+  async function savePreference(partial: Partial<PublicSettings>) {
+    const previous = settings();
+    setSettings({ ...previous, ...partial });
+    setPreferenceStatus(undefined);
+    try {
+      setSettings(await savePublicSettings(partial));
+    } catch (error) {
+      setSettings(previous);
+      setPreferenceStatus(errorMessage(error));
+    }
   }
 
   function openReport(context?: IssueReportContext) {
@@ -144,7 +162,11 @@ export default function App() {
 
       if (error || !data?.token) throw new Error(proxyErrorMessage(response, error));
 
-      const values = normalize({ proxyBaseUrl: baseUrl, proxyToken: data.token });
+      const values = normalize({
+        ...settings(),
+        proxyBaseUrl: baseUrl,
+        proxyToken: data.token,
+      });
       const validationError = validateProxySettings(values);
       if (validationError) throw new Error(validationError);
 
@@ -198,6 +220,7 @@ export default function App() {
 
       const paired = await claimPairing(link, defaultDeviceName);
       const values = normalize({
+        ...settings(),
         proxyBaseUrl: paired.proxyBaseUrl,
         proxyToken: paired.proxyToken,
       });
@@ -278,7 +301,11 @@ export default function App() {
       }
 
       // Keep the proxy URL so signing back in only needs credentials.
-      const values = normalize({ proxyBaseUrl: settings().proxyBaseUrl, proxyToken: "" });
+      const values = normalize({
+        ...settings(),
+        proxyBaseUrl: settings().proxyBaseUrl,
+        proxyToken: "",
+      });
       await saveSettings(values);
       setSettings(values);
       setManualToken("");
@@ -536,6 +563,47 @@ export default function App() {
           </section>
         </Show>
 
+        <section class="panel stack">
+          <h2>Preferences</h2>
+
+          <label class="field">
+            <span>.torrent file uploader</span>
+            <select
+              value={settings().torrentFileSurface}
+              onChange={(event) =>
+                void savePreference({
+                  torrentFileSurface: event.currentTarget.value as TorrentFileSurface,
+                })
+              }
+            >
+              <option value="popup-window">Popup window</option>
+              <option value="tab">Browser tab</option>
+            </select>
+            <small>
+              Where Remagnet opens the file uploader when choosing a .torrent file from the toolbar
+              popover.
+            </small>
+          </label>
+
+          <div class="field">
+            <label class="check">
+              <input
+                type="checkbox"
+                checked={settings().downloadNotifications}
+                onChange={(event) =>
+                  void savePreference({ downloadNotifications: event.currentTarget.checked })
+                }
+              />
+              Notify when downloads complete
+            </label>
+            <small>Show a browser notification when a Remagnet torrent finishes downloading.</small>
+          </div>
+
+          <Show when={preferenceStatus()}>
+            {(message) => <p class="status error">Could not save preference: {message()}</p>}
+          </Show>
+        </section>
+
         <details class="panel stack">
           <summary>Manual device token</summary>
           <form class="stack" onSubmit={save}>
@@ -663,6 +731,8 @@ function normalize(values: Settings): Settings {
   return {
     proxyBaseUrl: values.proxyBaseUrl.trim().replace(/\/+$/, ""),
     proxyToken: values.proxyToken.trim(),
+    torrentFileSurface: values.torrentFileSurface,
+    downloadNotifications: values.downloadNotifications,
   };
 }
 

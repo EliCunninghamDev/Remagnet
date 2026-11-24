@@ -12,6 +12,7 @@ import AddedSummary from "./AddedSummary";
 import type { FlowStatus } from "./flow-status";
 import MagnetForm from "./MagnetForm";
 import MagnetReview from "./MagnetReview";
+import TorrentFileUpload from "./TorrentFileUpload";
 
 function FormHarness(props: {
   status?: FlowStatus;
@@ -136,6 +137,84 @@ describe("MagnetForm", () => {
     expect(onOpenFilePickerSurface).toHaveBeenCalledOnce();
     expect(click).not.toHaveBeenCalled();
     expect(onFileSelect).not.toHaveBeenCalled();
+  });
+});
+
+describe("TorrentFileUpload", () => {
+  function UploadHarness(props: {
+    status?: FlowStatus;
+    canCancel?: boolean;
+    onFileSelect?: (file: File) => void;
+    onCancel?: () => void;
+  }) {
+    return (
+      <TorrentFileUpload
+        status={props.status}
+        canCancel={Boolean(props.canCancel)}
+        onFileSelect={props.onFileSelect ?? (() => undefined)}
+        onCancel={props.onCancel}
+      />
+    );
+  }
+
+  test("renders the upload prompt, hint and file-up icon", () => {
+    const { container } = render(() => <UploadHarness />);
+
+    expect(screen.getByText("Drag and drop a file to upload or click")).toBeTruthy();
+    expect(screen.getByText(".torrent files up to 10 MiB")).toBeTruthy();
+
+    const icon = container.querySelector(".upload-icon svg");
+    expect(icon).toBeTruthy();
+    expect(icon?.getAttribute("viewBox")).toBe("0 0 24 24");
+    expect(icon?.querySelectorAll("path")).toHaveLength(4);
+  });
+
+  test("passes a chosen .torrent file to onFileSelect and clears the input", () => {
+    const onFileSelect = vi.fn();
+    const { container } = render(() => <UploadHarness onFileSelect={onFileSelect} />);
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(["dummy"], "sample.torrent", {
+      type: "application/x-bittorrent",
+    });
+
+    expect(input.accept).toBe(".torrent,application/x-bittorrent");
+    fireEvent.change(input, { target: { files: [file] } });
+
+    expect(onFileSelect).toHaveBeenCalledOnce();
+    expect(onFileSelect).toHaveBeenCalledWith(file);
+    expect(input.value).toBe("");
+  });
+
+  test("accepts a dropped .torrent file and toggles the active drag state", () => {
+    const onFileSelect = vi.fn();
+    const { container } = render(() => <UploadHarness onFileSelect={onFileSelect} />);
+    const zone = container.querySelector(".upload-zone") as HTMLButtonElement;
+    const file = new File(["dummy"], "dropped.torrent");
+
+    fireEvent.dragEnter(zone, { dataTransfer: { files: [file] } });
+    expect(zone.classList.contains("upload-zone-active")).toBe(true);
+    expect(screen.getByText("Drop .torrent file to upload")).toBeTruthy();
+
+    fireEvent.drop(zone, { dataTransfer: { files: [file] } });
+    expect(zone.classList.contains("upload-zone-active")).toBe(false);
+    expect(screen.getByText("Drag and drop a file to upload or click")).toBeTruthy();
+    expect(onFileSelect).toHaveBeenCalledOnce();
+    expect(onFileSelect).toHaveBeenCalledWith(file);
+  });
+
+  test("shows a status error and Cancel when a previous file can be restored", () => {
+    const onCancel = vi.fn();
+    render(() => (
+      <UploadHarness
+        canCancel
+        onCancel={onCancel}
+        status={{ tone: "error", message: "That file is not a valid .torrent." }}
+      />
+    ));
+
+    expect(screen.getByText("That file is not a valid .torrent.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(onCancel).toHaveBeenCalledOnce();
   });
 });
 

@@ -1,0 +1,372 @@
+@import "@remagnet/ui/styles";
+
+@font-face {
+  font-family: "Departure Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/assets/departure-mono.woff2") format("woff2");
+}
+
+/* Inter carries prose and multiline explanatory copy; the wordmark keeps
+   Departure Mono and the interface keeps monospace. */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src:
+    url("/assets/inter.woff2") format("woff2-variations"),
+    url("/assets/inter.woff2") format("woff2");
+}
+
+:root {
+  /* The proxy serves Departure Mono for the wordmark and system monospace for
+     the interface, matching the pre-SolidJS page. */
+  --font-ui: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.proxy-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-width: 680px;
+  min-height: 100dvh;
+  margin: 0 auto;
+  padding: 40px 24px 32px;
+}
+
+.proxy-main {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.auth-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  width: 100%;
+  max-width: 440px;
+  margin: 0 auto;
+}
+
+.options-header {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lede {
+  color: var(--muted);
+  font-family: var(--font-prose);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.hint {
+  font-family: var(--font-prose);
+  line-height: 1.5;
+}
+
+.masthead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.account-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.account-bar strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.nav-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  border-bottom: 1px solid var(--line);
+}
+
+.nav-tab {
+  appearance: none;
+  padding: 8px 12px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.nav-tab:hover:not(:disabled) {
+  background: transparent;
+  color: var(--text);
+}
+
+.nav-tab-active {
+  border-bottom-color: var(--text);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.field-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.env-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  background: var(--track);
+  color: var(--muted);
+  font-family: var(--font-ui);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+.onboarding-note {
+  margin: 0;
+  font-family: var(--font-prose);
+  line-height: 1.5;
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.panel-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.subsection {
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--ok-text);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.qr-pair {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.qr-pair small {
+  max-width: 480px;
+  font-family: var(--font-prose);
+  line-height: 1.5;
+}
+
+.pairing-link {
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+.qr-code {
+  width: 100%;
+  max-width: 232px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  background: #fff;
+}
+
+.qr-code svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.totp-setup {
+  display: grid;
+  grid-template-columns: 232px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.totp-setup .qr-code {
+  max-width: none;
+}
+
+.recovery {
+  padding: 14px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+}
+
+.recovery-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.recovery-code {
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  font: 13px / 1.2 var(--font-ui);
+  letter-spacing: 0.06em;
+  text-align: center;
+  user-select: all;
+}
+
+.device-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--line);
+  list-style: none;
+}
+
+.device-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.device-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.device-name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.device-meta {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.device-row button {
+  flex: none;
+}
+
+.page-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: center;
+  gap: 6px;
+  margin-top: auto;
+  padding-top: 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.page-footer .sep {
+  opacity: 0.6;
+}
+
+.page-footer a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.page-footer a:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
+.status {
+  min-height: 1.5em;
+}
+
+.status:empty {
+  min-height: 0;
+}
+
+.status.muted {
+  padding: 0;
+  background: transparent;
+  color: var(--muted);
+}
+
+.status .report-inline {
+  display: inline;
+  margin-left: 6px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* The popover constrains its list to a popup height; the proxy page can use
+   the whole document. */
+.proxy-torrent-list {
+  max-height: none;
+  overflow: visible;
+}
+
+@media (max-width: 560px) {
+  .proxy-shell {
+    padding: 32px 16px 24px;
+  }
+
+  .panel-head {
+    align-items: flex-start;
+  }
+
+  .panel-head .actions {
+    width: 100%;
+  }
+
+  .panel-head .actions button {
+    flex: 1 1 auto;
+  }
+
+  .totp-setup {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .totp-setup .qr-code {
+    max-width: 232px;
+  }
+}
+
+@media (max-width: 420px) {
+  .recovery-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

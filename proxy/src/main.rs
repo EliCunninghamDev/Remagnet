@@ -31,7 +31,9 @@ use crate::{backend::TorrentBackend, config::Config};
 /// credentials exist, so a fresh proxy can boot and serve its setup page.
 pub struct AppState {
     pub config_path: PathBuf,
+    /// Effective configuration: `config.json` with environment overrides applied.
     pub config: RwLock<Config>,
+    pub env_overrides: config::EnvOverrides,
     pub backend: RwLock<Option<TorrentBackend>>,
     pub auth_path: PathBuf,
     pub auth: RwLock<auth::AuthData>,
@@ -58,8 +60,11 @@ async fn main() -> Result<()> {
 
     let data_dir = env::var("DATA_DIR").unwrap_or_else(|_| "/data".to_string());
     let config_path = Path::new(&data_dir).join("config.json");
-    let (config, created) = config::load_or_create(&config_path, config::ConfigEnv::from_env())
-        .context("could not load the proxy configuration")?;
+    let env_overrides = config::EnvOverrides::from_env()
+        .context("could not read the configuration overrides from the environment")?;
+    let (config, created) =
+        config::load_or_create(&config_path, config::ConfigEnv::from_env(), &env_overrides)
+            .context("could not load the proxy configuration")?;
     let backend =
         TorrentBackend::from_config(&config).context("could not initialize the torrent client")?;
 
@@ -83,6 +88,7 @@ async fn main() -> Result<()> {
     let state = Arc::new(AppState {
         config_path,
         config: RwLock::new(config),
+        env_overrides,
         backend: RwLock::new(backend),
         auth_path,
         auth: RwLock::new(auth),

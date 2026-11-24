@@ -1,0 +1,27 @@
+{
+  "name": "@remagnet/proxy-ui",
+  "version": "0.3.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "test:ui": "vitest run"
+  },
+  "dependencies": {
+    "@remagnet/proxy-client": "workspace:*",
+    "@remagnet/ui": "workspace:*",
+    "openapi-fetch": "^0.17.0",
+    "solid-js": "^1.9.20"
+  },
+  "devDependencies": {
+    "@solidjs/testing-library": "^0.8.10",
+    "happy-dom": "^21.0.4",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.8",
+    "vite-plugin-singlefile": "^2.3.0",
+    "vite-plugin-solid": "^2.11.17",
+    "vitest": "^5.1.1"
+  }
+}

@@ -23,9 +23,11 @@ use crate::{
         decode_torrent_files, matches_torrent_filter, torrent_completed, AddTorrentRequest,
         AddTorrentResult, TorrentBackend, TorrentList, TorrentSummary,
     },
-    config::{save, ConfigUpdate, PublicConfig},
+    config::{persisted_config, save, ConfigUpdate, PublicConfig},
     error::AppError,
-    zipstream::{content_disposition, validate_hash, write_zip, zip_filename, ZipStream},
+    zipstream::{
+        content_disposition, validate_hash, write_zip, zip_filename, ArchivePlan, ZipStream,
+    },
     AppState,
 };
 
@@ -72,6 +74,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/", get(ui))
         .route("/icon.svg", get(icon))
         .route("/assets/departure-mono.woff2", get(wordmark_font))
+        .route("/assets/inter.woff2", get(prose_font))
         .route("/healthz", get(healthz))
         .merge(api)
         .layer(TraceLayer::new_for_http())
@@ -101,6 +104,18 @@ async fn wordmark_font() -> impl IntoResponse {
             (header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
         ],
         include_bytes!("departure-mono.woff2").as_slice(),
+    )
+}
+
+/// Inter for prose and multiline explanatory copy. The extension ships the
+/// same file; keep the copy in sync when the font is updated.
+async fn prose_font() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "font/woff2"),
+            (header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
+        ],
+        include_bytes!("inter-latin-wght-normal.woff2").as_slice(),
     )
 }
 
@@ -152,7 +167,10 @@ async fn get_config(
 ) -> Result<Json<PublicConfig>, AppError> {
     require_admin(&state, &headers).await?;
     let config = state.config.read().await;
-    Ok(Json(PublicConfig::from(&*config)))
+    Ok(Json(PublicConfig::from_config(
+        &config,
+        &state.env_overrides,
+    )))
 }
 
 async fn put_config(
@@ -164,16 +182,19 @@ async fn put_config(
 
     let mut candidate = state.config.read().await.clone();
     candidate
-        .apply_update(update)
+        .apply_update_with_overrides(update, &state.env_overrides)
         .map_err(AppError::BadRequest)?;
 
     // Build the client before touching the file so an invalid URL or HTTP
     // client setup never replaces a working configuration. A proxy without
     // credentials stays bootable with no client until setup is completed.
     let backend = TorrentBackend::from_config(&candidate).map_err(AppError::internal)?;
-    save(&state.config_path, &candidate)
-        .await
-        .map_err(AppError::internal)?;
+    save(
+        &state.config_path,
+        &persisted_config(&candidate, &state.env_overrides),
+    )
+    .await
+    .map_err(AppError::internal)?;
 
     {
         let mut config = state.config.write().await;
@@ -182,7 +203,10 @@ async fn put_config(
         *client = backend;
     }
 
-    Ok(Json(PublicConfig::from(&candidate)))
+    Ok(Json(PublicConfig::from_config(
+        &candidate,
+        &state.env_overrides,
+    )))
 }
 
 #[derive(Debug, Serialize)]
@@ -529,6 +553,8 @@ async fn archive(
     }
 
     let filename = zip_filename(&torrent.name);
+    let plan = ArchivePlan::new(files)?;
+    let content_length = plan.content_length();
     let (writer, reader) = tokio::io::duplex(1024 * 1024);
     let success = Arc::new(AtomicBool::new(false));
     let failure: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
@@ -537,7 +563,7 @@ async fn archive(
     let task_hash = torrent.hash.clone();
 
     tokio::spawn(async move {
-        if let Err(error) = write_zip(writer, backend, torrent, files, task_success).await {
+        if let Err(error) = write_zip(writer, backend, torrent, plan, task_success).await {
             // `{error:#}` keeps the whole anyhow chain: the top-level context
             // alone ("could not read …") hides the actual client failure.
             let detail = format!("{error:#}");
@@ -552,6 +578,7 @@ async fn archive(
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "application/zip")
         .header(header::CONTENT_DISPOSITION, content_disposition(&filename))
+        .header(header::CONTENT_LENGTH, content_length.to_string())
         .header(header::CACHE_CONTROL, "no-store")
         .header("x-content-type-options", "nosniff")
         .body(Body::from_stream(ZipStream::new(
@@ -601,7 +628,7 @@ mod tests {
     use super::*;
     use crate::{
         auth::{self, AdminAccount, AuthData},
-        config::Config,
+        config::{Config, EnvOverrides},
         pairing::PairingStore,
     };
 
@@ -1047,7 +1074,17 @@ mod tests {
             .unwrap();
         assert!(disposition.contains("Test Torrent.zip"));
 
+        let content_length = response
+            .headers()
+            .get(header::CONTENT_LENGTH)
+            .expect("archive responses carry an exact Content-Length")
+            .to_str()
+            .unwrap()
+            .parse::<usize>()
+            .unwrap();
+
         let body = response.into_body().collect().await.unwrap().to_bytes();
+        assert_eq!(content_length, body.len());
         let mut archive = zip::ZipArchive::new(Cursor::new(body)).unwrap();
         assert_eq!(archive.len(), 1);
         let mut bytes = Vec::new();
@@ -1079,9 +1116,19 @@ mod tests {
     }
 
     fn app_from_config(config: Config, with_client: bool, _config_path: PathBuf) -> TestApp {
+        app_from_config_with_overrides(config, with_client, EnvOverrides::default())
+    }
+
+    fn app_from_config_with_overrides(
+        config: Config,
+        with_client: bool,
+        env_overrides: EnvOverrides,
+    ) -> TestApp {
         let directory = tempfile::tempdir().unwrap();
         let config_path = directory.path().join("config.json");
         let auth_path = directory.path().join("auth.json");
+        let mut config = config;
+        env_overrides.apply_to(&mut config);
         let qbit = if with_client {
             TorrentBackend::from_config(&config).unwrap()
         } else {
@@ -1101,6 +1148,7 @@ mod tests {
         let state = Arc::new(AppState {
             config_path,
             config: RwLock::new(config),
+            env_overrides,
             backend: RwLock::new(qbit),
             auth_path,
             auth: RwLock::new(data),
@@ -1143,6 +1191,28 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .uri("/assets/departure-mono.woff2")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()[header::CONTENT_TYPE], "font/woff2");
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        assert!(body.len() > 10_000);
+    }
+
+    #[tokio::test]
+    async fn prose_font_is_public() {
+        let app = app(true).await;
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/assets/inter.woff2")
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -1329,7 +1399,17 @@ mod tests {
             .unwrap();
         assert!(disposition.contains("Test Torrent.zip"));
 
+        let content_length = response
+            .headers()
+            .get(header::CONTENT_LENGTH)
+            .expect("archive responses carry an exact Content-Length")
+            .to_str()
+            .unwrap()
+            .parse::<usize>()
+            .unwrap();
+
         let body = response.into_body().collect().await.unwrap().to_bytes();
+        assert_eq!(content_length, body.len());
         let mut archive = zip::ZipArchive::new(Cursor::new(body)).unwrap();
         assert_eq!(archive.len(), 2);
 
@@ -1494,6 +1574,79 @@ mod tests {
         assert_eq!(body["defaultCategory"], "remagnet");
         assert_eq!(body["defaultTags"], json!(["remagnet"]));
         assert!(body.get("qbitApiKey").is_none());
+    }
+
+    #[tokio::test]
+    async fn config_api_reports_environment_locks_and_preserves_them_on_save() {
+        let base_url = start_fake(true).await;
+        let config = config_for(&base_url);
+        let app = app_from_config_with_overrides(
+            config,
+            true,
+            EnvOverrides {
+                base_url: Some(base_url.clone()),
+                api_key: Some("env_key".to_string()),
+                downloads_dir: Some("/env/downloads".to_string()),
+                default_tags: Some(vec!["env".to_string()]),
+                ..EnvOverrides::default()
+            },
+        );
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.admin_request("/api/config"))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["configured"], true);
+        assert_eq!(body["hasApiKey"], true);
+        assert_eq!(
+            body["envLocked"],
+            json!(["baseUrl", "apiKey", "downloadsDir", "defaultTags"])
+        );
+
+        // The request omits baseUrl: an environment-locked URL must not be
+        // required, and the locked fields in the body are ignored.
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.admin_json(
+                "PUT",
+                "/api/config",
+                json!({
+                    "apiKey": "ui_key",
+                    "downloadsDir": "/ui/downloads",
+                    "defaultTags": ["ui"],
+                    "defaultCategory": "films",
+                }),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["baseUrl"], base_url);
+        assert_eq!(body["hasApiKey"], true);
+        assert_eq!(body["defaultCategory"], "films");
+        assert_eq!(body["defaultTags"], json!(["env"]));
+        assert_eq!(body["downloadsDir"], "/env/downloads");
+
+        let config = app.state.config.read().await;
+        assert_eq!(config.api_key, "env_key");
+        assert_eq!(config.downloads_dir, "/env/downloads");
+        assert_eq!(config.default_tags, vec!["env"]);
+        assert_eq!(config.default_category, "films");
+        drop(config);
+
+        // Environment secrets are never written into config.json.
+        let persisted: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(&app.state.config_path).expect("PUT persists the config"),
+        )
+        .unwrap();
+        assert_eq!(persisted["apiKey"], "");
     }
 
     #[tokio::test]

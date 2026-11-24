@@ -3,6 +3,7 @@ import AddedSummary from "../components/AddedSummary";
 import type { FlowStatus } from "../components/flow-status";
 import MagnetForm from "../components/MagnetForm";
 import MagnetReview from "../components/MagnetReview";
+import TorrentFileUpload from "../components/TorrentFileUpload";
 import type { ParsedTorrentFile } from "../lib/torrent-file";
 import { existingTorrent, galleryMagnet, galleryMagnetUri, galleryTorrentFile } from "./fixtures";
 import { Section, Specimen } from "./Section";
@@ -85,6 +86,29 @@ export default function AddFlow() {
         <Specimen label="Invalid magnet" note="The error sits under the form, not in a toast.">
           <PopupSpecimen>
             <InteractiveMagnetForm draft="magnet:?dn=no-hash" status={invalid} canCancel />
+          </PopupSpecimen>
+        </Specimen>
+
+        <Specimen
+          label="Upload .torrent"
+          note="The dedicated file-only screen used when the popover hands off the picker."
+        >
+          <PopupSpecimen>
+            <TorrentFileUpload onFileSelect={() => undefined} />
+          </PopupSpecimen>
+        </Specimen>
+
+        <Specimen
+          label="Upload error"
+          note="A failed parse keeps the drop zone and offers Cancel when the file can be restored."
+        >
+          <PopupSpecimen>
+            <TorrentFileUpload
+              status={failed}
+              canCancel
+              onFileSelect={() => undefined}
+              onCancel={() => undefined}
+            />
           </PopupSpecimen>
         </Specimen>
 

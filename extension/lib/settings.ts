@@ -1,15 +1,21 @@
 import { browser } from "wxt/browser";
 import { storage } from "wxt/utils/storage";
 
+export type TorrentFileSurface = "popup-window" | "tab";
+
 export interface Settings {
   /** Remagnet Proxy origin, e.g. https://remagnet.example.com. */
   proxyBaseUrl: string;
   /** Proxy bearer token. Encrypted before it touches extension storage. */
   proxyToken: string;
+  /** Where the `.torrent` file picker opens. */
+  torrentFileSurface: TorrentFileSurface;
+  /** Whether a browser notification is shown when a download completes. */
+  downloadNotifications: boolean;
 }
 
 /** Settings that are safe to keep readable on disk. */
-type PublicSettings = Omit<Settings, "proxyToken">;
+export type PublicSettings = Omit<Settings, "proxyToken">;
 
 interface Secrets {
   proxyToken: string;
@@ -20,7 +26,11 @@ type StoredSettings = Partial<Settings>;
 
 const PUBLIC_DEFAULTS: PublicSettings = {
   proxyBaseUrl: "",
+  torrentFileSurface: "popup-window",
+  downloadNotifications: true,
 };
+
+const PUBLIC_KEYS = new Set(Object.keys(PUBLIC_DEFAULTS));
 
 const SECRET_DEFAULTS: Secrets = {
   proxyToken: "",
@@ -66,6 +76,17 @@ const secretsItem = storage.defineItem<EncryptedSecrets | null>("local:secrets",
 });
 
 /**
+ * Read non-secret preferences without opening IndexedDB or decrypting secrets.
+ *
+ * Useful for latency-sensitive UI actions like opening the `.torrent` upload
+ * surface from the toolbar popover.
+ */
+export async function getPublicSettings(): Promise<PublicSettings> {
+  const stored = (await settingsItem.getValue()) as StoredSettings;
+  return toPublicSettings(stored);
+}
+
+/**
  * Read settings with defaults filled in.
  *
  * Storage returns the stored object as-is, so settings written before a field
@@ -80,7 +101,7 @@ export async function getSettings(): Promise<Settings> {
   ]);
   const stored = storedValue as StoredSettings;
 
-  if (Object.keys(stored).some((key) => key !== "proxyBaseUrl")) {
+  if (Object.keys(stored).some((key) => !PUBLIC_KEYS.has(key))) {
     await settingsItem.setValue(toPublicSettings(stored));
   }
 
@@ -93,6 +114,23 @@ export async function saveSettings(values: Settings): Promise<void> {
   const encrypted = await encryptSecrets({ proxyToken: values.proxyToken });
   await settingsItem.setValue(toPublicSettings(values));
   await secretsItem.setValue(encrypted);
+}
+
+/**
+ * Update public preferences without touching the encrypted proxy token.
+ *
+ * Sign-out and sign-in both rewrite the secret item, so preference changes use
+ * this path to avoid re-encrypting a token they did not modify.
+ */
+export async function savePublicSettings(partial: Partial<PublicSettings>): Promise<Settings> {
+  const current = await getSettings();
+  const merged = toPublicSettings({
+    proxyBaseUrl: partial.proxyBaseUrl ?? current.proxyBaseUrl,
+    torrentFileSurface: partial.torrentFileSurface ?? current.torrentFileSurface,
+    downloadNotifications: partial.downloadNotifications ?? current.downloadNotifications,
+  });
+  await settingsItem.setValue(merged);
+  return { ...current, ...merged };
 }
 
 /** Both the proxy URL and token must be present before any request is made. */
@@ -164,7 +202,18 @@ function toPublicSettings(values: StoredSettings): PublicSettings {
   return {
     proxyBaseUrl:
       typeof values.proxyBaseUrl === "string" ? values.proxyBaseUrl : PUBLIC_DEFAULTS.proxyBaseUrl,
+    torrentFileSurface: isTorrentFileSurface(values.torrentFileSurface)
+      ? values.torrentFileSurface
+      : PUBLIC_DEFAULTS.torrentFileSurface,
+    downloadNotifications:
+      typeof values.downloadNotifications === "boolean"
+        ? values.downloadNotifications
+        : PUBLIC_DEFAULTS.downloadNotifications,
   };
+}
+
+function isTorrentFileSurface(value: unknown): value is TorrentFileSurface {
+  return value === "popup-window" || value === "tab";
 }
 
 async function encryptSecrets(secrets: Secrets): Promise<EncryptedSecrets> {

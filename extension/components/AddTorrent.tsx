@@ -16,6 +16,7 @@ import type { FlowStatus } from "./flow-status";
 import IssueReportDialog from "./IssueReportDialog";
 import MagnetForm from "./MagnetForm";
 import MagnetReview from "./MagnetReview";
+import TorrentFileUpload from "./TorrentFileUpload";
 import Wordmark from "./Wordmark";
 
 interface AddedState extends AddTorrentsResult {
@@ -29,6 +30,8 @@ export interface AddTorrentProps {
   embedded?: boolean;
   /** Focus the file chooser when `add.html?source=file` opens. */
   autoFocusFile?: boolean;
+  /** Show only the `.torrent` upload screen, without magnet entry. */
+  fileOnly?: boolean;
   /** Return to the torrent list, or close the add page. */
   onClose: () => void;
   /**
@@ -212,10 +215,14 @@ export default function AddTorrent(props: AddTorrentProps) {
     setReportContext(undefined);
   }
 
-  /** The popover hands file selection to a tab so the picker can stay open. */
-  function openFilePickerSurface() {
-    void openTorrentFileSurface();
-    window.close();
+  /** The popover hands file selection to a window or tab so the picker can stay open. */
+  async function openFilePickerSurface() {
+    try {
+      await openTorrentFileSurface();
+      window.close();
+    } catch (error) {
+      setStatus({ tone: "error", message: errorMessage(error) });
+    }
   }
 
   const body = (
@@ -225,18 +232,31 @@ export default function AddTorrent(props: AddTorrentProps) {
         <Show
           when={!editing() && (magnet() ?? torrentFile())}
           fallback={
-            <MagnetForm
-              draft={draft()}
-              status={status()}
-              canCancel={Boolean(magnetUri() || torrentFile())}
-              embedded={Boolean(props.embedded)}
-              autoFocusFile={Boolean(props.autoFocusFile)}
-              onDraftChange={setDraft}
-              onSubmit={applyDraft}
-              onCancel={() => setEditing(false)}
-              onFileSelect={(file) => void handleFileSelect(file)}
-              onOpenFilePickerSurface={props.embedded ? openFilePickerSurface : undefined}
-            />
+            <Show
+              when={props.fileOnly}
+              fallback={
+                <MagnetForm
+                  draft={draft()}
+                  status={status()}
+                  canCancel={Boolean(magnetUri() || torrentFile())}
+                  embedded={Boolean(props.embedded)}
+                  autoFocusFile={Boolean(props.autoFocusFile)}
+                  onDraftChange={setDraft}
+                  onSubmit={applyDraft}
+                  onCancel={() => setEditing(false)}
+                  onFileSelect={(file) => void handleFileSelect(file)}
+                  onOpenFilePickerSurface={props.embedded ? openFilePickerSurface : undefined}
+                />
+              }
+            >
+              <TorrentFileUpload
+                status={status()}
+                canCancel={Boolean(torrentFile())}
+                autoFocus={Boolean(props.autoFocusFile)}
+                onFileSelect={(file) => void handleFileSelect(file)}
+                onCancel={() => setEditing(false)}
+              />
+            </Show>
           }
         >
           <MagnetReview
@@ -282,6 +302,21 @@ export default function AddTorrent(props: AddTorrentProps) {
       />
     </>
   );
+
+  if (props.fileOnly) {
+    return (
+      <main class="add add-file">
+        <header class="add-header">
+          <Wordmark as="p" size="lg" surface="Upload .torrent" />
+          <button class="ghost" type="button" onClick={() => props.onClose()}>
+            Close
+          </button>
+        </header>
+        {body}
+        {reportControls}
+      </main>
+    );
+  }
 
   if (props.embedded) {
     return (

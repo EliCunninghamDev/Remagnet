@@ -11,6 +11,8 @@ extension/            Firefox (MV2) and Chrome (MV3) extension (WXT + SolidJS)
 android/              Android client (Kotlin + Jetpack Compose)
 packages/
   proxy-client/       TypeScript client generated from proxy/openapi.yaml
+  ui/                 Shared SolidJS components, styles and helpers
+  proxy-ui/           SolidJS administrator dashboard bundled into proxy/src/ui.html
 site/                 Lightweight static landing, privacy, and API reference pages
 demo/                 Scripted demo recording and mock proxy server
 docs/                 Generated README banner and demo media
@@ -51,28 +53,36 @@ bun install
 
 ## Commands
 
-| Command                   | Description                                                             |
-| ------------------------- | ----------------------------------------------------------------------- |
-| `bun run dev`             | Start WXT in dev mode (Chrome MV3)                                      |
-| `bun run dev:firefox`     | Start WXT in dev mode (Firefox MV2 — primary target)                    |
-| `bun run urls:firefox`    | Print dev extension popup, add, options, and gallery URLs               |
-| `bun run build`           | Production Chrome build                                                 |
-| `bun run build:firefox`   | Production Firefox build                                                |
-| `bun run zip`             | Package Chrome extension ZIP                                            |
-| `bun run zip:firefox`     | Package Firefox extension ZIP and AMO source ZIP                        |
-| `bun run test`            | Run Bun unit tests and Vitest UI component tests                        |
-| `bun run test:unit`       | Run Bun unit tests (`tokens`, `extension/lib`, `packages/proxy-client`) |
-| `bun run test:ui`         | Run Vitest + happy-dom extension component tests                        |
-| `bun run typecheck`       | Type-check all TypeScript workspaces                                    |
-| `bun run check`           | Lint and format check with Biome                                        |
-| `bun run check:write`     | Apply Biome fixes and formatting                                        |
-| `bun run api:generate`    | Regenerate TypeScript and Kotlin clients from `proxy/openapi.yaml`      |
-| `bun run banner:generate` | Regenerate `docs/remagnet-banner.svg` from `tokens.js`                  |
-| `bun run site:build`      | Build static landing site into `site/dist/`                             |
-| `bun run version:check`   | Verify all component versions match                                     |
-| `bun run version:set`     | Bump version across all manifests and lockfiles                         |
-| `bun run android:build`   | Build the debug Android APK                                             |
-| `bun run android:test`    | Run Android JVM unit tests                                              |
+| Command                        | Description                                                             |
+| ------------------------------ | ----------------------------------------------------------------------- |
+| `bun run dev`                  | Start WXT in dev mode (Chrome MV3)                                      |
+| `bun run dev:firefox`          | Start WXT in dev mode (Firefox MV2 — primary target)                    |
+| `bun run dev:client`           | Start the Transmission dev container (qBittorrent with `--client`)      |
+| `bun run dev:client:ephemeral` | Run an auto-cleaning dev stack in the foreground and seed fixtures      |
+| `bun run dev:proxy`            | Run the Rust proxy locally against the dev client                       |
+| `bun run dev:seed`             | Write deterministic `.torrent` fixtures into `.dev/dev-stack/fixtures`  |
+| `bun run dev:down`             | Stop dev containers, keeping volumes and `.dev/dev-stack`               |
+| `bun run dev:clean`            | Stop dev containers, delete volumes, and remove `.dev/dev-stack`        |
+| `bun run urls:firefox`         | Print dev extension popup, add, options, and gallery URLs               |
+| `bun run build`                | Production Chrome build                                                 |
+| `bun run build:firefox`        | Production Firefox build                                                |
+| `bun run proxy:ui:build`       | Build the SolidJS proxy dashboard into `proxy/src/ui.html`              |
+| `bun run proxy:ui:dev`         | Run the proxy dashboard with Vite against a local proxy                 |
+| `bun run zip`                  | Package Chrome extension ZIP                                            |
+| `bun run zip:firefox`          | Package Firefox extension ZIP and AMO source ZIP                        |
+| `bun run test`                 | Run Bun unit tests and Vitest UI component tests                        |
+| `bun run test:unit`            | Run Bun unit tests (`tokens`, `extension/lib`, `packages/proxy-client`) |
+| `bun run test:ui`              | Run Vitest + happy-dom extension and proxy dashboard component tests    |
+| `bun run typecheck`            | Type-check all TypeScript workspaces                                    |
+| `bun run check`                | Lint and format check with Biome                                        |
+| `bun run check:write`          | Apply Biome fixes and formatting                                        |
+| `bun run api:generate`         | Regenerate TypeScript and Kotlin clients from `proxy/openapi.yaml`      |
+| `bun run banner:generate`      | Regenerate `docs/remagnet-banner.svg` from `tokens.js`                  |
+| `bun run site:build`           | Build static landing site into `site/dist/`                             |
+| `bun run version:check`        | Verify all component versions match                                     |
+| `bun run version:set`          | Bump version across all manifests and lockfiles                         |
+| `bun run android:build`        | Build the debug Android APK                                             |
+| `bun run android:test`         | Run Android JVM unit tests                                              |
 
 ### Proxy commands
 
@@ -89,6 +99,50 @@ Before opening a pull request that touches `proxy/`:
 cargo fmt --manifest-path proxy/Cargo.toml --check
 cargo clippy --manifest-path proxy/Cargo.toml --all-targets -- -D warnings
 cargo test --manifest-path proxy/Cargo.toml
+```
+
+### Local torrent client (Docker)
+
+`compose.dev.yml` runs Transmission by default on loopback only. Docker and
+Docker Compose are required. Start the client and seed the offline fixtures:
+
+```bash
+bun run dev:client -- --seed
+bun run dev:proxy
+```
+
+The Transmission Web UI is at <http://127.0.0.1:19091> (no authentication on
+localhost). `--seed` writes deterministic `.torrent` files to
+`.dev/dev-stack/fixtures/` and pre-places the completed payload in the client's
+download directory, so adding `remagnet-dev-complete.torrent` reaches 100% and
+exercises ZIP streaming without network peers. `remagnet-dev-sample.torrent`
+has no payload and is useful for testing paused, uploading, and removal states.
+
+The client config volume, the proxy `DATA_DIR` (`proxy-data`), and the
+host-owned downloads directory persist across `bun run dev:down`. Use
+`bun run dev:clean` to delete the volumes and `.dev/dev-stack` as well.
+
+For a foreground stack that removes containers, volumes, and `.dev/dev-stack`
+when you press Ctrl+C:
+
+```bash
+bun run dev:client:ephemeral
+```
+
+Switch to qBittorrent (Web UI at <http://127.0.0.1:18080>, `admin` /
+`adminadmin`):
+
+```bash
+bun run dev:client -- --client qbittorrent --seed
+bun run dev:proxy -- --client qbittorrent
+```
+
+To run the proxy in a container, enable the `proxy` Compose profile. Set
+`DEV_CLIENT_KIND` and `DEV_CLIENT_BASE_URL` when the client is not the default
+Transmission service:
+
+```bash
+docker compose -f compose.dev.yml --profile proxy up -d --build
 ```
 
 ### Android commands

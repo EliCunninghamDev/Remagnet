@@ -303,7 +303,7 @@ async function main() {
     headers: { Authorization: `Bearer ${deviceToken}` },
   });
   assert.equal(bearerZipRes.status, 200);
-  await verifyZipPayload(new Uint8Array(await bearerZipRes.arrayBuffer()));
+  await verifyZipPayload(bearerZipRes);
 
   // 8b. Single-use ticket archive stream.
   const ticketRes = await jsonFetch<{ ticket: string; expiresIn: number }>(
@@ -319,7 +319,7 @@ async function main() {
     `${proxyBase}/archive/${ownedFixture.infoHash}?ticket=${encodeURIComponent(ticketRes.body.ticket)}`,
   );
   assert.equal(ticketZipRes.status, 200);
-  await verifyZipPayload(new Uint8Array(await ticketZipRes.arrayBuffer()));
+  await verifyZipPayload(ticketZipRes);
 
   const reusedTicketRes = await fetch(
     `${proxyBase}/archive/${ownedFixture.infoHash}?ticket=${encodeURIComponent(ticketRes.body.ticket)}`,
@@ -352,7 +352,13 @@ async function main() {
   console.log(`=== All ${client} integration checks passed ===\n`);
 }
 
-async function verifyZipPayload(zipBytes: Uint8Array) {
+async function verifyZipPayload(response: Response) {
+  const contentLength = response.headers.get("content-length");
+  assert.ok(contentLength, "Expected a Content-Length header on the ZIP response");
+
+  const zipBytes = new Uint8Array(await response.arrayBuffer());
+  assert.equal(Number(contentLength), zipBytes.byteLength);
+
   const entries = readStoredZip(zipBytes);
   assert.equal(entries.length, 1);
   assert.equal(entries[0].name, ownedFixture.name);
