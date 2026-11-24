@@ -6,9 +6,10 @@
 
 [![CI](https://github.com/EliCunninghamDev/Remagnet/actions/workflows/ci.yml/badge.svg)](https://github.com/EliCunninghamDev/Remagnet/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![Website](https://img.shields.io/badge/site-remagnet.app-blue.svg)](https://remagnet.app)
 
 A self-hosted torrent forwarding and download proxy for Firefox, Chrome, and
-Android.
+Android — [remagnet.app](https://remagnet.app) ([API reference](https://remagnet.app/api.html) · [Privacy](https://remagnet.app/privacy.html)).
 
 Click a `magnet:` link in Firefox, right-click one in Chrome, or tap/share one
 on Android to send it to your qBittorrent instance—then monitor progress and
@@ -143,7 +144,7 @@ itself.
 
 - **Local-first & zero telemetry:** Remagnet runs entirely on your devices and
   server, with no hosted accounts, analytics, or external requests. See
-  [`PRIVACY.md`](PRIVACY.md).
+  [`PRIVACY.md`](PRIVACY.md) or [remagnet.app/privacy.html](https://remagnet.app/privacy.html).
 - **Least-privilege tokens:** Devices receive scoped tokens that can only list,
   add, download, and remove torrents matching the proxy's configured
   category/tags—never admin settings or unrelated torrents in qBittorrent.

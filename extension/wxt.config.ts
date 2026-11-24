@@ -33,7 +33,9 @@ export default defineConfig({
   manifest: ({ manifestVersion, browser }) =>
     ({
       name: "Remagnet",
-      description: "Re-add magnet links to qBittorrent.",
+      description:
+        "Forward magnet links to your self-hosted Remagnet Proxy and stream completed torrents as ZIP archives.",
+      homepage_url: "https://remagnet.app",
       permissions: [
         "storage",
         "downloads",
@@ -63,10 +65,12 @@ export default defineConfig({
             ],
             browser_specific_settings: {
               gecko: {
-                // Stable ID keeps the moz-extension:// UUID and extension storage
-                // consistent across dev reloads.
-                id: "remagnet@localhost",
+                // Permanent AMO add-on ID tied to remagnet.app.
+                id: "extension@remagnet.app",
                 strict_min_version: "140.0",
+                data_collection_permissions: {
+                  required: ["none"],
+                },
               },
             },
           }

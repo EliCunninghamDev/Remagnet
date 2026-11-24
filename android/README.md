@@ -217,7 +217,7 @@ notification both track the same state:
   names the running download instead of queueing silently.
 
 Archives are written to the app-specific external Downloads folder,
-`Android/data/dev.remagnet.app/files/Download/Remagnet/`, under a sanitized,
+`Android/data/app.remagnet/files/Download/Remagnet/`, under a sanitized,
 unique name. That location needs no storage permission and is removed when the
 app is uninstalled. On Android 13 and newer the app asks for notification
 permission the first time a download starts; a download still runs if the user
@@ -438,7 +438,7 @@ Install and launch:
 
 ```bash
 ./gradlew :app:installDebug
-adb shell am start -n dev.remagnet.app/.MainActivity
+adb shell am start -n app.remagnet/dev.remagnet.app.MainActivity
 ```
 
 The emulator reaches services on the host at `10.0.2.2`. Cleartext HTTP is
@@ -454,7 +454,7 @@ adb reverse tcp:8080 tcp:8080
 To inspect stored settings without printing secrets:
 
 ```bash
-adb shell run-as dev.remagnet.app cat shared_prefs/remagnet.settings.xml
+adb shell run-as app.remagnet cat shared_prefs/remagnet.settings.xml
 ```
 
 The public JSON is readable; the secret value is Base64 ciphertext.

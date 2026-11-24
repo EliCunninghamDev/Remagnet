@@ -15,7 +15,7 @@ await rm(distDir, { recursive: true, force: true });
 await mkdir(join(distDir, "assets/fonts"), { recursive: true });
 await mkdir(join(distDir, "assets/icon"), { recursive: true });
 
-for (const page of ["index.html", "privacy.html", "api.html", "styles.css"]) {
+for (const page of ["CNAME", "index.html", "privacy.html", "api.html", "styles.css"]) {
   await cp(join(srcDir, page), join(distDir, page));
 }
 

@@ -523,6 +523,12 @@ export default function App() {
         <span class="sep" aria-hidden="true">
           ·
         </span>
+        <a href="https://remagnet.app" target="_blank" rel="noreferrer">
+          Website
+        </a>
+        <span class="sep" aria-hidden="true">
+          ·
+        </span>
         <a href="https://github.com/EliCunninghamDev/Remagnet" target="_blank" rel="noreferrer">
           GitHub
         </a>
@@ -539,11 +545,7 @@ export default function App() {
         <span class="sep" aria-hidden="true">
           ·
         </span>
-        <a
-          href="https://github.com/EliCunninghamDev/Remagnet/blob/main/PRIVACY.md"
-          target="_blank"
-          rel="noreferrer"
-        >
+        <a href="https://remagnet.app/privacy.html" target="_blank" rel="noreferrer">
           Privacy
         </a>
         <span class="sep" aria-hidden="true">

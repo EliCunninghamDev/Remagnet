@@ -20,7 +20,7 @@ function linkHref(target: EventTarget | null): string | null {
  * gets no all-sites content script.
  */
 export default defineContentScript({
-  matches: ["*://*/*", "file:///*"],
+  matches: ["http://*/*", "https://*/*"],
   runAt: "document_start",
   main() {
     let hovered: string | null = null;

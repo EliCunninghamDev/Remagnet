@@ -2,8 +2,7 @@
 #
 # Gson reads field names at runtime, so classes and fields that are not
 # annotated with @SerializedName must survive shrinking and obfuscation. The
-# generated proxy models carry @SerializedName on every field; the qBittorrent
-# DTO uses the API's own field names and has no annotations.
+# generated proxy models carry @SerializedName on every field.
 
 # Gson needs annotations and the generic signatures on its model classes.
 -keepattributes Signature, InnerClasses, EnclosingMethod
@@ -13,11 +12,6 @@
 # Keep annotated fields under their serialized names, in any class.
 -keepclassmembers,allowobfuscation class * {
     @com.google.gson.annotations.SerializedName <fields>;
-}
-
-# The qBittorrent response object is deserialized by field name.
--keepclassmembers class dev.remagnet.app.client.QBittorrentClient$TorrentDto {
-    <fields>;
 }
 
 # The generated Retrofit models are small and reflection-driven.

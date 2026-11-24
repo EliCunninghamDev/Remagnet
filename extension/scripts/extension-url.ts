@@ -10,7 +10,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-const EXTENSION_ID = "remagnet@localhost";
+const EXTENSION_ID = "extension@remagnet.app";
 const prefsPath = fileURLToPath(new URL("../.dev/firefox-profile/prefs.js", import.meta.url));
 
 if (!existsSync(prefsPath)) {

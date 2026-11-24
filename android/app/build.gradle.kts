@@ -28,7 +28,7 @@ android {
     compileSdkMinor = 2
 
     defaultConfig {
-        applicationId = "dev.remagnet.app"
+        applicationId = "app.remagnet"
         minSdk = 26
         targetSdk = 36
         versionCode = releaseVersionCode ?: 1
