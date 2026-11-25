@@ -14,7 +14,7 @@
     },
     "extension": {
       "name": "@remagnet/extension",
-      "version": "0.4.0",
+      "version": "0.5.0",
       "dependencies": {
         "@remagnet/proxy-client": "workspace:*",
         "@remagnet/ui": "workspace:*",
@@ -33,14 +33,14 @@
     },
     "packages/proxy-client": {
       "name": "@remagnet/proxy-client",
-      "version": "0.4.0",
+      "version": "0.5.0",
       "dependencies": {
         "openapi-fetch": "^0.17.0",
       },
     },
     "packages/proxy-ui": {
       "name": "@remagnet/proxy-ui",
-      "version": "0.4.0",
+      "version": "0.5.0",
       "dependencies": {
         "@remagnet/proxy-client": "workspace:*",
         "@remagnet/ui": "workspace:*",
@@ -59,7 +59,7 @@
     },
     "packages/ui": {
       "name": "@remagnet/ui",
-      "version": "0.4.0",
+      "version": "0.5.0",
       "dependencies": {
         "solid-js": "^1.9.20",
       },
