@@ -1,8 +1,8 @@
+import { isTorrentComplete } from "@remagnet/ui/lib/torrents";
 import { browser } from "wxt/browser";
 import { storage } from "wxt/utils/storage";
 import { openToolbarPopup } from "./action-popup";
 import { completionTransitions, type WatchState } from "./completion";
-import { COMPLETE_PROGRESS } from "./messages";
 import { getSettings, isProxyConfigured } from "./settings";
 import { getTorrent, listTorrents } from "./torrent-service";
 import type { TorrentSummary } from "./torrents";
@@ -82,7 +82,7 @@ export async function trackAddedHashes(hashes: string[]): Promise<void> {
     if (hash in state) continue;
     try {
       const torrent = await getTorrent(hash);
-      state[hash] = torrent && torrent.progress >= COMPLETE_PROGRESS ? "complete" : "incomplete";
+      state[hash] = torrent && isTorrentComplete(torrent) ? "complete" : "incomplete";
       changed = true;
     } catch (error) {
       console.warn("[remagnet] could not track added torrent", hash, error);

@@ -8,6 +8,10 @@ export type AddSurfaceMode = TorrentFileSurface;
 
 export const DEFAULT_ADD_SURFACE_MODE: AddSurfaceMode = "popup-window";
 
+/** Compact window size for the `.torrent` file picker surface. */
+const ADD_FILE_WINDOW_WIDTH = 460;
+const ADD_FILE_WINDOW_HEIGHT = 560;
+
 /**
  * Open the full add page for choosing `.torrent` files.
  *
@@ -20,7 +24,12 @@ export async function openTorrentFileSurface(mode?: AddSurfaceMode): Promise<voi
   const url = browser.runtime.getURL("/add.html?source=file");
 
   if (surface === "popup-window" && browser.windows?.create) {
-    await browser.windows.create({ url, type: "popup", width: 460, height: 560 });
+    await browser.windows.create({
+      url,
+      type: "popup",
+      width: ADD_FILE_WINDOW_WIDTH,
+      height: ADD_FILE_WINDOW_HEIGHT,
+    });
     return;
   }
 

@@ -40,7 +40,8 @@ export function startContextMenu(): void {
     void browser.runtime.lastError;
   });
 
-  browser.runtime.onMessage.addListener((message) => {
+  browser.runtime.onMessage.addListener((message, sender) => {
+    if (sender.id !== browser.runtime.id) return;
     if (!isContextLinkMessage(message)) return;
     menus.update(MENU_ID, { visible: isMagnetLink(message.href) }, () => {
       void browser.runtime.lastError;

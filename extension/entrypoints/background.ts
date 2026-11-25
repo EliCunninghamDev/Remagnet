@@ -4,6 +4,7 @@ import {
   proxyError,
   toProxyError,
 } from "@remagnet/proxy-client";
+import { isTorrentComplete } from "@remagnet/ui/lib/torrents";
 import { browser } from "wxt/browser";
 import { defineBackground } from "wxt/utils/define-background";
 import { archiveFilename } from "../lib/archive";
@@ -14,9 +15,9 @@ import {
   type ArchiveDownloadResult,
   type BackgroundRequest,
   type BackgroundResponse,
-  COMPLETE_PROGRESS,
   type ConnectionTestResult,
   isBackgroundRequest,
+  isTrustedExtensionSender,
   type RemoveTorrentsResult,
   type TorrentListResult,
   type TorrentLookupResult,
@@ -45,8 +46,10 @@ import {
  */
 export default defineBackground(() => {
   restrictSettingsStorageAccess();
+  const extensionOrigin = browser.runtime.getURL("");
 
-  browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (!isTrustedExtensionSender(sender, browser.runtime.id, extensionOrigin)) return false;
     if (!isBackgroundRequest(message)) return false;
 
     void handleRequest(message).then(sendResponse);
@@ -121,7 +124,7 @@ async function downloadArchive(hash: string, name?: string): Promise<ArchiveDown
 
   const torrent = await getTorrent(hash);
   if (!torrent) throw new Error("That torrent is no longer in the client.");
-  if (torrent.progress < COMPLETE_PROGRESS) {
+  if (!isTorrentComplete(torrent)) {
     throw new Error("Only completed torrents can be downloaded as a ZIP.");
   }
 

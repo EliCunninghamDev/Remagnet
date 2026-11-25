@@ -1,3 +1,4 @@
+import { normalizeBaseUrl } from "@remagnet/proxy-client";
 import { browser } from "wxt/browser";
 import { storage } from "wxt/utils/storage";
 
@@ -64,6 +65,13 @@ interface EncryptedSecrets {
 const KEY_DATABASE = "remagnet-credentials";
 const KEY_STORE = "keys";
 const KEY_ID = "settings";
+
+/** Shortest proxy token accepted by the validator. */
+const MIN_PROXY_TOKEN_LENGTH = 16;
+/** AES-GCM nonce length in bytes; 96 bits is the WebCrypto default and best practice. */
+const GCM_IV_BYTES = 12;
+/** AES key length in bits for the credential vault. */
+const AES_KEY_BITS = 256;
 
 let keyPromise: Promise<CryptoKey> | undefined;
 
@@ -166,7 +174,8 @@ export function validateProxySettings(settings: Settings): string | null {
 
   if (!baseUrl) return "Enter the Remagnet Proxy URL.";
   if (!token) return "Enter the Remagnet Proxy token.";
-  if (token.length < 16) return "The Remagnet Proxy token must be at least 16 characters.";
+  if (token.length < MIN_PROXY_TOKEN_LENGTH)
+    return "The Remagnet Proxy token must be at least 16 characters.";
 
   return validateProxyBaseUrl(baseUrl);
 }
@@ -177,7 +186,7 @@ export function requireProxySettings(settings: Settings): ProxySettings {
   if (error) throw new Error(error);
 
   return {
-    baseUrl: settings.proxyBaseUrl.trim().replace(/\/+$/, ""),
+    baseUrl: normalizeBaseUrl(settings.proxyBaseUrl),
     token: settings.proxyToken.trim(),
   };
 }
@@ -218,7 +227,7 @@ function isTorrentFileSurface(value: unknown): value is TorrentFileSurface {
 
 async function encryptSecrets(secrets: Secrets): Promise<EncryptedSecrets> {
   const key = await encryptionKey();
-  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const iv = crypto.getRandomValues(new Uint8Array(GCM_IV_BYTES));
   const plaintext = new TextEncoder().encode(JSON.stringify(secrets));
   const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, plaintext);
   return {
@@ -263,7 +272,7 @@ async function loadOrCreateKey(): Promise<CryptoKey> {
     const existing = await readKey(db);
     if (existing) return existing;
 
-    const key = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, false, [
+    const key = await crypto.subtle.generateKey({ name: "AES-GCM", length: AES_KEY_BITS }, false, [
       "encrypt",
       "decrypt",
     ]);

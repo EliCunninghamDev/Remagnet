@@ -1,4 +1,4 @@
-import { describeNetworkError, ProxyHttpError } from "@remagnet/proxy-client";
+import { describeNetworkError, isLoopbackHost, ProxyHttpError } from "@remagnet/proxy-client";
 
 /** Connection details returned by a successful pairing claim. */
 export interface PairedSettings {
@@ -18,6 +18,13 @@ interface EncryptedPayload {
 }
 
 const CONTEXT = new TextEncoder().encode("remagnet-pair-v1");
+
+/** Length of the pairing secret in bytes (256-bit code). */
+const PAIRING_SECRET_BYTES = 32;
+/** Wire version of the encrypted pairing payload. */
+const PAIRING_PAYLOAD_VERSION = 2;
+/** How long a pairing claim may take before the request is aborted. */
+const PAIRING_CLAIM_TIMEOUT_MS = 15_000;
 
 /**
  * Parse the `remagnet://pair` link copied from the Remagnet Proxy page.
@@ -65,7 +72,7 @@ export async function claimPairing(
   deviceName?: string,
 ): Promise<PairedSettings> {
   const secret = decode(link.code);
-  if (secret.length !== 32) {
+  if (secret.length !== PAIRING_SECRET_BYTES) {
     throw new Error("The pairing code is malformed. Show a new code and copy it again.");
   }
 
@@ -107,7 +114,7 @@ export async function claimPairing(
     throw new Error("The Remagnet Proxy returned unreadable connection settings.");
   }
 
-  if (payload.version !== 2) {
+  if (payload.version !== PAIRING_PAYLOAD_VERSION) {
     throw new Error(
       "This pairing response uses an unsupported version. Update the Remagnet Proxy or the extension and try again.",
     );
@@ -138,8 +145,7 @@ function normalizeOrigin(raw: string | null): string {
     throw new Error("The pairing URL must not contain credentials.");
   }
 
-  const loopback = ["127.0.0.1", "localhost", "[::1]", "10.0.2.2"].includes(url.hostname);
-  if (url.protocol !== "https:" && !loopback) {
+  if (url.protocol !== "https:" && !isLoopbackHost(url.hostname)) {
     throw new Error(
       "Pairing needs an HTTPS Remagnet Proxy URL. Put the proxy behind HTTPS and try again.",
     );
@@ -183,7 +189,7 @@ function claimRequest(link: PairingLink, proof: string, deviceName?: string): Pr
       ...(deviceName ? { deviceName } : {}),
     }),
     cache: "no-store",
-    signal: AbortSignal.timeout(15_000),
+    signal: AbortSignal.timeout(PAIRING_CLAIM_TIMEOUT_MS),
   });
 }
 

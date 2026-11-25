@@ -1,15 +1,18 @@
+import {
+  errorMessage,
+  type IssueReportContext,
+  issueContextFromError,
+  isTorrentComplete,
+} from "@remagnet/ui";
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { browser } from "wxt/browser";
 import AddTorrent from "../../components/AddTorrent";
 import IssueReportDialog from "../../components/IssueReportDialog";
 import PopupList from "../../components/PopupList";
 import Wordmark from "../../components/Wordmark";
-import type { IssueReportContext } from "../../lib/issue-report";
 import { parseMagnet } from "../../lib/magnet";
 import {
   type ArchiveDownloadResult,
-  BackgroundError,
-  COMPLETE_PROGRESS,
   type RemoveTorrentsResult,
   sendBackgroundMessage,
   type TorrentListResult,
@@ -59,7 +62,7 @@ export default function App() {
     let timer: number | undefined;
 
     const schedule = () => {
-      const active = torrents().some((torrent) => torrent.progress < COMPLETE_PROGRESS);
+      const active = torrents().some((torrent) => !isTorrentComplete(torrent));
       timer = window.setTimeout(poll, active ? ACTIVE_REFRESH_MS : IDLE_REFRESH_MS);
     };
 
@@ -163,7 +166,7 @@ export default function App() {
         console.warn("[remagnet] background refresh failed", cause);
       } else {
         setError(errorMessage(cause));
-        setErrorContext(issueContext(cause, "Listing torrents"));
+        setErrorContext(issueContextFromError(cause, "Listing torrents"));
       }
     } finally {
       refreshing = false;
@@ -195,7 +198,7 @@ export default function App() {
       });
     } catch (cause) {
       setActionError(errorMessage(cause));
-      setErrorContext(issueContext(cause, "Downloading ZIP"));
+      setErrorContext(issueContextFromError(cause, "Downloading ZIP"));
     } finally {
       setDownloading();
     }
@@ -215,7 +218,7 @@ export default function App() {
       setConfirmingRemove();
     } catch (cause) {
       setActionError(errorMessage(cause));
-      setErrorContext(issueContext(cause, "Removing torrent"));
+      setErrorContext(issueContextFromError(cause, "Removing torrent"));
     } finally {
       setRemoving();
     }
@@ -293,18 +296,4 @@ export default function App() {
       />
     </main>
   );
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-/** Keep the proxy's code and status alongside the user-facing message. */
-function issueContext(cause: unknown, action: string): IssueReportContext {
-  const context: IssueReportContext = { action, message: errorMessage(cause) };
-  if (cause instanceof BackgroundError) {
-    if (cause.code) context.code = cause.code;
-    if (cause.status !== undefined) context.status = cause.status;
-  }
-  return context;
 }

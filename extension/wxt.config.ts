@@ -6,6 +6,7 @@ import { defineConfig, type UserManifest } from "wxt";
 // exists, so create it before the runner starts. Reusing one profile in dev
 // keeps granted host access and extension settings across restarts.
 const firefoxProfile = fileURLToPath(new URL(".dev/firefox-profile", import.meta.url));
+const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 mkdirSync(firefoxProfile, { recursive: true });
 
 export default defineConfig({
@@ -14,20 +15,47 @@ export default defineConfig({
     firefoxProfile,
     keepProfileChanges: true,
   },
+  // Bundle the full workspace subset required to run
+  // `bun install --frozen-lockfile && bun run build:firefox` for AMO source
+  // review, while keeping unrelated subprojects (android, proxy, demo, site)
+  // and build/dev caches out of the archive.
+  zip: {
+    name: "remagnet",
+    sourcesRoot: repoRoot,
+    includeSources: [
+      "package.json",
+      "bun.lock",
+      "bunfig.toml",
+      "tsconfig.base.json",
+      "tokens.js",
+      "tokens.d.ts",
+      "LICENSE",
+      "PRIVACY.md",
+      "README.md",
+      "extension/**",
+      "packages/**",
+    ],
+    excludeSources: [
+      "**/node_modules/**",
+      "extension/.dev/**",
+      "extension/.output/**",
+      "extension/.wxt/**",
+      "packages/*/dist/**",
+    ],
+  },
   hooks: {
-    // The gallery is a development aid. Keep it out of packaged builds unless
-    // explicitly requested with REMAGNET_GALLERY=1 (useful for design review
-    // against an installed build).
+    // The gallery is a development aid; keep it out of packaged builds unless
+    // explicitly requested with REMAGNET_GALLERY=1. The link context-menu
+    // content script is Chrome-only; Firefox uses the `magnet:` protocol
+    // handler and should neither declare nor bundle an all-sites script.
     "entrypoints:resolved": (wxt, entrypoints) => {
-      if (wxt.config.command !== "build" || process.env.REMAGNET_GALLERY === "1") return;
+      const skipGallery = wxt.config.command === "build" && process.env.REMAGNET_GALLERY !== "1";
+      const skipContextLink = wxt.config.browser === "firefox";
+
       for (const entrypoint of entrypoints) {
-        if (entrypoint.name === "gallery") entrypoint.skipped = true;
+        if (skipGallery && entrypoint.name === "gallery") entrypoint.skipped = true;
+        if (skipContextLink && entrypoint.name === "context-link") entrypoint.skipped = true;
       }
-    },
-    // The link context menu is Chrome-only; Firefox has a `magnet:` protocol
-    // handler and should not ask for access to every page just to filter it.
-    "build:manifestGenerated": (_wxt, manifest) => {
-      if (manifest.manifest_version === 2) delete manifest.content_scripts;
     },
   },
   manifest: ({ manifestVersion, browser }) =>
@@ -51,7 +79,12 @@ export default defineConfig({
       // optional permissions, so use `*://*/*` explicitly.
       ...(manifestVersion === 2
         ? { optional_permissions: ["*://*/*"] }
-        : { optional_host_permissions: ["*://*/*"] }),
+        : {
+            optional_host_permissions: ["*://*/*"],
+            // Programmatic `chrome.action.openPopup()` from context menu clicks
+            // requires Chrome 127+.
+            minimum_chrome_version: "127",
+          }),
       ...(browser === "firefox"
         ? {
             // Firefox can register the extension itself as the magnet handler.
@@ -67,7 +100,10 @@ export default defineConfig({
               gecko: {
                 // Permanent AMO add-on ID tied to remagnet.app.
                 id: "extension@remagnet.app",
-                strict_min_version: "140.0",
+                // 142.0+ supports `data_collection_permissions` across both
+                // Firefox Desktop and Firefox for Android (silencing web-ext
+                // lint's Android min-version warning).
+                strict_min_version: "142.0",
                 data_collection_permissions: {
                   required: ["none"],
                 },

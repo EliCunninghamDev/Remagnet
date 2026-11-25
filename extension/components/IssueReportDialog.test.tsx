@@ -99,6 +99,7 @@ describe("IssueReportDialog", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Copy diagnostics" }));
     await Promise.resolve();
+    await Promise.resolve();
 
     expect(writeText).toHaveBeenCalledOnce();
     expect(writeText.mock.calls[0]?.[0]).toContain("Action: Listing torrents");
@@ -117,6 +118,7 @@ describe("IssueReportDialog", () => {
     renderDialog();
 
     fireEvent.click(screen.getByRole("button", { name: "Copy diagnostics" }));
+    await Promise.resolve();
     await Promise.resolve();
 
     expect(screen.getByRole("button", { name: "Copy blocked" })).toBeTruthy();

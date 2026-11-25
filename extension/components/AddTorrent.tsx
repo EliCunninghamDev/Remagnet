@@ -1,10 +1,9 @@
+import { errorMessage, type IssueReportContext, issueContextFromError } from "@remagnet/ui";
 import { createMemo, createSignal, onMount, Show } from "solid-js";
 import { openTorrentFileSurface } from "../lib/add-surface";
-import type { IssueReportContext } from "../lib/issue-report";
 import { isMagnetLink, type MagnetLink, magnetLabel, parseMagnet } from "../lib/magnet";
 import {
   type AddTorrentsResult,
-  BackgroundError,
   type BackgroundRequest,
   sendBackgroundMessage,
   type TorrentLookupResult,
@@ -197,7 +196,7 @@ export default function AddTorrent(props: AddTorrentProps) {
       setStatus({ tone: "ok", message: `Sent “${name}” to Remagnet Proxy.` });
     } catch (error) {
       setStatus({ tone: "error", message: errorMessage(error) });
-      setReportContext(issueContext(error, "Adding torrent"));
+      setReportContext(issueContextFromError(error, "Adding torrent"));
     } finally {
       setBusy(false);
     }
@@ -343,17 +342,4 @@ export default function AddTorrent(props: AddTorrentProps) {
       {reportControls}
     </main>
   );
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function issueContext(cause: unknown, action: string): IssueReportContext {
-  const context: IssueReportContext = { action, message: errorMessage(cause) };
-  if (cause instanceof BackgroundError) {
-    if (cause.code) context.code = cause.code;
-    if (cause.status !== undefined) context.status = cause.status;
-  }
-  return context;
 }

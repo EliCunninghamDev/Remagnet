@@ -24,6 +24,7 @@
     "build:firefox": "bun run --cwd extension build:firefox",
     "zip": "bun run --cwd extension zip",
     "zip:firefox": "bun run --cwd extension zip:firefox",
+    "lint:firefox": "bun run --cwd extension lint:firefox",
     "version:check": "bun run scripts/version.ts check",
     "version:set": "bun run scripts/version.ts set",
     "test": "bun run test:unit && bun run test:ui",

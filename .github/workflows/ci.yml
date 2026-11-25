@@ -82,6 +82,20 @@ jobs:
       - name: Package Firefox extension
         run: bun run zip:firefox
 
+      - name: Lint Firefox extension
+        env:
+          NO_UPDATE_NOTIFIER: "1"
+        run: bun run lint:firefox
+
+      - name: Verify Firefox AMO source archive
+        run: |
+          sources_zip="$(ls extension/.output/*-sources.zip)"
+          workdir="$(mktemp -d)"
+          unzip -q "$sources_zip" -d "$workdir"
+          (cd "$workdir" && bun install --frozen-lockfile && bun run build:firefox)
+          diff -rq "$workdir/extension/.output/firefox-mv2" extension/.output/firefox-mv2
+          rm -rf "$workdir"
+
       - name: Upload Firefox package
         uses: actions/upload-artifact@v4
         with:

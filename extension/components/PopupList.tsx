@@ -1,3 +1,4 @@
+import { COUNT_BADGE_MIN } from "@remagnet/ui";
 import { Index, Show } from "solid-js";
 import type { TorrentSummary } from "../lib/torrents";
 import TorrentCard from "./TorrentCard";
@@ -46,7 +47,7 @@ export default function PopupList(props: PopupListProps) {
         <div class="header-text">
           <div class="title-row">
             <Wordmark as="h1" title={wordmarkTitle()} />
-            <Show when={props.torrents.length >= 2}>
+            <Show when={props.torrents.length >= COUNT_BADGE_MIN}>
               <span class="count-badge mono">{props.torrents.length}</span>
             </Show>
           </div>

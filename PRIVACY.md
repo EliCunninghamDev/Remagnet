@@ -91,7 +91,8 @@ to open GitHub, open your email client, or copy the text yourself.
   link. Access used to call the Remagnet Proxy is optional and requested only for
   the proxy origin you enter.
 - **Camera** (Android) is used only while you are scanning a pairing QR code.
-- **Notifications** (Android) reports magnet additions and download progress.
+- **Notifications** (Extension & Android) reports torrent completion and
+  download progress.
 - **Network access** (Android) reaches your Remagnet Proxy.
 
 Remagnet does not use this access to build a history, profile you, or request

@@ -1,4 +1,4 @@
-import { COMPLETE_PROGRESS } from "./messages";
+import { isTorrentComplete } from "@remagnet/ui/lib/torrents";
 import type { TorrentSummary } from "./torrents";
 
 /** Per-hash memory of whether the monitor last saw a torrent in progress. */
@@ -18,7 +18,7 @@ export function completionTransitions(
   const completed: TorrentSummary[] = [];
 
   for (const torrent of torrents) {
-    const isComplete = torrent.progress >= COMPLETE_PROGRESS;
+    const isComplete = isTorrentComplete(torrent);
     next[torrent.hash] = isComplete ? "complete" : "incomplete";
 
     if (isComplete && previous[torrent.hash] === "incomplete") {

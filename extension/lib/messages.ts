@@ -88,6 +88,25 @@ export async function sendBackgroundMessage<T>(request: BackgroundRequest): Prom
   return response.data;
 }
 
+export interface MessageSenderLike {
+  id?: string;
+  url?: string;
+}
+
+/**
+ * Privileged background requests must originate from an extension-owned page
+ * (popup, options, or add), never from a content script running in a web page
+ * or an external sender.
+ */
+export function isTrustedExtensionSender(
+  sender: MessageSenderLike | undefined,
+  extensionId: string,
+  extensionOrigin: string,
+): boolean {
+  if (!sender || !extensionId || !extensionOrigin) return false;
+  return sender.id === extensionId && Boolean(sender.url?.startsWith(extensionOrigin));
+}
+
 export function isBackgroundRequest(value: unknown): value is BackgroundRequest {
   if (typeof value !== "object" || value === null) return false;
 
