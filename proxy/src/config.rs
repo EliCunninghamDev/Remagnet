@@ -12,6 +12,8 @@ use crate::backend::ClientKind;
 
 pub const DEFAULT_QBIT_BASE_URL: &str = "http://gluetun:8080";
 pub const DEFAULT_TRANSMISSION_BASE_URL: &str = "http://transmission:9091";
+pub const DEFAULT_DELUGE_BASE_URL: &str = "http://deluge:8112";
+pub const DEFAULT_RTORRENT_BASE_URL: &str = "http://rtorrent:8000";
 
 fn default_category() -> String {
     "remagnet".to_string()
@@ -80,19 +82,10 @@ impl ConfigEnv {
 
         Self {
             client_kind,
-            base_url: resolve_default_base_url(
-                client_kind,
-                env_non_empty("CLIENT_BASE_URL")
-                    .or_else(|| env_non_empty("QBIT_BASE_URL"))
-                    .or_else(|| env_non_empty("TRANSMISSION_BASE_URL")),
-            ),
+            base_url: resolve_default_base_url(client_kind, env_base_url()),
             api_key: env::var("QBIT_API_KEY").unwrap_or_default(),
-            username: env_non_empty("CLIENT_USERNAME")
-                .or_else(|| env::var("QBIT_USERNAME").ok())
-                .unwrap_or_default(),
-            password: env_non_empty("CLIENT_PASSWORD")
-                .or_else(|| env::var("QBIT_PASSWORD").ok())
-                .unwrap_or_default(),
+            username: env_username().unwrap_or_default(),
+            password: env_password().unwrap_or_default(),
             downloads_dir: env::var("DOWNLOADS_DIR").unwrap_or_default(),
             client_downloads_dir: env::var("CLIENT_DOWNLOADS_DIR").unwrap_or_default(),
             default_category,
@@ -105,6 +98,27 @@ fn env_non_empty(name: &str) -> Option<String> {
     env::var(name).ok().filter(|value| !value.trim().is_empty())
 }
 
+/// The first non-empty base URL supplied by the environment.
+fn env_base_url() -> Option<String> {
+    env_non_empty("CLIENT_BASE_URL")
+        .or_else(|| env_non_empty("QBIT_BASE_URL"))
+        .or_else(|| env_non_empty("TRANSMISSION_BASE_URL"))
+        .or_else(|| env_non_empty("DELUGE_BASE_URL"))
+        .or_else(|| env_non_empty("RTORRENT_BASE_URL"))
+}
+
+/// The first non-empty username supplied by the environment.
+fn env_username() -> Option<String> {
+    env_non_empty("CLIENT_USERNAME").or_else(|| env_non_empty("QBIT_USERNAME"))
+}
+
+/// The first non-empty password supplied by the environment.
+fn env_password() -> Option<String> {
+    env_non_empty("CLIENT_PASSWORD")
+        .or_else(|| env_non_empty("QBIT_PASSWORD"))
+        .or_else(|| env_non_empty("DELUGE_PASSWORD"))
+}
+
 /// Pick the bootstrap URL for the configured client kind.
 ///
 /// Transmission often runs without authentication on a private network, so its
@@ -113,6 +127,8 @@ fn resolve_default_base_url(client_kind: ClientKind, explicit: Option<String>) -
     explicit.unwrap_or_else(|| match client_kind {
         ClientKind::Qbittorrent => DEFAULT_QBIT_BASE_URL.to_string(),
         ClientKind::Transmission => DEFAULT_TRANSMISSION_BASE_URL.to_string(),
+        ClientKind::Deluge => DEFAULT_DELUGE_BASE_URL.to_string(),
+        ClientKind::Rtorrent => DEFAULT_RTORRENT_BASE_URL.to_string(),
     })
 }
 
@@ -137,9 +153,7 @@ pub struct EnvOverrides {
 
 impl EnvOverrides {
     pub fn from_env() -> Result<Self> {
-        let base_url = env_non_empty("CLIENT_BASE_URL")
-            .or_else(|| env_non_empty("QBIT_BASE_URL"))
-            .or_else(|| env_non_empty("TRANSMISSION_BASE_URL"))
+        let base_url = env_base_url()
             .map(|raw| normalize_base_url(&raw))
             .transpose()
             .map_err(anyhow::Error::msg)?;
@@ -149,10 +163,8 @@ impl EnvOverrides {
                 .and_then(|value| ClientKind::from_str_loose(&value)),
             base_url,
             api_key: env_non_empty("QBIT_API_KEY").map(|value| value.trim().to_string()),
-            username: env_non_empty("CLIENT_USERNAME")
-                .or_else(|| env_non_empty("QBIT_USERNAME"))
-                .map(|value| value.trim().to_string()),
-            password: env_non_empty("CLIENT_PASSWORD").or_else(|| env_non_empty("QBIT_PASSWORD")),
+            username: env_username().map(|value| value.trim().to_string()),
+            password: env_password(),
             downloads_dir: env_non_empty("DOWNLOADS_DIR").map(|value| value.trim().to_string()),
             client_downloads_dir: env_non_empty("CLIENT_DOWNLOADS_DIR")
                 .map(|value| value.trim().to_string()),
@@ -205,15 +217,17 @@ impl EnvOverrides {
     pub fn apply_to(&self, config: &mut Config) {
         if let Some(kind) = self.client_kind {
             // Switching clients through the environment should also move off
-            // the previous client's built-in URL, unless a URL was supplied.
-            if self.base_url.is_none() {
-                let previous_default = match kind {
-                    ClientKind::Qbittorrent => DEFAULT_TRANSMISSION_BASE_URL,
-                    ClientKind::Transmission => DEFAULT_QBIT_BASE_URL,
-                };
-                if config.base_url == previous_default {
-                    config.base_url = resolve_default_base_url(kind, None);
-                }
+            // any built-in URL, unless a URL was supplied.
+            if self.base_url.is_none()
+                && matches!(
+                    config.base_url.as_str(),
+                    DEFAULT_QBIT_BASE_URL
+                        | DEFAULT_TRANSMISSION_BASE_URL
+                        | DEFAULT_DELUGE_BASE_URL
+                        | DEFAULT_RTORRENT_BASE_URL
+                )
+            {
+                config.base_url = resolve_default_base_url(kind, None);
             }
             config.client_kind = kind;
         }
@@ -276,10 +290,10 @@ pub struct ConfigUpdate {
 pub struct PublicConfig {
     pub client_kind: ClientKind,
     pub base_url: String,
-    /// Kept for the Step 1 page and older clients; the same value as `baseUrl`.
+    /// Kept for older clients; the same value as `baseUrl`.
     pub qbit_base_url: String,
     pub username: String,
-    /// Kept for the Step 1 page and older clients; the same value as `username`.
+    /// Kept for older clients; the same value as `username`.
     pub qbit_username: String,
     pub has_api_key: bool,
     pub has_password: bool,
@@ -341,11 +355,14 @@ impl Config {
     /// A proxy without credentials still boots and serves its config page; only
     /// the torrent endpoints report that setup is incomplete. Transmission's
     /// RPC endpoint frequently has no authentication at all, so a URL is the
-    /// only requirement for it.
+    /// only requirement for it. rTorrent can also run without HTTP
+    /// authentication, while Deluge Web UI always needs its password.
     pub fn has_credentials(&self) -> bool {
         match self.client_kind {
             ClientKind::Qbittorrent => !self.api_key.is_empty() || !self.username.is_empty(),
             ClientKind::Transmission => !self.base_url.is_empty(),
+            ClientKind::Deluge => !self.base_url.is_empty() && !self.password.is_empty(),
+            ClientKind::Rtorrent => !self.base_url.is_empty(),
         }
     }
 
@@ -465,7 +482,7 @@ pub fn normalize_base_url(raw: &str) -> std::result::Result<String, String> {
         return Err("The torrent client URL needs a host.".to_string());
     }
     if !url.username().is_empty() || url.password().is_some() {
-        return Err("Put credentials in the fields below, not in the URL.".to_string());
+        return Err("Supply credentials separately rather than inside the URL.".to_string());
     }
     if url.query().is_some() || url.fragment().is_some() {
         return Err("The torrent client URL cannot include a query or fragment.".to_string());
@@ -530,12 +547,24 @@ pub fn persisted_config(config: &Config, overrides: &EnvOverrides) -> Config {
 }
 
 pub fn save_sync(path: &Path, config: &Config) -> Result<()> {
+    write_private_json_sync(path, config)
+}
+
+pub async fn save(path: &Path, config: &Config) -> Result<()> {
+    write_private_json(path, config).await
+}
+
+/// Write JSON to `path` atomically, readable only by the proxy's user.
+///
+/// The value is written to a sibling temporary file, restricted to `0o600`, and
+/// renamed over the destination so a crash never leaves a partial file.
+pub fn write_private_json_sync<T: Serialize>(path: &Path, value: &T) -> Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("could not create {}", parent.display()))?;
     }
 
-    let bytes = serde_json::to_vec_pretty(config)?;
+    let bytes = serde_json::to_vec_pretty(value)?;
     let temporary = temporary_path(path);
     std::fs::write(&temporary, bytes)
         .with_context(|| format!("could not write {}", temporary.display()))?;
@@ -545,14 +574,15 @@ pub fn save_sync(path: &Path, config: &Config) -> Result<()> {
     Ok(())
 }
 
-pub async fn save(path: &Path, config: &Config) -> Result<()> {
+/// Async variant of [`write_private_json_sync`].
+pub async fn write_private_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
     if let Some(parent) = path.parent() {
         tokio::fs::create_dir_all(parent)
             .await
             .with_context(|| format!("could not create {}", parent.display()))?;
     }
 
-    let bytes = serde_json::to_vec_pretty(config)?;
+    let bytes = serde_json::to_vec_pretty(value)?;
     let temporary = temporary_path(path);
     tokio::fs::write(&temporary, bytes)
         .await
@@ -594,11 +624,14 @@ mod tests {
         "CLIENT_BASE_URL",
         "QBIT_BASE_URL",
         "TRANSMISSION_BASE_URL",
+        "DELUGE_BASE_URL",
+        "RTORRENT_BASE_URL",
         "QBIT_API_KEY",
         "CLIENT_USERNAME",
         "QBIT_USERNAME",
         "CLIENT_PASSWORD",
         "QBIT_PASSWORD",
+        "DELUGE_PASSWORD",
         "DOWNLOADS_DIR",
         "CLIENT_DOWNLOADS_DIR",
         "REMAGNET_CATEGORY",
@@ -787,12 +820,71 @@ mod tests {
             DEFAULT_TRANSMISSION_BASE_URL
         );
         assert_eq!(
+            resolve_default_base_url(ClientKind::Deluge, None),
+            DEFAULT_DELUGE_BASE_URL
+        );
+        assert_eq!(
+            resolve_default_base_url(ClientKind::Rtorrent, None),
+            DEFAULT_RTORRENT_BASE_URL
+        );
+        assert_eq!(
             resolve_default_base_url(
                 ClientKind::Transmission,
                 Some("http://nas:9091".to_string())
             ),
             "http://nas:9091"
         );
+    }
+
+    #[test]
+    fn deluge_and_rtorrent_have_their_own_credential_rules() {
+        let mut deluge = Config::from_env(env()).unwrap();
+        deluge.client_kind = ClientKind::Deluge;
+        assert!(!deluge.has_credentials());
+        deluge.password = "secret".to_string();
+        assert!(deluge.has_credentials());
+        deluge.base_url.clear();
+        assert!(!deluge.has_credentials());
+
+        let mut rtorrent = Config::from_env(env()).unwrap();
+        rtorrent.client_kind = ClientKind::Rtorrent;
+        rtorrent.password.clear();
+        assert!(rtorrent.has_credentials());
+        rtorrent.base_url.clear();
+        assert!(!rtorrent.has_credentials());
+    }
+
+    #[test]
+    fn environment_selects_deluge_and_rtorrent_with_their_defaults() {
+        let _lock = ENV_LOCK.lock().unwrap();
+
+        {
+            let _guard = EnvGuard::new(&[
+                ("CLIENT_KIND", "deluge"),
+                ("DELUGE_BASE_URL", " http://deluge.local:8112/ "),
+                ("DELUGE_PASSWORD", "secret"),
+            ]);
+            let overrides = EnvOverrides::from_env().unwrap();
+            let mut config = Config::from_env(env()).unwrap();
+            overrides.apply_to(&mut config);
+            assert_eq!(config.client_kind, ClientKind::Deluge);
+            assert_eq!(config.base_url, "http://deluge.local:8112");
+            assert_eq!(config.password, "secret");
+            assert!(config.has_credentials());
+        }
+
+        {
+            let _guard = EnvGuard::new(&[
+                ("CLIENT_KIND", "rutorrent"),
+                ("RTORRENT_BASE_URL", "http://rtorrent.local:8000"),
+            ]);
+            let overrides = EnvOverrides::from_env().unwrap();
+            let mut config = Config::from_env(env()).unwrap();
+            overrides.apply_to(&mut config);
+            assert_eq!(config.client_kind, ClientKind::Rtorrent);
+            assert_eq!(config.base_url, "http://rtorrent.local:8000");
+            assert!(config.has_credentials());
+        }
     }
 
     #[test]
@@ -958,6 +1050,16 @@ mod tests {
         overrides.apply_to(&mut config);
         assert_eq!(config.client_kind, ClientKind::Transmission);
         assert_eq!(config.base_url, DEFAULT_TRANSMISSION_BASE_URL);
+
+        // Any built-in default moves to the newly selected client's default.
+        config.base_url = DEFAULT_DELUGE_BASE_URL.to_string();
+        let overrides = EnvOverrides {
+            client_kind: Some(ClientKind::Rtorrent),
+            ..EnvOverrides::default()
+        };
+        overrides.apply_to(&mut config);
+        assert_eq!(config.client_kind, ClientKind::Rtorrent);
+        assert_eq!(config.base_url, DEFAULT_RTORRENT_BASE_URL);
 
         // An explicit URL always wins over the default.
         let overrides = EnvOverrides {

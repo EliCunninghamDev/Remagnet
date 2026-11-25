@@ -1,6 +1,20 @@
-import type { IssueReportContext } from "@remagnet/ui";
+import {
+  COPY_FEEDBACK_MS,
+  copyText,
+  errorMessage,
+  type IssueReportContext,
+  issueContextFromError,
+} from "@remagnet/ui";
 import { createSignal, For, onCleanup, Show } from "solid-js";
-import { changePassword, disableTotp, enableTotp, ProxyApiError, setupTotp } from "../api";
+import {
+  changePassword,
+  disableTotp,
+  enableTotp,
+  isSessionExpired,
+  ProxyApiError,
+  setupTotp,
+} from "../api";
+import { MIN_PASSWORD_LENGTH, TOTP_CODE_LENGTH } from "../constants";
 import StatusLine, { type StatusMessage } from "./StatusLine";
 
 interface TotpSetupDetails {
@@ -62,13 +76,13 @@ export default function SecurityPanel(props: SecurityPanelProps) {
       setVerifyCode("");
       setStatus({
         tone: "muted",
-        message: "Scan the code, then enter the 6-digit code to verify.",
+        message: `Scan the code, then enter the ${TOTP_CODE_LENGTH}-digit code to verify.`,
       });
       queueMicrotask(() => verifyInput?.focus());
     } catch (error) {
-      if (expired(error)) return;
+      if (isSessionExpired(error)) return;
       setStatus({ tone: "error", message: errorMessage(error) });
-      setStatusContext(issueContext(error, "Starting two-factor setup"));
+      setStatusContext(issueContextFromError(error, "Starting two-factor setup"));
     } finally {
       setStarting(false);
     }
@@ -86,10 +100,10 @@ export default function SecurityPanel(props: SecurityPanelProps) {
     if (enabling()) return;
 
     const code = verifyCode().trim();
-    if (!/^\d{6}$/.test(code)) {
+    if (!new RegExp(`^\\d{${TOTP_CODE_LENGTH}}$`).test(code)) {
       setStatus({
         tone: "error",
-        message: "Enter the 6-digit code from your authenticator.",
+        message: `Enter the ${TOTP_CODE_LENGTH}-digit code from your authenticator.`,
       });
       setStatusContext(undefined);
       verifyInput?.focus();
@@ -110,9 +124,9 @@ export default function SecurityPanel(props: SecurityPanelProps) {
         message: "Two-factor authentication is enabled. Save your recovery codes now.",
       });
     } catch (error) {
-      if (expired(error)) return;
+      if (isSessionExpired(error)) return;
       setStatus({ tone: "error", message: errorMessage(error) });
-      setStatusContext(issueContext(error, "Enabling two-factor authentication"));
+      setStatusContext(issueContextFromError(error, "Enabling two-factor authentication"));
     } finally {
       setEnabling(false);
     }
@@ -122,8 +136,8 @@ export default function SecurityPanel(props: SecurityPanelProps) {
     const codes = recoveryCodes();
     if (!codes.length) return;
 
-    try {
-      await navigator.clipboard.writeText(codes.join("\n"));
+    const copied = await copyText(codes.join("\n"));
+    if (copied) {
       setCopiedRecovery(true);
       setStatus({
         tone: "ok",
@@ -135,8 +149,8 @@ export default function SecurityPanel(props: SecurityPanelProps) {
       copyTimer = window.setTimeout(() => {
         copyTimer = undefined;
         setCopiedRecovery(false);
-      }, 2000);
-    } catch {
+      }, COPY_FEEDBACK_MS);
+    } else {
       setStatus({
         tone: "error",
         message: "Could not copy automatically. Select the codes to copy them.",
@@ -172,7 +186,7 @@ export default function SecurityPanel(props: SecurityPanelProps) {
       setStatus({ tone: "ok", message: "Two-factor authentication is disabled." });
       setStatusContext(undefined);
     } catch (error) {
-      if (expired(error)) return;
+      if (isSessionExpired(error)) return;
       setDisableStatus({
         tone: "error",
         message:
@@ -180,7 +194,7 @@ export default function SecurityPanel(props: SecurityPanelProps) {
             ? "That two-factor or recovery code is not valid."
             : errorMessage(error),
       });
-      setDisableContext(issueContext(error, "Disabling two-factor authentication"));
+      setDisableContext(issueContextFromError(error, "Disabling two-factor authentication"));
     } finally {
       setDisabling(false);
     }
@@ -191,10 +205,10 @@ export default function SecurityPanel(props: SecurityPanelProps) {
     if (changingPassword()) return;
 
     const next = newPassword();
-    if (next.length < 12) {
+    if (next.length < MIN_PASSWORD_LENGTH) {
       setPasswordStatus({
         tone: "error",
-        message: "Use a new password with at least 12 characters.",
+        message: `Use a new password with at least ${MIN_PASSWORD_LENGTH} characters.`,
       });
       setPasswordContext(undefined);
       return;
@@ -219,20 +233,12 @@ export default function SecurityPanel(props: SecurityPanelProps) {
         message: "Password changed. Other sessions were signed out.",
       });
     } catch (error) {
-      if (expired(error)) return;
+      if (isSessionExpired(error)) return;
       setPasswordStatus({ tone: "error", message: errorMessage(error) });
-      setPasswordContext(issueContext(error, "Changing password"));
+      setPasswordContext(issueContextFromError(error, "Changing password"));
     } finally {
       setChangingPassword(false);
     }
-  }
-
-  function expired(error: unknown): boolean {
-    if (error instanceof ProxyApiError && error.expired) {
-      props.onSessionExpired();
-      return true;
-    }
-    return false;
   }
 
   function reportStatus() {
@@ -290,7 +296,8 @@ export default function SecurityPanel(props: SecurityPanelProps) {
             >
               <div class="stack">
                 <p class="hint">
-                  Scan this code with your authenticator app, then enter the 6-digit code it shows.
+                  Scan this code with your authenticator app, then enter the
+                  {` ${TOTP_CODE_LENGTH}-digit`} code it shows.
                 </p>
                 <div class="totp-setup">
                   <div
@@ -312,7 +319,7 @@ export default function SecurityPanel(props: SecurityPanelProps) {
                           inputmode="numeric"
                           autocomplete="one-time-code"
                           spellcheck={false}
-                          maxlength={6}
+                          maxlength={TOTP_CODE_LENGTH}
                           placeholder="123456"
                           value={verifyCode()}
                           onInput={(event) => setVerifyCode(event.currentTarget.value)}
@@ -415,11 +422,11 @@ export default function SecurityPanel(props: SecurityPanelProps) {
               name="newPassword"
               type="password"
               autocomplete="new-password"
-              minlength={12}
+              minlength={MIN_PASSWORD_LENGTH}
               value={newPassword()}
               onInput={(event) => setNewPassword(event.currentTarget.value)}
             />
-            <small>At least 12 characters.</small>
+            <small>At least {MIN_PASSWORD_LENGTH} characters.</small>
           </label>
           <label class="field">
             <span>Confirm new password</span>
@@ -428,7 +435,7 @@ export default function SecurityPanel(props: SecurityPanelProps) {
               name="confirmPassword"
               type="password"
               autocomplete="new-password"
-              minlength={12}
+              minlength={MIN_PASSWORD_LENGTH}
               value={confirmPassword()}
               onInput={(event) => setConfirmPassword(event.currentTarget.value)}
             />
@@ -443,17 +450,4 @@ export default function SecurityPanel(props: SecurityPanelProps) {
       </details>
     </section>
   );
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function issueContext(cause: unknown, action: string): IssueReportContext {
-  const context: IssueReportContext = { action, message: errorMessage(cause) };
-  if (cause instanceof ProxyApiError) {
-    if (cause.code) context.code = cause.code;
-    if (cause.status !== undefined) context.status = cause.status;
-  }
-  return context;
 }

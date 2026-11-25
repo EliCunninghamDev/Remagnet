@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    path::{Path, PathBuf},
+    path::Path,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -32,6 +32,8 @@ pub const LOGIN_WINDOW: Duration = Duration::from_secs(5 * 60);
 
 const DEVICE_NAME_LIMIT: usize = 80;
 const DEVICE_TOKEN_PREFIX: &str = "rmg_";
+/// Persist device activity at most once per minute.
+const DEVICE_TOUCH_INTERVAL_SECS: u64 = 60;
 
 /// Everything persisted in `DATA_DIR/auth.json`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -117,7 +119,7 @@ impl AuthData {
         };
         let stale = device
             .last_used_at
-            .is_none_or(|last_used| now.saturating_sub(last_used) > 60);
+            .is_none_or(|last_used| now.saturating_sub(last_used) > DEVICE_TOUCH_INTERVAL_SECS);
         if stale {
             device.last_used_at = Some(now);
         }
@@ -193,12 +195,7 @@ fn normalize_device_name(name: Option<&str>) -> String {
 }
 
 pub fn sha256_hex(input: &str) -> String {
-    let digest = Sha256::digest(input.as_bytes());
-    let mut output = String::with_capacity(digest.len() * 2);
-    for byte in digest {
-        output.push_str(&format!("{byte:02x}"));
-    }
-    output
+    crate::backend::to_hex(&Sha256::digest(input.as_bytes()))
 }
 
 pub fn now_secs() -> u64 {
@@ -443,38 +440,7 @@ pub fn load(path: &Path) -> Result<AuthData> {
 }
 
 pub fn save(path: &Path, data: &AuthData) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("could not create {}", parent.display()))?;
-    }
-
-    let bytes = serde_json::to_vec_pretty(data)?;
-    let temporary = temporary_path(path);
-    std::fs::write(&temporary, bytes)
-        .with_context(|| format!("could not write {}", temporary.display()))?;
-    restrict_permissions(&temporary)?;
-    std::fs::rename(&temporary, path)
-        .with_context(|| format!("could not replace {}", path.display()))?;
-    Ok(())
-}
-
-fn temporary_path(path: &Path) -> PathBuf {
-    let mut temporary = path.as_os_str().to_owned();
-    temporary.push(".tmp");
-    PathBuf::from(temporary)
-}
-
-#[cfg(unix)]
-fn restrict_permissions(path: &Path) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
-        .with_context(|| format!("could not restrict permissions on {}", path.display()))
-}
-
-#[cfg(not(unix))]
-fn restrict_permissions(_path: &Path) -> Result<()> {
-    Ok(())
+    crate::config::write_private_json_sync(path, data)
 }
 
 /// Extract the session token from the cookie header.
@@ -502,7 +468,10 @@ pub fn extract_bearer_token(headers: &HeaderMap) -> Option<&str> {
 
 pub fn session_cookie_header(token: &str, secure: bool) -> String {
     let secure = if secure { "; Secure" } else { "" };
-    format!("{SESSION_COOKIE}={token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=604800{secure}")
+    format!(
+        "{SESSION_COOKIE}={token}; HttpOnly; SameSite=Strict; Path=/; Max-Age={}{secure}",
+        SESSION_TTL.as_secs()
+    )
 }
 
 pub fn clear_session_cookie_header(secure: bool) -> String {
@@ -516,7 +485,7 @@ fn random_token() -> String {
     URL_SAFE_NO_PAD.encode(bytes)
 }
 
-fn ct_eq_str(left: &str, right: &str) -> bool {
+pub(crate) fn ct_eq_str(left: &str, right: &str) -> bool {
     left.len() == right.len() && bool::from(left.as_bytes().ct_eq(right.as_bytes()))
 }
 

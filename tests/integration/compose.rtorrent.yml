@@ -1,0 +1,35 @@
+services:
+  rtorrent:
+    image: crazymax/rtorrent-rutorrent:latest
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: UTC
+      XMLRPC_PORT: "8000"
+      RUTORRENT_PORT: "8080"
+    ports:
+      - "18000:8000"
+    volumes:
+      - ./tmp/rtorrent/config:/data
+      - ./tmp/rtorrent/downloads:/downloads
+
+  remagnet-proxy:
+    build:
+      context: ../../proxy
+    environment:
+      DATA_DIR: /data
+      BIND_ADDR: 0.0.0.0:8080
+      SETUP_CODE: integration-setup-code
+      CLIENT_KIND: rtorrent
+      CLIENT_BASE_URL: http://rtorrent:8000
+      DOWNLOADS_DIR: /downloads
+      CLIENT_DOWNLOADS_DIR: /downloads
+      REMAGNET_CATEGORY: remagnet
+      REMAGNET_TAGS: ""
+    ports:
+      - "18081:8080"
+    volumes:
+      - ./tmp/rtorrent/proxy-data:/data
+      - ./tmp/rtorrent/downloads:/downloads:ro
+    depends_on:
+      - rtorrent

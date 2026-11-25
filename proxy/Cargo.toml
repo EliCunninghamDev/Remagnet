@@ -12,11 +12,13 @@ argon2 = "0.5"
 axum = { version = "0.8", features = ["macros"] }
 base64 = "0.22"
 crc32fast = "1"
+flate2 = "1"
 futures-lite = "2"
 getrandom = "0.2"
 hmac = "0.12"
 percent-encoding = "2"
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+quick-xml = "0.41"
 reqwest = { version = "0.12", default-features = false, features = [
   "cookies",
   "json",

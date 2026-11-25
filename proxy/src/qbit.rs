@@ -6,7 +6,6 @@ use std::{
     },
 };
 
-use anyhow::Context;
 use futures_lite::StreamExt as _;
 use reqwest::{header::REFERER, Method, Response, StatusCode};
 use serde::{de::DeserializeOwned, Deserialize};
@@ -14,17 +13,16 @@ use tokio::sync::Mutex;
 
 use crate::{
     backend::{
-        extract_magnet_hashes, AddTorrentResult, ArchiveFile, ArchiveTorrent, BackendHealth,
-        ClientKind, FileByteStream, TorrentCapabilities, TorrentFilePayload, TorrentSummary,
-        VolumeMapper,
+        build_http_client, extract_magnet_hashes, AddTorrentResult, ArchiveFile, ArchiveTorrent,
+        BackendHealth, ClientKind, FileByteStream, TorrentCapabilities, TorrentFilePayload,
+        TorrentSummary, VolumeMapper, AUTH_RETRY_ATTEMPTS,
     },
     config::Config,
     error::AppError,
 };
 
 /// Message for a torrent the client refused, for example because it exists.
-const TORRENT_REJECTED: &str =
-    "qBittorrent rejected the torrent. It may already exist, or the magnet link may be invalid.";
+const TORRENT_REJECTED: &str = "qBittorrent rejected the torrent. It may already exist, or the magnet link or .torrent file may be invalid.";
 
 /// Raw qBittorrent torrent fields used internally, including completion data
 /// that the neutral API does not expose.
@@ -63,15 +61,15 @@ pub struct TorrentInfo {
 impl TorrentInfo {
     pub(crate) fn summary(&self) -> TorrentSummary {
         TorrentSummary {
-            hash: self.hash.clone(),
+            hash: self.hash.to_ascii_lowercase(),
             name: self.name.clone(),
             state: normalize_state(&self.state),
-            progress: self.progress,
+            progress: self.progress.clamp(0.0, 1.0),
             size: self.size,
             download_speed: self.dlspeed,
             upload_speed: self.upspeed,
             eta: self.eta,
-            ratio: self.ratio,
+            ratio: self.ratio.max(0.0),
             category: self.category.clone(),
             tags: crate::config::parse_tags(&self.tags),
             seeds: self.num_seeds,
@@ -81,11 +79,11 @@ impl TorrentInfo {
 
     pub(crate) fn archive(&self) -> ArchiveTorrent {
         ArchiveTorrent {
-            hash: self.hash.clone(),
+            hash: self.hash.to_ascii_lowercase(),
             name: self.name.clone(),
-            progress: self.progress,
+            progress: self.progress.clamp(0.0, 1.0),
             amount_left: self.amount_left,
-            state: self.state.clone(),
+            state: normalize_state(&self.state),
             category: self.category.clone(),
             tags: crate::config::parse_tags(&self.tags),
             download_dir: (!self.save_path.trim().is_empty()).then(|| self.save_path.clone()),
@@ -102,6 +100,14 @@ pub struct TorrentFile {
     pub size: u64,
     #[serde(default)]
     pub progress: f64,
+    /// qBittorrent's file priority: `0` means the file is not wanted and must
+    /// not be included in an archive.
+    #[serde(default = "default_file_priority")]
+    pub priority: i64,
+}
+
+fn default_file_priority() -> i64 {
+    1
 }
 
 impl From<TorrentFile> for ArchiveFile {
@@ -110,7 +116,11 @@ impl From<TorrentFile> for ArchiveFile {
             index: file.index,
             name: file.name,
             size: file.size,
-            progress: file.progress,
+            progress: if file.size == 0 {
+                1.0
+            } else {
+                file.progress.clamp(0.0, 1.0)
+            },
         }
     }
 }
@@ -133,15 +143,7 @@ pub struct QbitClient {
 
 impl QbitClient {
     pub fn new(config: &Config) -> anyhow::Result<Self> {
-        let http = reqwest::Client::builder()
-            .cookie_store(true)
-            .user_agent(concat!("remagnet-proxy/", env!("CARGO_PKG_VERSION")))
-            // Archives can be many gigabytes and are streamed, so there is no
-            // total request deadline. A read timeout still aborts stalls.
-            .connect_timeout(std::time::Duration::from_secs(15))
-            .read_timeout(std::time::Duration::from_secs(60))
-            .build()
-            .context("could not build the qBittorrent HTTP client")?;
+        let http = build_http_client("qBittorrent", true)?;
 
         Ok(Self {
             base_url: config.base_url.clone(),
@@ -199,6 +201,10 @@ impl QbitClient {
             .ok_or_else(|| AppError::NotFound("Torrent not found in qBittorrent.".to_string()))
     }
 
+    pub async fn archive_torrent(&self, hash: &str) -> Result<ArchiveTorrent, AppError> {
+        Ok(self.torrent(hash).await?.archive())
+    }
+
     pub async fn add_torrent(
         &self,
         urls: &[String],
@@ -225,7 +231,12 @@ impl QbitClient {
 
         let mut form = Vec::new();
         if !urls.is_empty() {
-            form.push(("urls".to_string(), urls.join("\n")));
+            let urls = urls
+                .iter()
+                .map(|url| url.trim())
+                .collect::<Vec<_>>()
+                .join("\n");
+            form.push(("urls".to_string(), urls));
         }
         if !category.is_empty() {
             form.push(("category".to_string(), category.to_string()));
@@ -264,7 +275,7 @@ impl QbitClient {
         self.post_form(
             "api/v2/torrents/delete",
             &[
-                ("hashes".to_string(), hash.to_string()),
+                ("hashes".to_string(), hash.to_ascii_lowercase()),
                 ("deleteFiles".to_string(), delete_files.to_string()),
             ],
         )
@@ -272,19 +283,32 @@ impl QbitClient {
         Ok(())
     }
 
-    pub async fn files(&self, hash: &str) -> Result<Vec<TorrentFile>, AppError> {
-        self.get_json("api/v2/torrents/files", &[("hash", hash)])
-            .await
+    /// List the files in a torrent, excluding files the user does not want.
+    ///
+    /// qBittorrent reports unwatched files with priority `0`; including them in
+    /// an archive would fail because those bytes are never downloaded.
+    pub async fn files(&self, hash: &str) -> Result<Vec<ArchiveFile>, AppError> {
+        let hash = hash.to_ascii_lowercase();
+        let files: Vec<TorrentFile> = self
+            .get_json("api/v2/torrents/files", &[("hash", hash.as_str())])
+            .await?;
+
+        Ok(files
+            .into_iter()
+            .filter(|file| file.priority != 0)
+            .map(ArchiveFile::from)
+            .collect())
     }
 
     /// Open a single torrent file as a streaming response.
     pub async fn download_file(&self, hash: &str, file: &str) -> Result<Response, AppError> {
         self.ensure_login().await?;
+        let hash = hash.to_ascii_lowercase();
         let response = self
             .send(
                 Method::GET,
                 "api/v2/torrents/downloadFile",
-                &[("hash", hash), ("file", file)],
+                &[("hash", hash.as_str()), ("file", file)],
             )
             .await?;
         if matches!(
@@ -325,13 +349,14 @@ impl QbitClient {
     }
 
     async fn get_torrent_info(&self, hash: &str) -> Result<Option<TorrentInfo>, AppError> {
+        let hash = hash.to_ascii_lowercase();
         let torrents: Vec<TorrentInfo> = self
-            .get_json("api/v2/torrents/info", &[("hashes", hash)])
+            .get_json("api/v2/torrents/info", &[("hashes", hash.as_str())])
             .await?;
 
         Ok(torrents
             .into_iter()
-            .find(|torrent| torrent.hash.eq_ignore_ascii_case(hash)))
+            .find(|torrent| torrent.hash.eq_ignore_ascii_case(&hash)))
     }
 
     async fn ensure_category(&self, name: &str) -> Result<(), AppError> {
@@ -404,10 +429,7 @@ impl QbitClient {
         let response = ensure_success(response, path).await?;
         response.json().await.map_err(|error| {
             tracing::warn!(error = %error, path, "could not parse qBittorrent JSON");
-            AppError::Upstream(
-                "qBittorrent returned a response Remagnet Proxy could not read. Check that qBittorrent is running and up to date."
-                    .to_string(),
-            )
+            AppError::upstream_unreadable("qBittorrent")
         })
     }
 
@@ -417,10 +439,7 @@ impl QbitClient {
         let response = ensure_success(response, path).await?;
         response.text().await.map_err(|error| {
             tracing::warn!(error = %error, path, "could not read qBittorrent response");
-            AppError::Upstream(
-                "Remagnet Proxy could not read qBittorrent's response. Check that it is running and reachable."
-                    .to_string(),
-            )
+            AppError::upstream_unreadable("qBittorrent")
         })
     }
 
@@ -430,10 +449,7 @@ impl QbitClient {
         let response = ensure_success(response, path).await?;
         response.text().await.map_err(|error| {
             tracing::warn!(error = %error, path, "could not read qBittorrent response");
-            AppError::Upstream(
-                "Remagnet Proxy could not read qBittorrent's response. Check that it is running and reachable."
-                    .to_string(),
-            )
+            AppError::upstream_unreadable("qBittorrent")
         })
     }
 
@@ -453,7 +469,7 @@ impl QbitClient {
         let url = format!("{}/{}", self.base_url, path.trim_start_matches('/'));
         let referer = format!("{}/", self.base_url);
 
-        for attempt in 0..2 {
+        for attempt in 0..AUTH_RETRY_ATTEMPTS {
             let mut form = reqwest::multipart::Form::new();
             for (name, value) in fields {
                 form = form.text(name.clone(), value.clone());
@@ -485,7 +501,7 @@ impl QbitClient {
                     response.status(),
                     StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN
                 );
-            if retryable && attempt == 0 {
+            if retryable && attempt + 1 < AUTH_RETRY_ATTEMPTS {
                 self.login(true).await?;
                 continue;
             }
@@ -493,10 +509,7 @@ impl QbitClient {
             let response = ensure_success(response, path).await?;
             return response.text().await.map_err(|error| {
                 tracing::warn!(error = %error, path, "could not read qBittorrent response");
-                AppError::Upstream(
-                    "Remagnet Proxy could not read qBittorrent's response. Check that it is running and reachable."
-                        .to_string(),
-                )
+                AppError::upstream_unreadable("qBittorrent")
             });
         }
 
@@ -569,7 +582,7 @@ impl QbitClient {
         let url = format!("{}/{}", self.base_url, path.trim_start_matches('/'));
         let referer = format!("{}/", self.base_url);
 
-        for attempt in 0..2 {
+        for attempt in 0..AUTH_RETRY_ATTEMPTS {
             let mut request = self
                 .http
                 .request(method.clone(), &url)
@@ -592,7 +605,7 @@ impl QbitClient {
                     response.status(),
                     StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN
                 );
-            if retryable && attempt == 0 {
+            if retryable && attempt + 1 < AUTH_RETRY_ATTEMPTS {
                 self.login(true).await?;
                 continue;
             }
@@ -644,12 +657,12 @@ async fn ensure_success(response: Response, path: &str) -> Result<Response, AppE
     }
 
     let body = response.text().await.unwrap_or_default();
-    let detail = AppError::sanitize_upstream_body(&body, 300)
-        .map(|detail| format!(": {detail}"))
-        .unwrap_or_default();
-    Err(AppError::Upstream(format!(
-        "qBittorrent returned {status} for {path}{detail}"
-    )))
+    Err(AppError::upstream_status(
+        "qBittorrent",
+        status,
+        path,
+        &body,
+    ))
 }
 
 #[cfg(test)]
@@ -716,6 +729,12 @@ mod tests {
             "/api/v2/app/webapiVersion" => "2.11.0".into_response(),
             "/api/v2/torrents/categories" => Json(serde_json::json!({})).into_response(),
             "/api/v2/torrents/tags" => Json(serde_json::json!([])).into_response(),
+            "/api/v2/torrents/files" => Json(serde_json::json!([
+                { "index": 0, "name": "keep.mkv", "size": 10, "progress": 0.5, "priority": 1 },
+                { "index": 1, "name": "skip.mkv", "size": 10, "progress": 0.5, "priority": 0 },
+                { "index": 2, "name": "empty.nfo", "size": 0, "progress": 0.0 }
+            ]))
+            .into_response(),
             "/api/v2/torrents/createCategory" | "/api/v2/torrents/createTags" => "".into_response(),
             "/api/v2/torrents/add" => {
                 let attempt = {
@@ -913,6 +932,22 @@ mod tests {
 
         assert!(matches!(error, AppError::BadRequest(_)), "{error:?}");
         assert!(error.to_string().contains("may already exist"));
+    }
+
+    #[tokio::test]
+    async fn files_with_priority_zero_are_skipped() {
+        let fake = FakeQbit::default();
+        let base_url = start_fake(fake).await;
+        let client = QbitClient::new(&config(&base_url)).unwrap();
+
+        let files = client.files(&"A".repeat(40)).await.unwrap();
+
+        assert_eq!(files.len(), 2);
+        assert_eq!(files[0].name, "keep.mkv");
+        assert_eq!(files[0].progress, 0.5);
+        // A missing priority defaults to wanted, and empty files count as done.
+        assert_eq!(files[1].name, "empty.nfo");
+        assert_eq!(files[1].progress, 1.0);
     }
 
     #[tokio::test]

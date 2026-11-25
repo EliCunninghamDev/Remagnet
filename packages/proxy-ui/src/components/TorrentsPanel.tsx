@@ -1,8 +1,11 @@
 import {
   type TorrentSummary as CardTorrent,
-  COMPLETE_PROGRESS,
+  COUNT_BADGE_MIN,
+  errorMessage,
   type IssueReportContext,
   isMagnetLink,
+  issueContextFromError,
+  isTorrentComplete,
   MagnetForm,
   type MagnetLink,
   MagnetReview,
@@ -22,6 +25,7 @@ import {
   createArchiveTicket,
   fetchTorrent,
   fetchTorrents,
+  isSessionExpired,
   ProxyApiError,
   type TorrentSummary as ProxyTorrent,
   removeTorrent,
@@ -113,20 +117,12 @@ export default function TorrentsPanel(props: TorrentsPanelProps) {
     }
   }
 
-  function complete(torrent: ProxyTorrent | CardTorrent): boolean {
-    return (
-      torrent.progress >= COMPLETE_PROGRESS &&
-      torrent.state !== "error" &&
-      torrent.state !== "missingFiles"
-    );
-  }
-
   function schedulePoll() {
     clearPollTimer();
     if (document.visibilityState !== "visible") return;
 
     const token = generation;
-    const active = torrents().some((torrent) => !complete(torrent));
+    const active = torrents().some((torrent) => !isTorrentComplete(torrent));
     pollTimer = window.setTimeout(
       () => {
         pollTimer = undefined;
@@ -168,7 +164,7 @@ export default function TorrentsPanel(props: TorrentsPanelProps) {
       if (!background && !quiet) setListStatus(undefined);
     } catch (error) {
       if (token !== generation) return;
-      if (expired(error)) return;
+      if (isSessionExpired(error)) return;
 
       if (
         error instanceof ProxyApiError &&
@@ -189,7 +185,7 @@ export default function TorrentsPanel(props: TorrentsPanelProps) {
       if (background) return;
 
       setListStatus({ tone: "error", message: errorMessage(error) });
-      setListContext(issueContext(error, "Loading torrents"));
+      setListContext(issueContextFromError(error, "Loading torrents"));
     } finally {
       if (token === generation) {
         fetching = false;
@@ -259,7 +255,7 @@ export default function TorrentsPanel(props: TorrentsPanelProps) {
     } catch (error) {
       if (token !== fileToken) return;
       setAddStatus({ tone: "error", message: errorMessage(error) });
-      setAddContext(issueContext(error, "Reading .torrent file"));
+      setAddContext(issueContextFromError(error, "Reading .torrent file"));
     }
   }
 
@@ -274,7 +270,7 @@ export default function TorrentsPanel(props: TorrentsPanelProps) {
       const torrent = await fetchTorrent(hash);
       if (token === lookupToken) setExisting(torrent);
     } catch (error) {
-      if (expired(error)) return;
+      if (isSessionExpired(error)) return;
       // A 404 is the normal "not there yet" answer; other failures are left to
       // the add request so the user gets one clear error.
       if (token === lookupToken) setExisting(null);
@@ -348,9 +344,9 @@ export default function TorrentsPanel(props: TorrentsPanelProps) {
       setListContext(undefined);
       await loadTorrents({ quiet: true });
     } catch (error) {
-      if (expired(error)) return;
+      if (isSessionExpired(error)) return;
       setAddStatus({ tone: "error", message: errorMessage(error) });
-      setAddContext(issueContext(error, "Adding torrent"));
+      setAddContext(issueContextFromError(error, "Adding torrent"));
     } finally {
       setAddBusy(false);
     }
@@ -379,9 +375,9 @@ export default function TorrentsPanel(props: TorrentsPanelProps) {
 
       setListStatus({ tone: "ok", message: "Preparing ZIP download…" });
     } catch (error) {
-      if (expired(error)) return;
+      if (isSessionExpired(error)) return;
       setListStatus({ tone: "error", message: errorMessage(error) });
-      setListContext(issueContext(error, "Preparing ZIP download"));
+      setListContext(issueContextFromError(error, "Preparing ZIP download"));
     } finally {
       setDownloadingHash(undefined);
     }
@@ -413,22 +409,14 @@ export default function TorrentsPanel(props: TorrentsPanelProps) {
       await loadTorrents({ quiet: true });
     } catch (error) {
       setRemovingHash(undefined);
-      if (expired(error)) return;
+      if (isSessionExpired(error)) return;
       setListStatus({ tone: "error", message: errorMessage(error) });
-      setListContext(issueContext(error, "Removing torrent"));
+      setListContext(issueContextFromError(error, "Removing torrent"));
     }
   }
 
   function cancelRemove() {
     setConfirmingHash(undefined);
-  }
-
-  function expired(error: unknown): boolean {
-    if (error instanceof ProxyApiError && error.expired) {
-      props.onSessionExpired?.();
-      return true;
-    }
-    return false;
   }
 
   function reportListIssue() {
@@ -450,7 +438,7 @@ export default function TorrentsPanel(props: TorrentsPanelProps) {
       <div class="panel-head">
         <div class="panel-title">
           <h2>Torrents</h2>
-          <Show when={torrents().length >= 2}>
+          <Show when={torrents().length >= COUNT_BADGE_MIN}>
             <span class="count-badge" title={`${torrents().length} torrents`}>
               {torrents().length}
             </span>
@@ -569,17 +557,4 @@ export default function TorrentsPanel(props: TorrentsPanelProps) {
       </Show>
     </section>
   );
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function issueContext(cause: unknown, action: string): IssueReportContext {
-  const context: IssueReportContext = { action, message: errorMessage(cause) };
-  if (cause instanceof ProxyApiError) {
-    if (cause.code) context.code = cause.code;
-    if (cause.status !== undefined) context.status = cause.status;
-  }
-  return context;
 }

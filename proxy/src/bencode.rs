@@ -8,7 +8,7 @@
 use sha1::{Digest as _, Sha1};
 use sha2::Sha256;
 
-use crate::error::AppError;
+use crate::{backend::to_hex, error::AppError};
 
 /// Largest `.torrent` metainfo file the proxy will accept.
 pub const MAX_TORRENT_FILE_BYTES: usize = 10 * 1024 * 1024;
@@ -342,15 +342,6 @@ pub fn extract_info_hash(bytes: &[u8]) -> Result<String, AppError> {
     Err(AppError::BadRequest(
         "The .torrent file has neither v1 piece hashes nor BitTorrent v2 metadata.".to_string(),
     ))
-}
-
-fn to_hex(bytes: &[u8]) -> String {
-    let mut value = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        use std::fmt::Write as _;
-        let _ = write!(value, "{byte:02x}");
-    }
-    value
 }
 
 #[cfg(test)]

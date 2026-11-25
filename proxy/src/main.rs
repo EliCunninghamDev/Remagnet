@@ -3,12 +3,15 @@ mod auth_routes;
 mod backend;
 mod bencode;
 mod config;
+mod deluge;
 mod error;
 mod pairing;
 mod qbit;
 mod routes;
+mod rtorrent;
 mod totp;
 mod transmission;
+mod xmlrpc;
 mod zipstream;
 
 use std::{

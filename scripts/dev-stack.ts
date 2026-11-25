@@ -2,22 +2,29 @@
  * Local torrent-client development stack for Remagnet.
  *
  * Usage:
- *   bun run scripts/dev-stack.ts up [--client transmission|qbittorrent] [--seed] [--ephemeral]
- *   bun run scripts/dev-stack.ts proxy [--client transmission|qbittorrent]
- *   bun run scripts/dev-stack.ts seed [--client transmission|qbittorrent]
+ *   bun run scripts/dev-stack.ts up [--client transmission|qbittorrent|deluge|rtorrent] [--seed] [--ephemeral]
+ *   bun run scripts/dev-stack.ts proxy [--client transmission|qbittorrent|deluge|rtorrent]
+ *   bun run scripts/dev-stack.ts seed [--client transmission|qbittorrent|deluge|rtorrent]
  *   bun run scripts/dev-stack.ts down
  *   bun run scripts/dev-stack.ts clean
  *
  * Run from the repository root. All runtime data lives under `.dev/dev-stack/`
  * (gitignored) or in the named Docker volumes declared in compose.dev.yml.
  */
-import { existsSync } from "node:fs";
-import { cp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import {
+  CLIENTS,
+  type ClientKind,
+  ensureQbitConfig,
+  isClientKind,
+} from "../tests/integration/clients";
 import { buildTorrentFixture, type TorrentFixture } from "../tests/integration/fixture";
 
-type ClientKind = "transmission" | "qbittorrent";
 type Command = "up" | "proxy" | "seed" | "down" | "clean";
+
+const ALL_COMPOSE_PROFILES = ["qbit", "deluge", "rtorrent", "proxy"];
+const DEFAULT_UID_GID = 1000;
 
 interface Args {
   command: Command | "help";
@@ -48,12 +55,12 @@ const qbitConfigSource = join(root, "tests/integration/qbittorrent-config/qBitto
 const USAGE = `Usage: bun run scripts/dev-stack.ts <command> [options]
 
 Commands:
-  up [--client transmission|qbittorrent] [--seed] [--ephemeral]
+  up [--client transmission|qbittorrent|deluge|rtorrent] [--seed] [--ephemeral]
       Start the dev stack (Transmission by default) in the background.
       --ephemeral runs it in the foreground and cleans up on exit.
-  proxy [--client transmission|qbittorrent]
+  proxy [--client transmission|qbittorrent|deluge|rtorrent]
       Run the Rust proxy locally with cargo against the dev client.
-  seed [--client transmission|qbittorrent]
+  seed [--client transmission|qbittorrent|deluge|rtorrent]
       Write deterministic .torrent fixtures into .dev/dev-stack/fixtures.
   down
       Stop containers, keeping volumes and .dev/dev-stack.
@@ -61,7 +68,8 @@ Commands:
       Stop containers and delete volumes plus .dev/dev-stack.
 
 Options:
-  --client <kind>   Torrent client to use (default: transmission)
+  --client <kind>   Torrent client: transmission, qbittorrent, deluge, or
+                    rtorrent (default: transmission)
   --seed            Seed fixtures and pre-place the completed payload
   --ephemeral       Run in the foreground and auto-clean on exit
   --help            Show this help`;
@@ -94,7 +102,7 @@ async function main(args: Args): Promise<void> {
       console.log(`\nFixtures directory: ${fixturesDir}`);
       return;
     case "down":
-      await runCompose(["qbit", "proxy"], ["down", "--remove-orphans"]);
+      await runCompose(ALL_COMPOSE_PROFILES, ["down", "--remove-orphans"]);
       console.log("Stopped the dev stack (volumes and .dev/dev-stack kept).");
       return;
     case "clean":
@@ -107,7 +115,7 @@ async function main(args: Args): Promise<void> {
 async function upPersistent(client: ClientKind, seed: boolean): Promise<void> {
   await ensureClientDirs(client);
   const seeded = seed ? await seedFixtures(client) : [];
-  const profiles = client === "qbittorrent" ? ["qbit"] : [];
+  const profiles = clientProfiles(client);
 
   await runCompose(profiles, ["up", "-d", client]);
   printNextSteps(client, seeded);
@@ -118,8 +126,8 @@ async function upEphemeral(client: ClientKind, seed: boolean): Promise<void> {
   const seeded = seed ? await seedFixtures(client) : [];
   if (seeded.length > 0) printSeedResults(seeded);
 
-  const profiles = client === "qbittorrent" ? ["qbit"] : [];
-  console.log(`Starting an ephemeral ${clientLabel(client)} stack.`);
+  const profiles = clientProfiles(client);
+  console.log(`Starting an ephemeral ${CLIENTS[client].label} stack.`);
   console.log("Press Ctrl+C to stop it and remove containers, volumes, and .dev/dev-stack.\n");
 
   let proc: Bun.Subprocess | undefined;
@@ -159,26 +167,30 @@ async function runProxy(client: ClientKind): Promise<void> {
   const { downloadsDir } = clientPaths(client);
   await mkdir(proxyDataDir, { recursive: true });
   await mkdir(downloadsDir, { recursive: true });
-  if (client === "transmission") {
+  if (client === "transmission" || client === "rtorrent") {
     await mkdir(join(downloadsDir, "complete"), { recursive: true });
   }
 
+  const clientInfo = CLIENTS[client];
   const env: Record<string, string | undefined> = {
     ...process.env,
     DATA_DIR: process.env.DATA_DIR ?? proxyDataDir,
     BIND_ADDR: process.env.BIND_ADDR ?? "127.0.0.1:8080",
     CLIENT_KIND: process.env.CLIENT_KIND ?? client,
-    CLIENT_BASE_URL: process.env.CLIENT_BASE_URL ?? clientBaseUrl(client),
+    CLIENT_BASE_URL: process.env.CLIENT_BASE_URL ?? clientInfo.hostBaseUrl,
     DOWNLOADS_DIR: process.env.DOWNLOADS_DIR ?? downloadsDir,
     CLIENT_DOWNLOADS_DIR: process.env.CLIENT_DOWNLOADS_DIR ?? "/downloads",
-    REMAGNET_CATEGORY:
-      process.env.REMAGNET_CATEGORY ?? (client === "qbittorrent" ? "remagnet" : ""),
-    REMAGNET_TAGS: process.env.REMAGNET_TAGS ?? "remagnet",
+    REMAGNET_CATEGORY: process.env.REMAGNET_CATEGORY ?? clientInfo.defaultCategory,
+    REMAGNET_TAGS: process.env.REMAGNET_TAGS ?? clientInfo.defaultTags.join(","),
   };
 
   if (client === "qbittorrent") {
     env.QBIT_USERNAME = process.env.QBIT_USERNAME ?? "admin";
     env.QBIT_PASSWORD = process.env.QBIT_PASSWORD ?? "adminadmin";
+  }
+
+  if (client === "deluge") {
+    env.DELUGE_PASSWORD = process.env.DELUGE_PASSWORD ?? "deluge";
   }
 
   const code = await run(["cargo", "run", "--manifest-path", join(root, "proxy/Cargo.toml")], {
@@ -189,7 +201,10 @@ async function runProxy(client: ClientKind): Promise<void> {
 
 async function seedFixtures(client: ClientKind): Promise<SeedResult[]> {
   const { downloadsDir } = clientPaths(client);
-  const payloadDir = client === "transmission" ? join(downloadsDir, "complete") : downloadsDir;
+  const payloadDir =
+    client === "transmission" || client === "rtorrent"
+      ? join(downloadsDir, "complete")
+      : downloadsDir;
   await mkdir(fixturesDir, { recursive: true });
   await mkdir(payloadDir, { recursive: true });
 
@@ -228,17 +243,23 @@ async function ensureClientDirs(client: ClientKind): Promise<void> {
     return;
   }
 
-  const targetDir = join(configDir, "qBittorrent");
-  const targetConfig = join(targetDir, "qBittorrent.conf");
-  if (existsSync(targetConfig)) return;
+  if (client === "rtorrent") {
+    await mkdir(join(downloadsDir, "complete"), { recursive: true });
+    await mkdir(configDir, { recursive: true });
+    return;
+  }
 
-  await mkdir(targetDir, { recursive: true });
-  await cp(qbitConfigSource, targetConfig);
+  if (client === "deluge") {
+    await mkdir(configDir, { recursive: true });
+    return;
+  }
+
+  await ensureQbitConfig(configDir, qbitConfigSource);
 }
 
 async function cleanStack(): Promise<void> {
   try {
-    await runCompose(["qbit", "proxy"], ["down", "-v", "--remove-orphans"], {
+    await runCompose(ALL_COMPOSE_PROFILES, ["down", "-v", "--remove-orphans"], {
       allowFailure: true,
     });
   } catch (error) {
@@ -287,8 +308,8 @@ async function run(
 
 function composeEnvironment(): Record<string, string> {
   return {
-    PUID: String(process.getuid?.() ?? 1000),
-    PGID: String(process.getgid?.() ?? 1000),
+    PUID: String(process.getuid?.() ?? DEFAULT_UID_GID),
+    PGID: String(process.getgid?.() ?? DEFAULT_UID_GID),
   };
 }
 
@@ -301,12 +322,9 @@ function clientPaths(client: ClientKind): ClientPaths {
   };
 }
 
-function clientBaseUrl(client: ClientKind): string {
-  return client === "qbittorrent" ? "http://127.0.0.1:18080" : "http://127.0.0.1:19091";
-}
-
-function clientLabel(client: ClientKind): string {
-  return client === "qbittorrent" ? "qBittorrent" : "Transmission";
+function clientProfiles(client: ClientKind): string[] {
+  const profile = CLIENTS[client].composeProfile;
+  return profile === null ? [] : [profile];
 }
 
 function printSeedResults(results: SeedResult[]): void {
@@ -323,11 +341,23 @@ function printSeedResults(results: SeedResult[]): void {
 function printNextSteps(client: ClientKind, seeded: SeedResult[]): void {
   const { downloadsDir } = clientPaths(client);
 
-  console.log(`\nRemagnet dev stack is running (${clientLabel(client)}).`);
-  if (client === "qbittorrent") {
-    console.log("  Web UI:    http://127.0.0.1:18080 (admin / adminadmin)");
-  } else {
-    console.log("  Web UI:    http://127.0.0.1:19091 (no authentication on localhost)");
+  console.log(`\nRemagnet dev stack is running (${CLIENTS[client].label}).`);
+  switch (client) {
+    case "qbittorrent":
+      console.log("  Web UI:    http://127.0.0.1:18080 (admin / adminadmin)");
+      break;
+    case "deluge":
+      console.log("  Web UI:    http://127.0.0.1:18112 (password: deluge)");
+      break;
+    case "rtorrent":
+      console.log(
+        "  Web UI:    http://127.0.0.1:18082 (ruTorrent, no authentication on localhost)",
+      );
+      console.log("  XML-RPC:   http://127.0.0.1:18000");
+      break;
+    case "transmission":
+      console.log("  Web UI:    http://127.0.0.1:19091 (no authentication on localhost)");
+      break;
   }
   console.log(`  Downloads: ${downloadsDir}`);
 
@@ -340,10 +370,10 @@ function printNextSteps(client: ClientKind, seeded: SeedResult[]): void {
   }
 
   console.log("\nNext steps:");
-  if (client === "qbittorrent") {
-    console.log("  bun run dev:proxy -- --client qbittorrent");
-  } else {
+  if (client === "transmission") {
     console.log("  bun run dev:proxy");
+  } else {
+    console.log(`  bun run dev:proxy -- --client ${client}`);
   }
   console.log("  bun run dev:down      # stop containers, keep volumes and downloads");
   console.log("  bun run dev:clean     # stop containers and delete volumes + .dev/dev-stack");
@@ -375,7 +405,9 @@ function parseArgs(argv: string[]): Args {
     if (arg === "--client") {
       const value = argv[index + 1];
       if (!isClientKind(value)) {
-        throw new Error(`--client must be "transmission" or "qbittorrent".\n\n${USAGE}`);
+        throw new Error(
+          `--client must be "transmission", "qbittorrent", "deluge", or "rtorrent".\n\n${USAGE}`,
+        );
       }
       client = value;
       index += 1;
@@ -384,7 +416,9 @@ function parseArgs(argv: string[]): Args {
     if (arg.startsWith("--client=")) {
       const value = arg.slice("--client=".length);
       if (!isClientKind(value)) {
-        throw new Error(`--client must be "transmission" or "qbittorrent".\n\n${USAGE}`);
+        throw new Error(
+          `--client must be "transmission", "qbittorrent", "deluge", or "rtorrent".\n\n${USAGE}`,
+        );
       }
       client = value;
       continue;
@@ -406,10 +440,6 @@ function parseArgs(argv: string[]): Args {
   }
 
   return { command, client, ephemeral, seed };
-}
-
-function isClientKind(value: string | undefined): value is ClientKind {
-  return value === "transmission" || value === "qbittorrent";
 }
 
 function isCommand(value: string): value is Command {

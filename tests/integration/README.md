@@ -1,8 +1,12 @@
 # Containerized integration tests
 
 End-to-end regression tests that run the real Remagnet Proxy container against
-real torrent client containers (`lscr.io/linuxserver/qbittorrent` and
-`lscr.io/linuxserver/transmission`).
+real torrent client containers:
+
+- qBittorrent (`lscr.io/linuxserver/qbittorrent`)
+- Transmission (`lscr.io/linuxserver/transmission`)
+- Deluge (`lscr.io/linuxserver/deluge`)
+- rTorrent + ruTorrent (`crazymax/rtorrent-rutorrent`)
 
 ## What is verified
 
@@ -37,6 +41,18 @@ bun run tests/integration/prepare.ts --client transmission
 docker compose -f tests/integration/compose.transmission.yml up -d --build
 bun run tests/integration/run.ts --client transmission
 docker compose -f tests/integration/compose.transmission.yml down -v
+
+# Deluge
+bun run tests/integration/prepare.ts --client deluge
+docker compose -f tests/integration/compose.deluge.yml up -d --build
+bun run tests/integration/run.ts --client deluge
+docker compose -f tests/integration/compose.deluge.yml down -v
+
+# rTorrent / ruTorrent
+bun run tests/integration/prepare.ts --client rtorrent
+docker compose -f tests/integration/compose.rtorrent.yml up -d --build
+bun run tests/integration/run.ts --client rtorrent
+docker compose -f tests/integration/compose.rtorrent.yml down -v
 ```
 
 CI runs this matrix automatically in

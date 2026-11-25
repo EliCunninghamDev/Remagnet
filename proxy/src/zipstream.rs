@@ -38,6 +38,10 @@ const ZIP64_EOCD_LOCATOR_SIZE: u64 = 20;
 const EOCD_SIZE: u64 = 22;
 /// APPNOTE 4.5.3: extra field id for ZIP64 extended information.
 const ZIP64_EXTRA_ID: u16 = 0x0001;
+/// APPNOTE 4.5.3: id, payload length, and two 64-bit sizes in a local header.
+const LOCAL_ZIP64_EXTRA_SIZE: u16 = 20;
+/// Longest torrent name, in characters, used in the suggested ZIP filename.
+const MAX_ZIP_FILENAME_CHARS: usize = 140;
 const VERSION_STANDARD: u16 = 20;
 const VERSION_ZIP64: u16 = 45;
 /// Bit 3 (data descriptor) and bit 11 (UTF-8 names).
@@ -48,10 +52,10 @@ const MODIFIED_DATE: u16 = 0x0021;
 /// HTTP body for a ZIP that is still being produced.
 ///
 /// A failed archive task drops the duplex writer, which looks like a clean EOF
-/// to a streaming reader. Browsers then save a truncated ZIP as "complete"
-/// because the response has no Content-Length. The success flag is set by
-/// [`write_zip`] before it releases the writer, so an EOF without it becomes a
-/// stream error and the download fails visibly.
+/// to a streaming reader. Without this guard a client would treat a truncated
+/// body as a complete archive. The success flag is set by [`write_zip`] before
+/// it releases the writer, so an EOF without it becomes a stream error and the
+/// download fails visibly.
 pub struct ZipStream {
     inner: ReaderStream<DuplexStream>,
     success: Arc<AtomicBool>,
@@ -99,19 +103,6 @@ impl Stream for ZipStream {
     }
 }
 
-/// torrent v1 hashes are 40 hex characters; v2 hashes are 64.
-pub fn validate_hash(hash: &str) -> Result<(), AppError> {
-    let hash = hash.trim();
-    let valid_length = hash.len() == 40 || hash.len() == 64;
-    if valid_length && hash.chars().all(|character| character.is_ascii_hexdigit()) {
-        Ok(())
-    } else {
-        Err(AppError::BadRequest(
-            "Expected a 40 or 64 character hex info hash.".to_string(),
-        ))
-    }
-}
-
 /// Name used in Content-Disposition and as the browser's suggested filename.
 pub fn zip_filename(torrent_name: &str) -> String {
     let mut base = sanitize_component(torrent_name);
@@ -119,7 +110,7 @@ pub fn zip_filename(torrent_name: &str) -> String {
         base.clear();
         base.push_str("torrent");
     }
-    base = base.chars().take(140).collect();
+    base = base.chars().take(MAX_ZIP_FILENAME_CHARS).collect();
     while base.ends_with('.') || base.ends_with(' ') {
         base.pop();
     }
@@ -227,7 +218,11 @@ impl ArchivePlan {
             })?;
 
             let local_zip64 = file.size >= zip64_limit;
-            let local_extra_len = if local_zip64 { 20u64 } else { 0 };
+            let local_extra_len = if local_zip64 {
+                u64::from(LOCAL_ZIP64_EXTRA_SIZE)
+            } else {
+                0
+            };
             let local_header_size = LOCAL_HEADER_FIXED_SIZE
                 .checked_add(u64::from(name_len))
                 .and_then(|size| size.checked_add(local_extra_len))
@@ -464,7 +459,11 @@ async fn write_bytes(writer: &mut DuplexStream, bytes: &[u8], total: &mut u64) -
 
 fn local_header(entry: &PlannedEntry) -> Vec<u8> {
     let name = entry.name.as_bytes();
-    let extra_len = if entry.local_zip64 { 20u16 } else { 0 };
+    let extra_len = if entry.local_zip64 {
+        LOCAL_ZIP64_EXTRA_SIZE
+    } else {
+        0
+    };
     let size_field = if entry.local_zip64 { u32::MAX } else { 0 };
 
     let mut header =
@@ -500,7 +499,12 @@ fn local_header(entry: &PlannedEntry) -> Vec<u8> {
 }
 
 fn data_descriptor(entry: &PlannedEntry, crc: u32) -> Vec<u8> {
-    let mut descriptor = Vec::with_capacity(if entry.local_zip64 { 24 } else { 16 });
+    let descriptor_size = if entry.local_zip64 {
+        DATA_DESCRIPTOR_ZIP64_SIZE
+    } else {
+        DATA_DESCRIPTOR_SIZE
+    };
+    let mut descriptor = Vec::with_capacity(descriptor_size as usize);
     descriptor.extend_from_slice(&0x0807_4b50u32.to_le_bytes());
     descriptor.extend_from_slice(&crc.to_le_bytes());
     if entry.local_zip64 {
@@ -648,6 +652,7 @@ mod tests {
     };
 
     use super::*;
+    use crate::backend::validate_hash;
 
     fn archive_file(index: i64, name: &str, size: u64) -> ArchiveFile {
         ArchiveFile {

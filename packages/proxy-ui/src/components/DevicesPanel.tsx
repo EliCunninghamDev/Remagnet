@@ -1,7 +1,15 @@
-import type { IssueReportContext } from "@remagnet/ui";
+import { errorMessage, type IssueReportContext, issueContextFromError } from "@remagnet/ui";
 import { createSignal, For, onMount, Show } from "solid-js";
-import { fetchDevices, ProxyApiError, type PublicDevice, revokeDevice } from "../api";
+import { fetchDevices, isSessionExpired, type PublicDevice, revokeDevice } from "../api";
 import StatusLine, { type StatusMessage } from "./StatusLine";
+
+const JUST_NOW_SECONDS = 45;
+const MINUTE_SECONDS = 60;
+const HOUR_SECONDS = 3_600;
+const DAY_SECONDS = 86_400;
+const WEEK_SECONDS = 604_800;
+const MONTH_SECONDS = 2_592_000;
+const YEAR_SECONDS = 31_536_000;
 
 export interface DevicesPanelProps {
   /** Called with redacted diagnostics when the user asks to report a failure. */
@@ -33,9 +41,9 @@ export default function DevicesPanel(props: DevicesPanelProps) {
       if (!quiet) setStatus(undefined);
       setStatusContext(undefined);
     } catch (error) {
-      if (isExpired(error)) return;
+      if (isSessionExpired(error)) return;
       setStatus({ tone: "error", message: errorMessage(error) });
-      setStatusContext(issueContext(error, "Loading devices"));
+      setStatusContext(issueContextFromError(error, "Loading devices"));
     } finally {
       setLoading(false);
     }
@@ -60,9 +68,9 @@ export default function DevicesPanel(props: DevicesPanelProps) {
       await loadDevices(true);
       setStatus({ tone: "ok", message: `Revoked ${label}.` });
     } catch (error) {
-      if (isExpired(error)) return;
+      if (isSessionExpired(error)) return;
       setStatus({ tone: "error", message: errorMessage(error) });
-      setStatusContext(issueContext(error, "Revoking device"));
+      setStatusContext(issueContextFromError(error, "Revoking device"));
     } finally {
       setRevokingId(undefined);
     }
@@ -143,15 +151,15 @@ export default function DevicesPanel(props: DevicesPanelProps) {
 function relativeTime(unixSeconds: number): string {
   const diff = Math.floor(Date.now() / 1000) - Number(unixSeconds);
   if (!Number.isFinite(diff)) return "unknown";
-  if (diff < 45) return "just now";
+  if (diff < JUST_NOW_SECONDS) return "just now";
 
   const units: ReadonlyArray<readonly [number, string]> = [
-    [31536000, "year"],
-    [2592000, "month"],
-    [604800, "week"],
-    [86400, "day"],
-    [3600, "hour"],
-    [60, "minute"],
+    [YEAR_SECONDS, "year"],
+    [MONTH_SECONDS, "month"],
+    [WEEK_SECONDS, "week"],
+    [DAY_SECONDS, "day"],
+    [HOUR_SECONDS, "hour"],
+    [MINUTE_SECONDS, "minute"],
   ];
   for (const [seconds, label] of units) {
     if (diff >= seconds) {
@@ -165,21 +173,4 @@ function relativeTime(unixSeconds: number): string {
 function deviceTimestamp(unixSeconds: number): string {
   const date = new Date(Number(unixSeconds) * 1000);
   return Number.isNaN(date.valueOf()) ? "unknown" : date.toLocaleString();
-}
-
-function isExpired(error: unknown): boolean {
-  return error instanceof ProxyApiError && error.expired;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function issueContext(cause: unknown, action: string): IssueReportContext {
-  const context: IssueReportContext = { action, message: errorMessage(cause) };
-  if (cause instanceof ProxyApiError) {
-    if (cause.code) context.code = cause.code;
-    if (cause.status !== undefined) context.status = cause.status;
-  }
-  return context;
 }

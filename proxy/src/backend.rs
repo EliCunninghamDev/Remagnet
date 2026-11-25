@@ -1,5 +1,6 @@
-use std::{collections::HashSet, path::PathBuf, pin::Pin};
+use std::{collections::HashSet, path::PathBuf, pin::Pin, time::Duration};
 
+use anyhow::Context;
 use axum::body::Bytes;
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use futures_lite::Stream;
@@ -10,12 +11,82 @@ use url::Url;
 use crate::{
     bencode::{extract_info_hash, MAX_TORRENT_FILE_BYTES},
     config::Config,
+    deluge::DelugeClient,
     error::AppError,
     qbit::QbitClient,
+    rtorrent::RtorrentClient,
     transmission::TransmissionClient,
 };
 
-const COMPLETE_EPSILON: f64 = 0.999_999;
+/// Progress at or above this value counts as complete.
+pub const COMPLETE_EPSILON: f64 = 0.999_999;
+
+/// How long to wait for a connection to a torrent client.
+pub const UPSTREAM_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+/// How long a single upstream read may stall before it is aborted.
+pub const UPSTREAM_READ_TIMEOUT: Duration = Duration::from_secs(60);
+/// Attempts made when a torrent client reports an expired session.
+#[allow(dead_code)] // adopted by the client adapters in the next cleanup batch
+pub const AUTH_RETRY_ATTEMPTS: usize = 2;
+/// Read buffer used when streaming one torrent file from the downloads volume.
+const FILE_STREAM_BUFFER_BYTES: usize = 256 * 1024;
+
+/// Build the shared HTTP client every torrent adapter uses.
+///
+/// Archives can be many gigabytes and are streamed, so there is no total request
+/// deadline; a read timeout still aborts stalls.
+#[allow(dead_code)] // adopted by the client adapters in the next cleanup batch
+pub fn build_http_client(
+    client_label: &str,
+    cookie_store: bool,
+) -> anyhow::Result<reqwest::Client> {
+    reqwest::Client::builder()
+        .cookie_store(cookie_store)
+        .user_agent(concat!("remagnet-proxy/", env!("CARGO_PKG_VERSION")))
+        .connect_timeout(UPSTREAM_CONNECT_TIMEOUT)
+        .read_timeout(UPSTREAM_READ_TIMEOUT)
+        .build()
+        .with_context(|| format!("could not build the {client_label} HTTP client"))
+}
+
+/// The trimmed category, or the first non-empty trimmed tag.
+#[allow(dead_code)] // adopted by the client adapters in the next cleanup batch
+pub fn primary_label<'a>(category: &'a str, tags: &'a [String]) -> &'a str {
+    let category = category.trim();
+    if !category.is_empty() {
+        return category;
+    }
+
+    tags.iter()
+        .map(|tag| tag.trim())
+        .find(|tag| !tag.is_empty())
+        .unwrap_or("")
+}
+
+/// Encode bytes as lowercase hex without per-byte formatting allocations.
+pub fn to_hex(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut output = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        output.push(HEX[usize::from(byte >> 4)] as char);
+        output.push(HEX[usize::from(byte & 0x0F)] as char);
+    }
+    output
+}
+
+/// Validate a v1 (40 hex) or v2 (64 hex) info hash.
+///
+/// Returns the canonical, trimmed and lowercased form.
+pub fn validate_hash(hash: &str) -> Result<String, AppError> {
+    let hash = hash.trim();
+    if (hash.len() == 40 || hash.len() == 64) && is_hex(hash) {
+        Ok(hash.to_ascii_lowercase())
+    } else {
+        Err(AppError::BadRequest(
+            "Expected a 40 or 64 character hex info hash.".to_string(),
+        ))
+    }
+}
 
 /// The torrent client the proxy is configured to talk to.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -24,6 +95,8 @@ pub enum ClientKind {
     #[default]
     Qbittorrent,
     Transmission,
+    Deluge,
+    Rtorrent,
 }
 
 impl ClientKind {
@@ -31,6 +104,8 @@ impl ClientKind {
         match self {
             Self::Qbittorrent => "qBittorrent",
             Self::Transmission => "Transmission",
+            Self::Deluge => "Deluge",
+            Self::Rtorrent => "rTorrent",
         }
     }
 
@@ -40,6 +115,8 @@ impl ClientKind {
         match value.trim().to_ascii_lowercase().as_str() {
             "qbittorrent" | "qbit" | "qb" => Some(Self::Qbittorrent),
             "transmission" | "tr" => Some(Self::Transmission),
+            "deluge" | "deluge-web" => Some(Self::Deluge),
+            "rtorrent" | "rutorrent" | "rt" => Some(Self::Rtorrent),
             _ => None,
         }
     }
@@ -367,12 +444,7 @@ fn base32_to_hex(value: &str) -> Option<String> {
         return None;
     }
 
-    Some(
-        bytes
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect::<String>(),
-    )
+    Some(to_hex(&bytes))
 }
 
 fn fold(value: &str) -> String {
@@ -474,7 +546,10 @@ impl VolumeMapper {
         let file = tokio::fs::File::open(&path).await.map_err(|error| {
             AppError::internal(format!("could not open the torrent file: {error}"))
         })?;
-        Ok(Box::pin(ReaderStream::with_capacity(file, 256 * 1024)))
+        Ok(Box::pin(ReaderStream::with_capacity(
+            file,
+            FILE_STREAM_BUFFER_BYTES,
+        )))
     }
 }
 
@@ -555,6 +630,8 @@ fn strip_client_root(dir: &str, client_root: &str) -> Option<String> {
 pub enum TorrentBackend {
     Qbittorrent(QbitClient),
     Transmission(TransmissionClient),
+    Deluge(DelugeClient),
+    Rtorrent(RtorrentClient),
 }
 
 impl TorrentBackend {
@@ -569,6 +646,8 @@ impl TorrentBackend {
             ClientKind::Transmission => {
                 Ok(Some(Self::Transmission(TransmissionClient::new(config)?)))
             }
+            ClientKind::Deluge => Ok(Some(Self::Deluge(DelugeClient::new(config)?))),
+            ClientKind::Rtorrent => Ok(Some(Self::Rtorrent(RtorrentClient::new(config)?))),
         }
     }
 
@@ -576,6 +655,8 @@ impl TorrentBackend {
         match self {
             Self::Qbittorrent(client) => client.test_connection().await,
             Self::Transmission(client) => client.test_connection().await,
+            Self::Deluge(client) => client.test_connection().await,
+            Self::Rtorrent(client) => client.test_connection().await,
         }
     }
 
@@ -583,6 +664,8 @@ impl TorrentBackend {
         match self {
             Self::Qbittorrent(client) => client.list_torrents().await,
             Self::Transmission(client) => client.list_torrents().await,
+            Self::Deluge(client) => client.list_torrents().await,
+            Self::Rtorrent(client) => client.list_torrents().await,
         }
     }
 
@@ -590,6 +673,8 @@ impl TorrentBackend {
         match self {
             Self::Qbittorrent(client) => client.get_torrent(hash).await,
             Self::Transmission(client) => client.get_torrent(hash).await,
+            Self::Deluge(client) => client.get_torrent(hash).await,
+            Self::Rtorrent(client) => client.get_torrent(hash).await,
         }
     }
 
@@ -601,6 +686,12 @@ impl TorrentBackend {
         tags: &[String],
         paused: bool,
     ) -> Result<AddTorrentResult, AppError> {
+        if urls.is_empty() && files.is_empty() {
+            return Err(AppError::BadRequest(
+                "Add at least one magnet, torrent URL, or .torrent file.".to_string(),
+            ));
+        }
+
         match self {
             Self::Qbittorrent(client) => {
                 client
@@ -612,6 +703,16 @@ impl TorrentBackend {
                     .add_torrent(urls, files, category, tags, paused)
                     .await
             }
+            Self::Deluge(client) => {
+                client
+                    .add_torrent(urls, files, category, tags, paused)
+                    .await
+            }
+            Self::Rtorrent(client) => {
+                client
+                    .add_torrent(urls, files, category, tags, paused)
+                    .await
+            }
         }
     }
 
@@ -619,25 +720,26 @@ impl TorrentBackend {
         match self {
             Self::Qbittorrent(client) => client.remove_torrent(hash, delete_files).await,
             Self::Transmission(client) => client.remove_torrent(hash, delete_files).await,
+            Self::Deluge(client) => client.remove_torrent(hash, delete_files).await,
+            Self::Rtorrent(client) => client.remove_torrent(hash, delete_files).await,
         }
     }
 
     pub async fn archive_torrent(&self, hash: &str) -> Result<ArchiveTorrent, AppError> {
         match self {
-            Self::Qbittorrent(client) => Ok(client.torrent(hash).await?.archive()),
+            Self::Qbittorrent(client) => client.archive_torrent(hash).await,
             Self::Transmission(client) => client.archive_torrent(hash).await,
+            Self::Deluge(client) => client.archive_torrent(hash).await,
+            Self::Rtorrent(client) => client.archive_torrent(hash).await,
         }
     }
 
     pub async fn files(&self, hash: &str) -> Result<Vec<ArchiveFile>, AppError> {
         match self {
-            Self::Qbittorrent(client) => Ok(client
-                .files(hash)
-                .await?
-                .into_iter()
-                .map(ArchiveFile::from)
-                .collect()),
+            Self::Qbittorrent(client) => client.files(hash).await,
             Self::Transmission(client) => client.files(hash).await,
+            Self::Deluge(client) => client.files(hash).await,
+            Self::Rtorrent(client) => client.files(hash).await,
         }
     }
 
@@ -649,6 +751,8 @@ impl TorrentBackend {
         match self {
             Self::Qbittorrent(client) => client.open_file(torrent, file).await,
             Self::Transmission(client) => client.open_file(torrent, file).await,
+            Self::Deluge(client) => client.open_file(torrent, file).await,
+            Self::Rtorrent(client) => client.open_file(torrent, file).await,
         }
     }
 }
@@ -702,7 +806,25 @@ mod tests {
             ClientKind::from_str_loose("TRANSMISSION"),
             Some(ClientKind::Transmission)
         );
-        assert_eq!(ClientKind::from_str_loose("deluge"), None);
+        assert_eq!(ClientKind::Deluge.label(), "Deluge");
+        assert_eq!(ClientKind::Rtorrent.label(), "rTorrent");
+        assert_eq!(
+            ClientKind::from_str_loose("deluge"),
+            Some(ClientKind::Deluge)
+        );
+        assert_eq!(
+            ClientKind::from_str_loose("deluge-web"),
+            Some(ClientKind::Deluge)
+        );
+        assert_eq!(
+            ClientKind::from_str_loose("rutorrent"),
+            Some(ClientKind::Rtorrent)
+        );
+        assert_eq!(
+            ClientKind::from_str_loose("rTorrent"),
+            Some(ClientKind::Rtorrent)
+        );
+        assert_eq!(ClientKind::from_str_loose("aria2"), None);
     }
 
     #[test]

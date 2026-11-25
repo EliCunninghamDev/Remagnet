@@ -265,7 +265,7 @@ test("unconfigured dashboard starts on Connection and unlocks after saving", asy
   expect(screen.queryByRole("tab", { name: "Devices" })).toBeNull();
   expect(
     screen.getByText(
-      "Connect qBittorrent or Transmission below to start managing torrents and pairing devices.",
+      "Connect qBittorrent, Transmission, Deluge, or rTorrent below to start managing torrents and pairing devices.",
     ),
   ).toBeTruthy();
 
@@ -279,7 +279,7 @@ test("unconfigured dashboard starts on Connection and unlocks after saving", asy
   expect(screen.getByRole("tab", { name: "Devices" })).toBeTruthy();
   expect(
     screen.queryByText(
-      "Connect qBittorrent or Transmission below to start managing torrents and pairing devices.",
+      "Connect qBittorrent, Transmission, Deluge, or rTorrent below to start managing torrents and pairing devices.",
     ),
   ).toBeNull();
 
@@ -288,6 +288,108 @@ test("unconfigured dashboard starts on Connection and unlocks after saving", asy
     clientKind: "qbittorrent",
     baseUrl: "http://gluetun:8080",
     apiKey: "qbt_test",
+  });
+});
+
+test("switching to Deluge submits its connection fields", async () => {
+  handler = (url) => {
+    if (url === "/healthz") return { body: liveness };
+    if (url === "/api/auth/status") return { body: authStatus({ authenticated: true }) };
+    if (url === "/api/config") return { body: config };
+    if (url === "/api/torrents") return { body: { torrents: [] } };
+    if (url === "/api/devices") return { body: { devices: [] } };
+    return { body: {} };
+  };
+
+  render(() => <App />);
+
+  expect(await screen.findByText(/Signed in as/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("tab", { name: "Connection" }));
+  await waitFor(() => expect(screen.getByRole("heading", { name: "Torrent client" })).toBeTruthy());
+
+  fireEvent.change(screen.getByRole("combobox"), { target: { value: "deluge" } });
+  await waitFor(() => expect(screen.getByLabelText(/^Web UI URL/)).toBeTruthy());
+
+  fireEvent.input(screen.getByLabelText(/^Web UI URL/), {
+    target: { value: "http://deluge:8112" },
+  });
+  fireEvent.input(screen.getByLabelText(/^Password/), {
+    target: { value: "deluge-password" },
+  });
+  fireEvent.input(screen.getByLabelText(/^Downloads directory/), {
+    target: { value: "/downloads" },
+  });
+  fireEvent.input(screen.getByLabelText(/^Client downloads path/), {
+    target: { value: "/data/deluge" },
+  });
+  fireEvent.input(screen.getByLabelText(/^Label/), {
+    target: { value: "remagnet" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+  await waitFor(() => expect(screen.getByText("Saved.")).toBeTruthy());
+
+  const put = calls.find((call) => call.url === "/api/config" && call.init.method === "PUT");
+  expect(JSON.parse(String(put?.init.body))).toEqual({
+    clientKind: "deluge",
+    baseUrl: "http://deluge:8112",
+    password: "deluge-password",
+    downloadsDir: "/downloads",
+    clientDownloadsDir: "/data/deluge",
+    defaultCategory: "remagnet",
+    defaultTags: [],
+  });
+});
+
+test("switching to rTorrent submits its connection fields", async () => {
+  handler = (url) => {
+    if (url === "/healthz") return { body: liveness };
+    if (url === "/api/auth/status") return { body: authStatus({ authenticated: true }) };
+    if (url === "/api/config") return { body: config };
+    if (url === "/api/torrents") return { body: { torrents: [] } };
+    if (url === "/api/devices") return { body: { devices: [] } };
+    return { body: {} };
+  };
+
+  render(() => <App />);
+
+  expect(await screen.findByText(/Signed in as/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("tab", { name: "Connection" }));
+  await waitFor(() => expect(screen.getByRole("heading", { name: "Torrent client" })).toBeTruthy());
+
+  fireEvent.change(screen.getByRole("combobox"), { target: { value: "rtorrent" } });
+  await waitFor(() => expect(screen.getByLabelText(/^XML-RPC URL/)).toBeTruthy());
+
+  fireEvent.input(screen.getByLabelText(/^XML-RPC URL/), {
+    target: { value: "http://rtorrent:8000" },
+  });
+  fireEvent.input(screen.getByLabelText(/^Username/), { target: { value: "admin" } });
+  fireEvent.input(screen.getByLabelText(/^Password/), {
+    target: { value: "rtorrent-password" },
+  });
+  fireEvent.input(screen.getByLabelText(/^Downloads directory/), {
+    target: { value: "/downloads" },
+  });
+  fireEvent.input(screen.getByLabelText(/^Client downloads path/), {
+    target: { value: "/data/rtorrent" },
+  });
+  fireEvent.input(screen.getByLabelText(/^Label/), {
+    target: { value: "remagnet" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+  await waitFor(() => expect(screen.getByText("Saved.")).toBeTruthy());
+
+  const put = calls.find((call) => call.url === "/api/config" && call.init.method === "PUT");
+  expect(JSON.parse(String(put?.init.body))).toEqual({
+    clientKind: "rtorrent",
+    baseUrl: "http://rtorrent:8000",
+    username: "admin",
+    password: "rtorrent-password",
+    downloadsDir: "/downloads",
+    clientDownloadsDir: "/data/rtorrent",
+    defaultCategory: "remagnet",
+    defaultTags: [],
   });
 });
 

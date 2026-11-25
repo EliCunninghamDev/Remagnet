@@ -1,9 +1,16 @@
-import type { IssueReportContext } from "@remagnet/ui";
+import { isLoopbackHost } from "@remagnet/proxy-client";
+import {
+  COPY_FEEDBACK_MS,
+  copyText,
+  errorMessage,
+  type IssueReportContext,
+  issueContextFromError,
+} from "@remagnet/ui";
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import {
   createPairing,
+  isSessionExpired,
   type PairingSession,
-  ProxyApiError,
   revokePairing as revokePairingRequest,
 } from "../api";
 import StatusLine, { type StatusMessage } from "./StatusLine";
@@ -37,6 +44,7 @@ export interface PairingPanelProps {
 }
 
 const ROTATE_AT_SECONDS = 5;
+const COUNTDOWN_TICK_MS = 1_000;
 
 /** One-time QR pairing for the Android app and browser extension. */
 export default function PairingPanel(props: PairingPanelProps) {
@@ -50,6 +58,7 @@ export default function PairingPanel(props: PairingPanelProps) {
   const [statusContext, setStatusContext] = createSignal<IssueReportContext>();
 
   let countdownTimer: number | undefined;
+  let copyFeedbackTimer: number | undefined;
 
   const fallbackUri = () => session()?.uri ?? copiedSession()?.uri;
 
@@ -64,6 +73,7 @@ export default function PairingPanel(props: PairingPanelProps) {
 
   onCleanup(() => {
     stopCountdown();
+    clearCopyFeedback();
     const current = session();
     if (current) void revokePairingRequest(current.id);
     setRevokeRef(undefined);
@@ -82,14 +92,7 @@ export default function PairingPanel(props: PairingPanelProps) {
 
   function pairingAllowed(): boolean {
     if (location.protocol === "https:") return true;
-    const host = location.hostname;
-    return (
-      host === "127.0.0.1" ||
-      host === "localhost" ||
-      host === "::1" ||
-      host === "[::1]" ||
-      host === "10.0.2.2"
-    );
+    return isLoopbackHost(location.hostname);
   }
 
   function stopCountdown() {
@@ -97,6 +100,27 @@ export default function PairingPanel(props: PairingPanelProps) {
       window.clearInterval(countdownTimer);
       countdownTimer = undefined;
     }
+  }
+
+  function clearCopyFeedback() {
+    if (copyFeedbackTimer !== undefined) {
+      window.clearTimeout(copyFeedbackTimer);
+      copyFeedbackTimer = undefined;
+    }
+  }
+
+  function resetCopied() {
+    clearCopyFeedback();
+    setCopied(false);
+  }
+
+  function flashCopied() {
+    clearCopyFeedback();
+    setCopied(true);
+    copyFeedbackTimer = window.setTimeout(() => {
+      copyFeedbackTimer = undefined;
+      setCopied(false);
+    }, COPY_FEEDBACK_MS);
   }
 
   function startCountdown() {
@@ -110,7 +134,7 @@ export default function PairingPanel(props: PairingPanelProps) {
       if (seconds <= ROTATE_AT_SECONDS) void rotatePairing(current);
     };
     tick();
-    countdownTimer = window.setInterval(tick, 1000);
+    countdownTimer = window.setInterval(tick, COUNTDOWN_TICK_MS);
   }
 
   function showPairing(created: PairingSession) {
@@ -121,7 +145,7 @@ export default function PairingPanel(props: PairingPanelProps) {
       expiresAt: Date.now() + created.expiresIn * 1000,
     });
     setRemaining(Math.max(0, Math.ceil(created.expiresIn)));
-    setCopied(false);
+    resetCopied();
     setLinkVisible(false);
     setStatus(undefined);
     setStatusContext(undefined);
@@ -133,7 +157,7 @@ export default function PairingPanel(props: PairingPanelProps) {
     const current = session();
     setSession(undefined);
     setRemaining(undefined);
-    setCopied(false);
+    resetCopied();
     setLinkVisible(false);
     stopCountdown();
     if (revoke && current) void revokePairingRequest(current.id);
@@ -167,9 +191,9 @@ export default function PairingPanel(props: PairingPanelProps) {
     try {
       showPairing(await createPairing(location.origin));
     } catch (error) {
-      if (isExpired(error)) return;
+      if (isSessionExpired(error)) return;
       setStatus({ tone: "error", message: errorMessage(error) });
-      setStatusContext(issueContext(error, "Pairing device"));
+      setStatusContext(issueContextFromError(error, "Pairing device"));
     } finally {
       setBusy(false);
     }
@@ -189,10 +213,10 @@ export default function PairingPanel(props: PairingPanelProps) {
       showPairing(created);
       void revokePairingRequest(previous.id);
     } catch (error) {
-      if (isExpired(error)) return;
+      if (isSessionExpired(error)) return;
       clearPairing(false);
       setStatus({ tone: "error", message: errorMessage(error) });
-      setStatusContext(issueContext(error, "Pairing device"));
+      setStatusContext(issueContextFromError(error, "Pairing device"));
     } finally {
       setBusy(false);
     }
@@ -213,13 +237,13 @@ export default function PairingPanel(props: PairingPanelProps) {
 
     const current = session();
     if (current) {
-      try {
-        await navigator.clipboard.writeText(current.uri);
-        setCopied(true);
+      if (await copyText(current.uri)) {
+        flashCopied();
         setLinkVisible(false);
         setStatus(undefined);
         setStatusContext(undefined);
-      } catch {
+      } else {
+        resetCopied();
         setLinkVisible(true);
         setStatus({
           tone: "error",
@@ -241,7 +265,7 @@ export default function PairingPanel(props: PairingPanelProps) {
     }
 
     setBusy(true);
-    setCopied(false);
+    resetCopied();
     setLinkVisible(false);
     setStatus({ tone: "muted", message: "Creating a one-time link…" });
     setStatusContext(undefined);
@@ -252,18 +276,17 @@ export default function PairingPanel(props: PairingPanelProps) {
       setCopiedSession({ id: created.id, uri: created.uri });
       syncRevokeRef();
 
-      try {
-        await navigator.clipboard.writeText(created.uri);
+      if (await copyText(created.uri)) {
         const seconds = Math.max(0, Math.ceil(created.expiresIn));
-        setCopied(true);
+        flashCopied();
         setLinkVisible(false);
         setStatus({
           tone: "ok",
           message: `Copied a one-time pairing link. Expires in ${seconds}s.`,
         });
         setStatusContext(undefined);
-      } catch {
-        setCopied(false);
+      } else {
+        resetCopied();
         setLinkVisible(true);
         setStatus({
           tone: "error",
@@ -272,9 +295,9 @@ export default function PairingPanel(props: PairingPanelProps) {
         setStatusContext({ action: "Copying pairing link", message: "Clipboard write failed." });
       }
     } catch (error) {
-      if (isExpired(error)) return;
+      if (isSessionExpired(error)) return;
       setStatus({ tone: "error", message: errorMessage(error) });
-      setStatusContext(issueContext(error, "Pairing device"));
+      setStatusContext(issueContextFromError(error, "Pairing device"));
     } finally {
       setBusy(false);
     }
@@ -328,21 +351,4 @@ export default function PairingPanel(props: PairingPanelProps) {
       </Show>
     </section>
   );
-}
-
-function isExpired(error: unknown): boolean {
-  return error instanceof ProxyApiError && error.expired;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function issueContext(cause: unknown, action: string): IssueReportContext {
-  const context: IssueReportContext = { action, message: errorMessage(cause) };
-  if (cause instanceof ProxyApiError) {
-    if (cause.code) context.code = cause.code;
-    if (cause.status !== undefined) context.status = cause.status;
-  }
-  return context;
 }

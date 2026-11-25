@@ -1,5 +1,5 @@
 import type { components, ProxyError, ProxyPaths } from "@remagnet/proxy-client";
-import { proxyErrorMessage, toProxyError } from "@remagnet/proxy-client";
+import { archiveUrl, proxyErrorMessage, toProxyError } from "@remagnet/proxy-client";
 import createClient from "openapi-fetch";
 
 type Schemas = components["schemas"];
@@ -51,6 +51,11 @@ export class ProxyApiError extends Error {
     this.code = options.code;
     this.expired = options.expired ?? false;
   }
+}
+
+/** Whether a failed request ended the administrator session. */
+export function isSessionExpired(error: unknown): boolean {
+  return error instanceof ProxyApiError && error.expired;
 }
 
 /**
@@ -223,12 +228,12 @@ export function createArchiveTicket(hash: string): Promise<ArchiveTicket> {
 
 /** Same-origin ZIP URL for a single-use ticket. */
 export function archiveDownloadHref(hash: string, ticket: string): string {
-  return `/archive/${encodeURIComponent(hash)}?ticket=${encodeURIComponent(ticket)}`;
+  return `${archiveHref(hash)}?${new URLSearchParams({ ticket }).toString()}`;
 }
 
 /** Same-origin ZIP URL for headers or cookie-authorized downloads. */
 export function archiveHref(hash: string): string {
-  return `/archive/${encodeURIComponent(hash)}`;
+  return archiveUrl("", hash);
 }
 
 // ---- Pairing and devices --------------------------------------------------

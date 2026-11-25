@@ -14,6 +14,21 @@ export type BencodeValue =
   | BencodeValue[]
   | { [key: string]: BencodeValue };
 
+/** Default payload size used by integration fixtures (64 KiB). */
+export const DEFAULT_FIXTURE_SIZE = 65_536;
+
+/** ZIP signatures used by the stored-archive reader. */
+export const ZIP_LOCAL_SIGNATURE = 0x04034b50;
+export const ZIP_CD_SIGNATURE = 0x02014b50;
+export const ZIP_EOCD_SIGNATURE = 0x06054b50;
+export const ZIP_DATA_DESCRIPTOR_SIGNATURE = 0x08074b50;
+
+/** Fixed header sizes and the maximum EOCD comment length, in bytes. */
+export const ZIP_LOCAL_HEADER_SIZE = 30;
+export const ZIP_CD_HEADER_SIZE = 46;
+export const ZIP_EOCD_SIZE = 22;
+export const ZIP_MAX_COMMENT_LENGTH = 65_535;
+
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
@@ -81,7 +96,7 @@ const PIECE_LENGTH = 16_384;
 export async function buildTorrentFixture(
   name: string,
   seed: string,
-  size = 65_536,
+  size = DEFAULT_FIXTURE_SIZE,
 ): Promise<TorrentFixture> {
   const payloadBytes = new Uint8Array(size);
   const seedBytes = encoder.encode(seed);
@@ -149,7 +164,7 @@ export function readStoredZip(bytes: Uint8Array): ZipEntry[] {
   const entries: ZipEntry[] = [];
 
   for (let i = 0; i < entryCount; i += 1) {
-    if (view.getUint32(cdOffset, true) !== 0x02014b50) {
+    if (view.getUint32(cdOffset, true) !== ZIP_CD_SIGNATURE) {
       throw new Error(`Invalid central directory header at offset ${cdOffset}.`);
     }
     const method = view.getUint16(cdOffset + 10, true);
@@ -162,15 +177,17 @@ export function readStoredZip(bytes: Uint8Array): ZipEntry[] {
     const commentLen = view.getUint16(cdOffset + 32, true);
     const localHeaderOffset = view.getUint32(cdOffset + 42, true);
 
-    const name = decoder.decode(bytes.subarray(cdOffset + 46, cdOffset + 46 + nameLen));
-    cdOffset += 46 + nameLen + extraLen + commentLen;
+    const name = decoder.decode(
+      bytes.subarray(cdOffset + ZIP_CD_HEADER_SIZE, cdOffset + ZIP_CD_HEADER_SIZE + nameLen),
+    );
+    cdOffset += ZIP_CD_HEADER_SIZE + nameLen + extraLen + commentLen;
 
-    if (view.getUint32(localHeaderOffset, true) !== 0x04034b50) {
+    if (view.getUint32(localHeaderOffset, true) !== ZIP_LOCAL_SIGNATURE) {
       throw new Error(`Invalid local file header for ${name}.`);
     }
     const localNameLen = view.getUint16(localHeaderOffset + 26, true);
     const localExtraLen = view.getUint16(localHeaderOffset + 28, true);
-    const dataStart = localHeaderOffset + 30 + localNameLen + localExtraLen;
+    const dataStart = localHeaderOffset + ZIP_LOCAL_HEADER_SIZE + localNameLen + localExtraLen;
     const data = bytes.slice(dataStart, dataStart + compressedSize);
     entries.push({ name, data });
   }
@@ -179,36 +196,37 @@ export function readStoredZip(bytes: Uint8Array): ZipEntry[] {
 }
 
 function findEndOfCentralDirectory(view: DataView): number {
-  const minOffset = Math.max(0, view.byteLength - 65_557);
-  for (let offset = view.byteLength - 22; offset >= minOffset; offset -= 1) {
-    if (view.getUint32(offset, true) === 0x06054b50) {
+  const minOffset = Math.max(0, view.byteLength - ZIP_EOCD_SIZE - ZIP_MAX_COMMENT_LENGTH);
+  for (let offset = view.byteLength - ZIP_EOCD_SIZE; offset >= minOffset; offset -= 1) {
+    if (view.getUint32(offset, true) === ZIP_EOCD_SIGNATURE) {
       return offset;
     }
   }
   return -1;
 }
 
+/** Copy a Uint8Array into a standalone ArrayBuffer for WebCrypto calls. */
+export function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+}
+
+async function digest(algorithm: AlgorithmIdentifier, bytes: Uint8Array): Promise<Uint8Array> {
+  return new Uint8Array(await crypto.subtle.digest(algorithm, toArrayBuffer(bytes)));
+}
+
 export async function sha1(bytes: Uint8Array): Promise<Uint8Array> {
-  const buffer = bytes.buffer.slice(
-    bytes.byteOffset,
-    bytes.byteOffset + bytes.byteLength,
-  ) as ArrayBuffer;
-  return new Uint8Array(await crypto.subtle.digest("SHA-1", buffer));
+  return digest("SHA-1", bytes);
 }
 
 export async function sha256(bytes: Uint8Array): Promise<Uint8Array> {
-  const buffer = bytes.buffer.slice(
-    bytes.byteOffset,
-    bytes.byteOffset + bytes.byteLength,
-  ) as ArrayBuffer;
-  return new Uint8Array(await crypto.subtle.digest("SHA-256", buffer));
+  return digest("SHA-256", bytes);
 }
 
 export function toHex(bytes: Uint8Array): string {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-function concatBytes(parts: Uint8Array[]): Uint8Array {
+export function concatBytes(parts: Uint8Array[]): Uint8Array {
   const total = parts.reduce((sum, part) => sum + part.length, 0);
   const out = new Uint8Array(total);
   let offset = 0;

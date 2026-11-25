@@ -16,9 +16,10 @@ on Android to send it to your qBittorrent instance—then monitor progress and
 download completed torrents straight to your device as streamed ZIP files.
 
 Clients talk only to **Remagnet Proxy**, a small Rust/Docker service that sits
-next to qBittorrent. The proxy owns your qBittorrent credentials and the
-category/tags that mark Remagnet torrents, so qBittorrent never needs to be
-exposed outside your host or Docker network.
+next to your torrent client—qBittorrent, Transmission, Deluge, or rTorrent /
+ruTorrent. The proxy owns your client credentials and the category/tags that
+mark Remagnet torrents, so the client never needs to be exposed outside your
+host or Docker network.
 
 <p align="center">
   <img src="docs/remagnet-demo.gif" alt="Right-clicking a magnet link on The ISO Bay in Chrome, sending it to qBittorrent through Remagnet, then downloading the finished torrent as a ZIP" width="800">
@@ -53,6 +54,9 @@ Enable the Web UI and generate an API key under **Preferences → Web UI → API
 Key** (qBittorrent 5.2 or newer; username/password login also works for 4.1+).
 Note the Web UI URL reachable from the proxy container—only the proxy connects
 to qBittorrent.
+
+qBittorrent is used as the example here; the proxy also supports Transmission,
+Deluge, and rTorrent / ruTorrent.
 
 ### 2. Deploy Remagnet Proxy
 

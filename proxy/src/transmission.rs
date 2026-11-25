@@ -7,9 +7,9 @@ use tokio::sync::RwLock;
 
 use crate::{
     backend::{
-        extract_magnet_hashes, AddTorrentResult, ArchiveFile, ArchiveTorrent, BackendHealth,
-        ClientKind, FileByteStream, TorrentCapabilities, TorrentFilePayload, TorrentSummary,
-        VolumeMapper,
+        build_http_client, extract_magnet_hashes, AddTorrentResult, ArchiveFile, ArchiveTorrent,
+        BackendHealth, ClientKind, FileByteStream, TorrentCapabilities, TorrentFilePayload,
+        TorrentSummary, VolumeMapper, AUTH_RETRY_ATTEMPTS,
     },
     config::{normalize_tags, Config},
     error::AppError,
@@ -72,14 +72,7 @@ pub struct TransmissionClient {
 
 impl TransmissionClient {
     pub fn new(config: &Config) -> anyhow::Result<Self> {
-        let http = reqwest::Client::builder()
-            .user_agent(concat!("remagnet-proxy/", env!("CARGO_PKG_VERSION")))
-            .connect_timeout(std::time::Duration::from_secs(15))
-            .read_timeout(std::time::Duration::from_secs(60))
-            .build()
-            .map_err(|error| {
-                anyhow::anyhow!("could not build the Transmission HTTP client: {error}")
-            })?;
+        let http = build_http_client("Transmission", false)?;
 
         let auth = (!config.username.is_empty() || !config.password.is_empty())
             .then(|| (config.username.clone(), config.password.clone()));
@@ -171,50 +164,21 @@ impl TransmissionClient {
 
         let mut hashes = Vec::new();
         for url in urls {
-            let mut arguments = json!({ "filename": url, "paused": paused });
-            if !labels.is_empty() {
-                arguments["labels"] = json!(labels);
-            }
-
-            let response = self.rpc("torrent-add", arguments).await?;
-            if response.get("torrent-duplicate").is_some() {
-                return Err(AppError::BadRequest(
-                    "Transmission already has this torrent.".to_string(),
-                ));
-            }
-
-            match response
-                .get("torrent-added")
-                .and_then(|added| added.get("hashString"))
-                .and_then(Value::as_str)
-            {
-                Some(hash) => hashes.push(hash.to_ascii_lowercase()),
-                None => hashes.extend(extract_magnet_hashes(std::slice::from_ref(url))),
+            let url = url.trim();
+            let arguments = json!({ "filename": url, "paused": paused });
+            match self.add_request(arguments, &labels).await? {
+                Some(hash) => hashes.push(hash),
+                None => hashes.extend(extract_magnet_hashes(&[url.to_string()])),
             }
         }
 
         for file in files {
-            let mut arguments = json!({
+            let arguments = json!({
                 "metainfo": file.base64,
                 "paused": paused,
             });
-            if !labels.is_empty() {
-                arguments["labels"] = json!(labels);
-            }
-
-            let response = self.rpc("torrent-add", arguments).await?;
-            if response.get("torrent-duplicate").is_some() {
-                return Err(AppError::BadRequest(
-                    "Transmission already has this torrent.".to_string(),
-                ));
-            }
-
-            match response
-                .get("torrent-added")
-                .and_then(|added| added.get("hashString"))
-                .and_then(Value::as_str)
-            {
-                Some(hash) => hashes.push(hash.to_ascii_lowercase()),
+            match self.add_request(arguments, &labels).await? {
+                Some(hash) => hashes.push(hash),
                 None => hashes.push(file.info_hash.clone()),
             }
         }
@@ -225,6 +189,31 @@ impl TransmissionClient {
             category: String::new(),
             tags: labels,
         })
+    }
+
+    /// Send one `torrent-add` request and return the new torrent's hash, if
+    /// Transmission reported one.
+    async fn add_request(
+        &self,
+        mut arguments: Value,
+        labels: &[String],
+    ) -> Result<Option<String>, AppError> {
+        if !labels.is_empty() {
+            arguments["labels"] = json!(labels);
+        }
+
+        let response = self.rpc("torrent-add", arguments).await?;
+        if response.get("torrent-duplicate").is_some() {
+            return Err(AppError::BadRequest(
+                "Transmission already has this torrent.".to_string(),
+            ));
+        }
+
+        Ok(response
+            .get("torrent-added")
+            .and_then(|added| added.get("hashString"))
+            .and_then(Value::as_str)
+            .map(str::to_ascii_lowercase))
     }
 
     pub async fn remove_torrent(&self, hash: &str, delete_files: bool) -> Result<(), AppError> {
@@ -254,7 +243,7 @@ impl TransmissionClient {
             state: normalize_state(torrent.status, torrent.error, 0.0, 0),
             category: String::new(),
             tags: torrent.labels,
-            download_dir: Some(torrent.download_dir),
+            download_dir: Some(torrent.download_dir).filter(|dir| !dir.trim().is_empty()),
         })
     }
 
@@ -283,7 +272,7 @@ impl TransmissionClient {
                 progress: if file.length == 0 {
                     1.0
                 } else {
-                    file.bytes_completed as f64 / file.length as f64
+                    (file.bytes_completed as f64 / file.length as f64).clamp(0.0, 1.0)
                 },
             });
         }
@@ -318,7 +307,7 @@ impl TransmissionClient {
     async fn rpc(&self, method: &str, arguments: Value) -> Result<Value, AppError> {
         let payload = json!({ "method": method, "arguments": arguments });
 
-        for attempt in 0..2 {
+        for attempt in 0..AUTH_RETRY_ATTEMPTS {
             let session_id = self.session_id.read().await.clone();
             let mut request = self.http.post(&self.rpc_url).json(&payload);
             if let Some((username, password)) = &self.auth {
@@ -364,18 +353,17 @@ impl TransmissionClient {
 
             if !status.is_success() {
                 let body = response.text().await.unwrap_or_default();
-                let detail = error_detail(&body);
-                return Err(AppError::Upstream(format!(
-                    "Transmission returned {status} for {method}{detail}"
-                )));
+                return Err(AppError::upstream_status(
+                    "Transmission",
+                    status,
+                    method,
+                    &body,
+                ));
             }
 
             let body: Value = response.json().await.map_err(|error| {
                 tracing::warn!(error = %error, method, "could not parse the Transmission response");
-                AppError::Upstream(
-                    "Transmission returned a response Remagnet Proxy could not read. Check that Transmission is running and up to date."
-                        .to_string(),
-                )
+                AppError::upstream_unreadable("Transmission")
             })?;
 
             let result = body
@@ -441,29 +429,8 @@ fn torrents_from<T: DeserializeOwned>(arguments: &Value) -> Result<Vec<T>, AppEr
         .unwrap_or_else(|| json!([]));
     serde_json::from_value(torrents).map_err(|error| {
         tracing::warn!(error = %error, "could not parse the Transmission torrent data");
-        AppError::Upstream(
-            "Transmission returned torrent data Remagnet Proxy could not read. Check that Transmission is running and up to date."
-                .to_string(),
-        )
+        AppError::upstream_unreadable("Transmission")
     })
-}
-
-/// Include a short upstream body in an error, unless it is an HTML page rather
-/// than a useful message.
-fn error_detail(body: &str) -> String {
-    let body = body.trim();
-    if body.is_empty() || body.starts_with('<') {
-        return String::new();
-    }
-    format!(": {}", truncate(body, 300))
-}
-
-fn truncate(value: &str, max_chars: usize) -> String {
-    let mut truncated = value.chars().take(max_chars).collect::<String>();
-    if value.chars().count() > max_chars {
-        truncated.push('…');
-    }
-    truncated
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -523,7 +490,7 @@ impl RawTorrent {
             download_speed: self.rate_download,
             upload_speed: self.rate_upload,
             eta: if self.eta < 0 { -1 } else { self.eta },
-            ratio: self.upload_ratio,
+            ratio: self.upload_ratio.max(0.0),
             category: String::new(),
             tags: self.labels.clone(),
             seeds: self.peers_sending_to_us,

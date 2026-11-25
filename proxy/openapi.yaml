@@ -158,10 +158,12 @@ paths:
         torrent client.
 
         Values supplied through environment variables (`CLIENT_KIND`,
-        `CLIENT_BASE_URL`/`QBIT_BASE_URL`/`TRANSMISSION_BASE_URL`, `QBIT_API_KEY`,
+        `CLIENT_BASE_URL`/`QBIT_BASE_URL`/`TRANSMISSION_BASE_URL`,
+        `DELUGE_BASE_URL`, `RTORRENT_BASE_URL`, `QBIT_API_KEY`,
         `CLIENT_USERNAME`/`QBIT_USERNAME`, `CLIENT_PASSWORD`/`QBIT_PASSWORD`,
-        `DOWNLOADS_DIR`, `CLIENT_DOWNLOADS_DIR`, `REMAGNET_CATEGORY`, and
-        `REMAGNET_TAGS`) override `config.json` and are listed in `envLocked`.
+        `DELUGE_PASSWORD`, `DOWNLOADS_DIR`, `CLIENT_DOWNLOADS_DIR`,
+        `REMAGNET_CATEGORY`, and `REMAGNET_TAGS`) override `config.json` and are
+        listed in `envLocked`.
         Leave those fields disabled in the UI: a subsequent `PUT /api/config`
         keeps the environment value even if it sends a different one.
       tags: [Configuration]
@@ -210,8 +212,10 @@ paths:
         empty string clears it. Credentials are not required when saving: the
         proxy remains bootable and client-backed endpoints return `503` until
         setup is complete. Transmission only needs a URL; a private network can
-        leave its optional username and password blank. Saving valid settings
-        activates the client without a restart.
+        leave its optional username and password blank. Deluge needs its Web UI
+        URL plus the Web UI password. rTorrent/ruTorrent needs its XML-RPC URL,
+        with optional HTTP Basic Auth via `username` and `password`. Saving
+        valid settings activates the client without a restart.
 
         `downloadsDir` enables ZIP archive downloads and should point at the
         client's downloads volume mounted read-only. `clientDownloadsDir` is an
@@ -244,6 +248,19 @@ paths:
                   baseUrl: http://transmission:9091
                   downloadsDir: /downloads
                   clientDownloadsDir: /data/torrents
+              deluge:
+                summary: Use Deluge with its Web UI password
+                value:
+                  clientKind: deluge
+                  baseUrl: http://deluge:8112
+                  password: deluge
+              rtorrent:
+                summary: Use ruTorrent XML-RPC with HTTP Basic Auth
+                value:
+                  clientKind: rtorrent
+                  baseUrl: http://rutorrent:8000
+                  username: admin
+                  password: secret
               replaceCredentials:
                 summary: Switch to username/password and clear the API key
                 value:
@@ -311,9 +328,10 @@ paths:
         `urls` accepts `magnet:` links and http(s) URLs understood by the
         client. `files` carries raw `.torrent` metainfo as standard base64 in
         `data`; the proxy validates the bencode, computes the info hash, and
-        sends the original bytes to qBittorrent as multipart or to Transmission
-        as `metainfo`. Files larger than 10 MiB are rejected with `413`, and the
-        overall JSON body is limited to 16 MiB.
+        sends the original bytes to qBittorrent as multipart, to Transmission as
+        `metainfo`, to Deluge via `core.add_torrent_file`, or to rTorrent via
+        `load.raw`/`load.raw_start`. Files larger than 10 MiB are rejected with
+        `413`, and the overall JSON body is limited to 16 MiB.
 
         `hashes` contains the v1/v2 info hashes extracted from submitted
         `magnet:` URLs plus the info hashes of uploaded `.torrent` files;
@@ -1348,8 +1366,10 @@ components:
       type: string
       description: |
         Torrent client adapted by the proxy. `qbittorrent` uses the qBittorrent
-        Web API; `transmission` uses the Transmission RPC endpoint.
-      enum: [qbittorrent, transmission]
+        Web API; `transmission` uses the Transmission RPC endpoint; `deluge`
+        uses the Deluge Web UI JSON-RPC endpoint; `rtorrent` uses the
+        rTorrent/ruTorrent XML-RPC endpoint.
+      enum: [qbittorrent, transmission, deluge, rtorrent]
       example: qbittorrent
     TorrentCapabilities:
       type: object
@@ -1369,7 +1389,9 @@ components:
           example: true
         categories:
           type: boolean
-          description: Whether the adapted client supports categories.
+          description: |
+            Whether the adapted client supports categories. Deluge exposes them
+            through the Label plugin, and ruTorrent uses `custom1` labels.
           example: true
         tags:
           type: boolean

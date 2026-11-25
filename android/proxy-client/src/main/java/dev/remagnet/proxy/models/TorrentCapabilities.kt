@@ -31,7 +31,7 @@ import com.google.gson.annotations.SerializedName
  *
  * @param pauseOnAdd Whether `POST /api/torrents` accepts `paused`.
  * @param archiveDownload Whether completed torrents can be streamed as ZIP archives. This is only true when `DOWNLOADS_DIR` points at the client's downloads volume.
- * @param categories Whether the adapted client supports categories.
+ * @param categories Whether the adapted client supports categories. Deluge exposes them through the Label plugin, and ruTorrent uses `custom1` labels.
  * @param tags Whether the adapted client supports tags. Transmission exposes them as labels.
  * @param torrentFiles Whether `POST /api/torrents` accepts uploaded `.torrent` files in `files`, not just magnet or torrent URLs.
  */
@@ -47,7 +47,7 @@ data class TorrentCapabilities (
     @SerializedName("archiveDownload")
     val archiveDownload: kotlin.Boolean,
 
-    /* Whether the adapted client supports categories. */
+    /* Whether the adapted client supports categories. Deluge exposes them through the Label plugin, and ruTorrent uses `custom1` labels.  */
     @SerializedName("categories")
     val categories: kotlin.Boolean,
 

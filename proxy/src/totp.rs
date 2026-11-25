@@ -163,7 +163,7 @@ pub fn hash_recovery_code(code: &str) -> String {
         .flat_map(char::to_uppercase)
         .collect();
     let digest = Sha256::digest(normalized.as_bytes());
-    to_hex(&digest)
+    crate::backend::to_hex(&digest)
 }
 
 fn hotp(secret: &[u8], step: u64) -> String {
@@ -177,17 +177,8 @@ fn hotp(secret: &[u8], step: u64) -> String {
         | (u32::from(digest[offset + 2]) << 8)
         | u32::from(digest[offset + 3]);
 
-    format!("{:06}", binary % 1_000_000)
-}
-
-fn to_hex(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut output = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        output.push(HEX[usize::from(byte >> 4)] as char);
-        output.push(HEX[usize::from(byte & 0x0F)] as char);
-    }
-    output
+    let code = binary % 10u32.pow(TOTP_DIGITS);
+    format!("{code:0width$}", width = TOTP_DIGITS as usize)
 }
 
 #[cfg(test)]

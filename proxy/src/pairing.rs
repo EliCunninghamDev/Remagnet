@@ -15,11 +15,16 @@ use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
 use url::{form_urlencoded, Url};
 
-/// How long a displayed pairing code stays valid. The extension rotates the
+/// How long a displayed pairing code stays valid. The proxy page rotates the
 /// code before this deadline, and the proxy refuses claims after it.
 pub const PAIRING_TTL: Duration = Duration::from_secs(60);
 
-/// A few concurrent codes are enough for one extension tab; the oldest is
+/// Longest origin accepted by [`normalize_origin`].
+const MAX_ORIGIN_LEN: usize = 2048;
+/// Smallest QR image edge, in pixels, so a camera can read it on screen.
+const QR_MIN_DIMENSIONS: u32 = 240;
+
+/// A few concurrent codes are enough for one proxy page tab; the oldest is
 /// dropped when the cap is reached so a stuck tab cannot grow memory forever.
 const MAX_SESSIONS: usize = 16;
 
@@ -160,7 +165,7 @@ pub fn proof(secret: &[u8; 32]) -> String {
 /// loopback and the Android emulator host. The phone applies the same rule; if
 /// this endpoint accepted a LAN origin the app would reject the code later.
 pub fn normalize_origin(raw: &str) -> Result<String> {
-    if raw.len() > 2048 {
+    if raw.len() > MAX_ORIGIN_LEN {
         bail!("The pairing URL is too long.");
     }
 
@@ -209,7 +214,7 @@ pub fn qr_svg(uri: &str) -> Result<String> {
     let svg = code
         .render::<svg::Color>()
         .quiet_zone(false)
-        .min_dimensions(240, 240)
+        .min_dimensions(QR_MIN_DIMENSIONS, QR_MIN_DIMENSIONS)
         .dark_color(svg::Color("#000000"))
         .light_color(svg::Color("#ffffff"))
         .build();

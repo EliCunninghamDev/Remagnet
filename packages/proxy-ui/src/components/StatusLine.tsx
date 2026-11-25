@@ -1,8 +1,13 @@
-import { Show } from "solid-js";
+import { type FlowStatus, StatusLine as SharedStatusLine } from "@remagnet/ui";
 
-export type StatusTone = "ok" | "error" | "warn" | "muted";
+export type StatusTone = FlowStatus["tone"] | "muted";
 
-/** A short flow message shown below a form, list or panel action. */
+/**
+ * A short flow message shown below a form, list or panel action.
+ *
+ * The proxy adds a `muted` tone for progress copy such as "Saving…"; the
+ * rendering is the shared status line.
+ */
 export interface StatusMessage {
   tone: StatusTone;
   message: string;
@@ -14,20 +19,9 @@ export interface StatusLineProps {
   onReport?: () => void;
 }
 
-/** One-line status text with an opt-in report trigger for failures. */
+/** One-line status text rendered through the shared component. */
 export default function StatusLine(props: StatusLineProps) {
   return (
-    <Show when={props.status}>
-      {(current) => (
-        <p class={`status ${current().tone}`} role="status" aria-live="polite">
-          {current().message}
-          <Show when={current().tone === "error" && props.onReport}>
-            <button class="linkish report-inline" type="button" onClick={() => props.onReport?.()}>
-              Report issue
-            </button>
-          </Show>
-        </p>
-      )}
-    </Show>
+    <SharedStatusLine status={props.status as FlowStatus | undefined} onReport={props.onReport} />
   );
 }

@@ -1,5 +1,6 @@
 import { Wordmark } from "@remagnet/ui";
 import { createSignal, Show } from "solid-js";
+import { MAX_USERNAME_LENGTH, MIN_PASSWORD_LENGTH } from "../constants";
 import StatusLine, { type StatusMessage } from "./StatusLine";
 
 export interface SetupCredentials {
@@ -38,8 +39,11 @@ export default function SetupView(props: SetupViewProps) {
       setValidation({ tone: "error", message: "Enter a username." });
       return;
     }
-    if (password().length < 12) {
-      setValidation({ tone: "error", message: "Use a password with at least 12 characters." });
+    if (password().length < MIN_PASSWORD_LENGTH) {
+      setValidation({
+        tone: "error",
+        message: `Use a password with at least ${MIN_PASSWORD_LENGTH} characters.`,
+      });
       return;
     }
     if (password() !== confirmPassword()) {
@@ -78,7 +82,7 @@ export default function SetupView(props: SetupViewProps) {
               autocomplete="username"
               spellcheck={false}
               required
-              maxlength={64}
+              maxlength={MAX_USERNAME_LENGTH}
               value={username()}
               onInput={(event) => {
                 setUsername(event.currentTarget.value);
@@ -94,14 +98,14 @@ export default function SetupView(props: SetupViewProps) {
               type="password"
               autocomplete="new-password"
               required
-              minlength={12}
+              minlength={MIN_PASSWORD_LENGTH}
               value={password()}
               onInput={(event) => {
                 setPassword(event.currentTarget.value);
                 clearValidation();
               }}
             />
-            <small>At least 12 characters.</small>
+            <small>At least {MIN_PASSWORD_LENGTH} characters.</small>
           </label>
 
           <label class="field">
@@ -111,7 +115,7 @@ export default function SetupView(props: SetupViewProps) {
               type="password"
               autocomplete="new-password"
               required
-              minlength={12}
+              minlength={MIN_PASSWORD_LENGTH}
               value={confirmPassword()}
               onInput={(event) => {
                 setConfirmPassword(event.currentTarget.value);

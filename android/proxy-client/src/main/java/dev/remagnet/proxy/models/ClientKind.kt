@@ -27,9 +27,9 @@ package dev.remagnet.proxy.models
 import com.google.gson.annotations.SerializedName
 
 /**
- * Torrent client adapted by the proxy. `qbittorrent` uses the qBittorrent Web API; `transmission` uses the Transmission RPC endpoint.
+ * Torrent client adapted by the proxy. `qbittorrent` uses the qBittorrent Web API; `transmission` uses the Transmission RPC endpoint; `deluge` uses the Deluge Web UI JSON-RPC endpoint; `rtorrent` uses the rTorrent/ruTorrent XML-RPC endpoint.
  *
- * Values: qbittorrent,transmission
+ * Values: qbittorrent,transmission,deluge,rtorrent
  */
 
 enum class ClientKind(val value: kotlin.String) {
@@ -38,7 +38,13 @@ enum class ClientKind(val value: kotlin.String) {
     qbittorrent("qbittorrent"),
 
     @SerializedName(value = "transmission")
-    transmission("transmission");
+    transmission("transmission"),
+
+    @SerializedName(value = "deluge")
+    deluge("deluge"),
+
+    @SerializedName(value = "rtorrent")
+    rtorrent("rtorrent");
 
     /**
      * Override [toString()] to avoid using the enum variable name as the value, and instead use

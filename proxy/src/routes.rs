@@ -20,14 +20,13 @@ use crate::{
     auth,
     auth_routes::{require_admin, require_archive_auth, require_device_or_admin},
     backend::{
-        decode_torrent_files, matches_torrent_filter, torrent_completed, AddTorrentRequest,
-        AddTorrentResult, TorrentBackend, TorrentList, TorrentSummary,
+        decode_torrent_files, matches_torrent_filter, torrent_completed, validate_hash,
+        AddTorrentRequest, AddTorrentResult, TorrentBackend, TorrentList, TorrentSummary,
+        COMPLETE_EPSILON,
     },
     config::{persisted_config, save, ConfigUpdate, PublicConfig},
     error::AppError,
-    zipstream::{
-        content_disposition, validate_hash, write_zip, zip_filename, ArchivePlan, ZipStream,
-    },
+    zipstream::{content_disposition, write_zip, zip_filename, ArchivePlan, ZipStream},
     AppState,
 };
 
@@ -38,6 +37,13 @@ type QueryMap = HashMap<String, String>;
 /// Bump this only for a breaking change to the JSON shapes or routes; clients
 /// can read it from `GET /healthz` and `GET /api/health`.
 pub const API_VERSION: u32 = 1;
+
+const MAX_ADD_TORRENT_BODY_BYTES: usize = 16 * 1024 * 1024;
+const ZIP_DUPLEX_BUFFER_BYTES: usize = 1024 * 1024;
+const MAX_PAIRING_FIELD_LEN: usize = 64;
+const PAIRING_PAYLOAD_VERSION: u8 = 2;
+const IMMUTABLE_ASSET_CACHE_CONTROL: &str = "public, max-age=31536000, immutable";
+const ICON_CACHE_CONTROL: &str = "public, max-age=86400";
 
 const NOT_CONFIGURED: &str =
     "No torrent client is configured yet. Open the Remagnet Proxy page to set it up.";
@@ -54,7 +60,7 @@ pub fn router(state: Arc<AppState>) -> Router {
             get(list_torrents)
                 .post(add_torrent)
                 // `.torrent` bodies are base64 and can exceed Axum's 2 MiB default.
-                .layer(DefaultBodyLimit::max(16 * 1024 * 1024)),
+                .layer(DefaultBodyLimit::max(MAX_ADD_TORRENT_BODY_BYTES)),
         )
         .route(
             "/api/torrents/{hash}",
@@ -101,7 +107,7 @@ async fn wordmark_font() -> impl IntoResponse {
     (
         [
             (header::CONTENT_TYPE, "font/woff2"),
-            (header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
+            (header::CACHE_CONTROL, IMMUTABLE_ASSET_CACHE_CONTROL),
         ],
         include_bytes!("departure-mono.woff2").as_slice(),
     )
@@ -113,7 +119,7 @@ async fn prose_font() -> impl IntoResponse {
     (
         [
             (header::CONTENT_TYPE, "font/woff2"),
-            (header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
+            (header::CACHE_CONTROL, IMMUTABLE_ASSET_CACHE_CONTROL),
         ],
         include_bytes!("inter-latin-wght-normal.woff2").as_slice(),
     )
@@ -124,7 +130,7 @@ async fn icon() -> impl IntoResponse {
     (
         [
             (header::CONTENT_TYPE, "image/svg+xml"),
-            (header::CACHE_CONTROL, "public, max-age=86400"),
+            (header::CACHE_CONTROL, ICON_CACHE_CONTROL),
         ],
         include_bytes!("icon.svg").as_slice(),
     )
@@ -279,13 +285,7 @@ fn origin_from_headers(headers: &HeaderMap) -> Option<String> {
         return None;
     }
 
-    let forwarded = headers
-        .get("x-forwarded-proto")
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.split(',').next())
-        .map(str::trim)
-        .filter(|scheme| matches!(*scheme, "http" | "https"))
-        .unwrap_or("http");
+    let forwarded = crate::auth_routes::forwarded_proto(headers).unwrap_or("http");
 
     Some(format!("{forwarded}://{host}"))
 }
@@ -313,7 +313,7 @@ async fn claim_pairing(
     State(state): State<Arc<AppState>>,
     Json(claim): Json<ClaimPairing>,
 ) -> Result<impl IntoResponse, AppError> {
-    if claim.id.len() > 64 || claim.proof.len() > 64 {
+    if claim.id.len() > MAX_PAIRING_FIELD_LEN || claim.proof.len() > MAX_PAIRING_FIELD_LEN {
         return Err(AppError::BadRequest(
             "The pairing code is invalid or expired.".to_string(),
         ));
@@ -341,7 +341,7 @@ async fn claim_pairing(
     }
 
     let payload = PairingPayload {
-        version: 2,
+        version: PAIRING_PAYLOAD_VERSION,
         proxy_token: &token,
     };
 
@@ -392,14 +392,12 @@ async fn get_torrent(
     headers: HeaderMap,
 ) -> Result<Json<TorrentSummary>, AppError> {
     require_device_or_admin(&state, &headers).await?;
-    validate_hash(&hash)?;
+    let hash = validate_hash(&hash)?;
     let backend = require_backend(&state).await?;
 
     match backend.get_torrent(&hash).await? {
         Some(torrent) => Ok(Json(torrent)),
-        None => Err(AppError::NotFound(
-            "Torrent not found in qBittorrent.".to_string(),
-        )),
+        None => Err(AppError::NotFound("Torrent not found.".to_string())),
     }
 }
 
@@ -441,13 +439,13 @@ async fn delete_torrent(
     Query(query): Query<QueryMap>,
 ) -> Result<StatusCode, AppError> {
     require_device_or_admin(&state, &headers).await?;
-    validate_hash(&hash)?;
+    let hash = validate_hash(&hash)?;
     let delete_files = parse_delete_files(&query)?;
     let (default_category, default_tags) = magnet_defaults(&state).await;
     let backend = require_backend(&state).await?;
 
     // Only torrents matching the proxy's filter are deletable, so a client
-    // cannot remove an unrelated torrent from a shared qBittorrent instance.
+    // cannot remove an unrelated torrent from a shared torrent client instance.
     let allowed = backend
         .get_torrent(&hash)
         .await?
@@ -484,7 +482,7 @@ async fn create_archive_ticket(
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, AppError> {
     require_device_or_admin(&state, &headers).await?;
-    validate_hash(&hash)?;
+    let hash = validate_hash(&hash)?;
     let (default_category, default_tags) = magnet_defaults(&state).await;
     let backend = require_backend(&state).await?;
 
@@ -519,7 +517,7 @@ async fn archive(
     Query(query): Query<QueryMap>,
 ) -> Result<Response, AppError> {
     require_archive_auth(&state, &headers, &query, &hash).await?;
-    validate_hash(&hash)?;
+    let hash = validate_hash(&hash)?;
 
     let (default_category, default_tags) = magnet_defaults(&state).await;
     let backend = require_backend(&state).await?;
@@ -538,7 +536,7 @@ async fn archive(
     let mut files = backend.files(&hash).await?;
     files.sort_by_key(|file| file.index);
 
-    if let Some(incomplete) = files.iter().find(|file| file.progress < 0.999_999) {
+    if let Some(incomplete) = files.iter().find(|file| file.progress < COMPLETE_EPSILON) {
         return Err(AppError::Conflict(format!(
             "{} is not fully downloaded yet.",
             incomplete.name
@@ -555,7 +553,7 @@ async fn archive(
     let filename = zip_filename(&torrent.name);
     let plan = ArchivePlan::new(files)?;
     let content_length = plan.content_length();
-    let (writer, reader) = tokio::io::duplex(1024 * 1024);
+    let (writer, reader) = tokio::io::duplex(ZIP_DUPLEX_BUFFER_BYTES);
     let success = Arc::new(AtomicBool::new(false));
     let failure: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
     let task_success = Arc::clone(&success);
@@ -607,11 +605,7 @@ async fn magnet_defaults(state: &AppState) -> (String, Vec<String>) {
 mod tests {
     use std::{
         io::{Cursor, Read},
-        path::PathBuf,
-        sync::{
-            atomic::{AtomicU64, Ordering},
-            Arc, Mutex, OnceLock,
-        },
+        sync::{Arc, Mutex, OnceLock},
     };
 
     use axum::{
@@ -630,22 +624,13 @@ mod tests {
         auth::{self, AdminAccount, AuthData},
         config::{Config, EnvOverrides},
         pairing::PairingStore,
+        xmlrpc::{encode_fault, encode_response, Value},
     };
 
     const ADMIN_USER: &str = "admin";
     const ADMIN_PASSWORD: &str = "correct horse battery staple";
     const HASH: &str = "dc555f7a26f1acae38a18edc04e53588ade33051";
     const OTHER_HASH: &str = "1111111111111111111111111111111111111111";
-
-    static NEXT_CONFIG: AtomicU64 = AtomicU64::new(0);
-
-    fn test_config_path() -> PathBuf {
-        std::env::temp_dir().join(format!(
-            "remagnet-proxy-test-{}-{}.json",
-            std::process::id(),
-            NEXT_CONFIG.fetch_add(1, Ordering::Relaxed)
-        ))
-    }
 
     fn password_hash() -> &'static str {
         static HASH: OnceLock<String> = OnceLock::new();
@@ -951,7 +936,7 @@ mod tests {
         config.downloads_dir = downloads_dir.to_string();
         config.default_category = default_category.to_string();
         config.default_tags = default_tags.iter().map(|tag| tag.to_string()).collect();
-        app_from_config(config, true, test_config_path())
+        app_from_config(config, true)
     }
 
     fn fixture_downloads() -> (tempfile::TempDir, String) {
@@ -1101,6 +1086,638 @@ mod tests {
         );
     }
 
+    fn deluge_torrent(hash: &str, name: &str, label: &str, completed: bool) -> serde_json::Value {
+        json!({
+            "hash": hash,
+            "name": name,
+            "state": if completed { "Seeding" } else { "Downloading" },
+            "progress": if completed { 100.0 } else { 50.0 },
+            "total_size": 1024,
+            "total_wanted": 1024,
+            "total_remaining": if completed { 0 } else { 512 },
+            "download_payload_rate": 10,
+            "upload_payload_rate": 5,
+            "eta": 60,
+            "ratio": 1.5,
+            "label": label,
+            "num_seeds": 3,
+            "num_peers": 2,
+            "time_added": 1,
+            "save_path": "/downloads",
+            "download_location": "/downloads",
+        })
+    }
+
+    fn deluge_torrents() -> Vec<serde_json::Value> {
+        vec![
+            deluge_torrent(HASH, "Test Torrent", "remagnet", true),
+            deluge_torrent(OTHER_HASH, "Other Torrent", "other", true),
+        ]
+    }
+
+    /// Minimal Deluge Web UI JSON-RPC daemon for route-level tests.
+    ///
+    /// The client logs in, lists labelled torrents, accepts a `.torrent`
+    /// upload, and serves file metadata from the mounted downloads volume.
+    async fn fake_deluge(request: Request<Body>) -> Response {
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
+
+        let body = request.into_body().collect().await.unwrap().to_bytes();
+        let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let id = payload["id"].clone();
+        let method = payload["method"].as_str().unwrap_or_default();
+        let params = payload["params"].as_array().cloned().unwrap_or_default();
+
+        let result = match method {
+            "auth.login" | "web.connected" => json!(true),
+            "daemon.get_version" => json!("2.1.1"),
+            "core.get_libtorrent_version" => json!("2.0.10.0"),
+            "core.get_enabled_plugins" | "core.get_available_plugins" => json!(["Label"]),
+            "label.get_labels" => json!(["remagnet"]),
+            "label.set_torrent" => serde_json::Value::Null,
+            "core.get_torrents_status" => {
+                let ids = params
+                    .first()
+                    .and_then(|filter| filter.get("id"))
+                    .and_then(serde_json::Value::as_array)
+                    .map(|values| {
+                        values
+                            .iter()
+                            .filter_map(serde_json::Value::as_str)
+                            .map(str::to_ascii_lowercase)
+                            .collect::<Vec<_>>()
+                    });
+                let mut torrents = serde_json::Map::new();
+                for torrent in deluge_torrents() {
+                    let hash = torrent["hash"].as_str().unwrap().to_string();
+                    let include = match &ids {
+                        None => true,
+                        Some(ids) => ids.iter().any(|id| id.eq_ignore_ascii_case(&hash)),
+                    };
+                    if include {
+                        torrents.insert(hash, torrent);
+                    }
+                }
+                serde_json::Value::Object(torrents)
+            }
+            "core.get_torrent_status" => {
+                let hash = params
+                    .first()
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default();
+                if hash.eq_ignore_ascii_case(HASH) {
+                    json!({
+                        "files": [
+                            { "index": 0, "path": "Test Torrent/readme.txt", "size": 5 }
+                        ],
+                        "file_progress": [1.0],
+                        "file_priorities": [4],
+                    })
+                } else if hash.eq_ignore_ascii_case(OTHER_HASH) {
+                    json!({
+                        "files": [
+                            { "index": 0, "path": "Other Torrent/readme.txt", "size": 5 }
+                        ],
+                        "file_progress": [1.0],
+                        "file_priorities": [4],
+                    })
+                } else {
+                    json!({})
+                }
+            }
+            "core.add_torrent_file" => {
+                let encoded = params
+                    .get(1)
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default();
+                let bytes = STANDARD.decode(encoded).unwrap();
+                json!(crate::bencode::extract_info_hash(&bytes).unwrap())
+            }
+            "core.remove_torrent" => json!(true),
+            _ => serde_json::Value::Null,
+        };
+
+        Json(json!({ "id": id, "result": result, "error": null })).into_response()
+    }
+
+    async fn start_fake_deluge() -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let app = Router::new().fallback(fake_deluge);
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        format!("http://{address}")
+    }
+
+    async fn app_with_deluge(downloads_dir: &str) -> TestApp {
+        let base_url = start_fake_deluge().await;
+
+        let mut config = config_for(&base_url);
+        config.client_kind = crate::backend::ClientKind::Deluge;
+        config.api_key.clear();
+        config.password = "deluge".to_string();
+        config.downloads_dir = downloads_dir.to_string();
+        config.client_downloads_dir = "/downloads".to_string();
+        config.default_category = "remagnet".to_string();
+        config.default_tags.clear();
+        app_from_config(config, true)
+    }
+
+    fn rt_torrent_values(hash: &str, name: &str, label: &str, complete: bool) -> Vec<Value> {
+        vec![
+            Value::String(hash.to_string()),
+            Value::String(name.to_string()),
+            Value::Int(1),
+            Value::Int(1),
+            Value::Int(1),
+            Value::Int(i64::from(complete)),
+            Value::Int(0),
+            Value::Int(0),
+            Value::Int(1024),
+            Value::Int(if complete { 1024 } else { 512 }),
+            Value::Int(if complete { 0 } else { 512 }),
+            Value::Int(if complete { 0 } else { 10 }),
+            Value::Int(5),
+            Value::Int(1500),
+            Value::String(label.to_string()),
+            Value::Int(3),
+            Value::Int(2),
+            Value::String(String::new()),
+            Value::String("100".to_string()),
+            Value::Int(100),
+            Value::Int(90),
+            Value::String("/downloads".to_string()),
+            Value::Int(0),
+        ]
+    }
+
+    fn rt_response(value: Value) -> Response {
+        (
+            StatusCode::OK,
+            [(header::CONTENT_TYPE, "text/xml")],
+            encode_response(&value),
+        )
+            .into_response()
+    }
+
+    fn rt_fault_response(code: i64, message: &str) -> Response {
+        (
+            StatusCode::OK,
+            [(header::CONTENT_TYPE, "text/xml")],
+            encode_fault(code, message),
+        )
+            .into_response()
+    }
+
+    /// Minimal rTorrent XML-RPC daemon for route-level tests.
+    ///
+    /// It answers the multicall used for torrent lists and single-torrent
+    /// lookups, accepts `.torrent` uploads, and serves file metadata.
+    async fn fake_rtorrent(request: Request<Body>) -> Response {
+        let body = String::from_utf8(
+            request
+                .into_body()
+                .collect()
+                .await
+                .unwrap()
+                .to_bytes()
+                .to_vec(),
+        )
+        .unwrap();
+        let upper = body.to_ascii_uppercase();
+
+        if body.contains("<methodName>system.client_version</methodName>") {
+            return rt_response(Value::String("0.9.8".to_string()));
+        }
+        if body.contains("<methodName>system.library_version</methodName>") {
+            return rt_response(Value::String("0.13.8".to_string()));
+        }
+        if body.contains("<methodName>d.multicall2</methodName>") {
+            let rows = vec![
+                Value::Array(rt_torrent_values(HASH, "Test Torrent", "remagnet", true)),
+                Value::Array(rt_torrent_values(
+                    OTHER_HASH,
+                    "Other Torrent",
+                    "other",
+                    true,
+                )),
+            ];
+            return rt_response(Value::Array(rows));
+        }
+        if body.contains("<methodName>system.multicall</methodName>") {
+            let values = if upper.contains(&HASH.to_ascii_uppercase()) {
+                Some(rt_torrent_values(HASH, "Test Torrent", "remagnet", true))
+            } else if upper.contains(&OTHER_HASH.to_ascii_uppercase()) {
+                Some(rt_torrent_values(
+                    OTHER_HASH,
+                    "Other Torrent",
+                    "other",
+                    true,
+                ))
+            } else {
+                None
+            };
+
+            return match values {
+                Some(values) => {
+                    let results = values
+                        .into_iter()
+                        .map(|value| Value::Array(vec![value]))
+                        .collect();
+                    rt_response(Value::Array(results))
+                }
+                None => {
+                    let fault = Value::Struct(HashMap::from([
+                        ("faultCode".to_string(), Value::Int(-501)),
+                        (
+                            "faultString".to_string(),
+                            Value::String("Could not find info-hash.".to_string()),
+                        ),
+                    ]));
+                    rt_response(Value::Array(vec![fault; 23]))
+                }
+            };
+        }
+        if body.contains("<methodName>f.multicall</methodName>") {
+            if !upper.contains(&HASH.to_ascii_uppercase()) {
+                return rt_fault_response(-501, "Could not find info-hash.");
+            }
+            let row = Value::Array(vec![
+                Value::String("Test Torrent/readme.txt".to_string()),
+                Value::Int(5),
+                Value::Int(1),
+                Value::Int(1),
+                Value::Int(1),
+            ]);
+            return rt_response(Value::Array(vec![row]));
+        }
+        if body.contains("<methodName>load.")
+            || body.contains("<methodName>d.custom5.set</methodName>")
+            || body.contains("<methodName>d.delete_tied</methodName>")
+            || body.contains("<methodName>d.erase</methodName>")
+        {
+            return rt_response(Value::Int(0));
+        }
+
+        rt_fault_response(-506, "Method not defined")
+    }
+
+    async fn start_fake_rtorrent() -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let app = Router::new().fallback(fake_rtorrent);
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        format!("http://{address}")
+    }
+
+    async fn app_with_rtorrent(downloads_dir: &str) -> TestApp {
+        let base_url = start_fake_rtorrent().await;
+
+        let mut config = config_for(&base_url);
+        config.client_kind = crate::backend::ClientKind::Rtorrent;
+        config.api_key.clear();
+        config.username.clear();
+        config.password.clear();
+        config.downloads_dir = downloads_dir.to_string();
+        config.client_downloads_dir = "/downloads".to_string();
+        config.default_category = "remagnet".to_string();
+        config.default_tags.clear();
+        app_from_config(config, true)
+    }
+
+    #[tokio::test]
+    async fn deluge_reports_health_and_lists_labelled_torrents() {
+        let (_directory, downloads) = fixture_downloads();
+        let app = app_with_deluge(&downloads).await;
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.device_request("/api/health"))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["clientLabel"], "Deluge");
+        assert_eq!(body["appVersion"], "2.1.1");
+        assert_eq!(body["webApiVersion"], "2.0.10.0");
+        assert_eq!(body["capabilities"]["pauseOnAdd"], true);
+        assert_eq!(body["capabilities"]["archiveDownload"], true);
+        assert_eq!(body["capabilities"]["categories"], true);
+        assert_eq!(body["capabilities"]["tags"], false);
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.device_request("/api/torrents"))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let torrents = body["torrents"].as_array().unwrap();
+        assert_eq!(torrents.len(), 1);
+        assert_eq!(torrents[0]["hash"], HASH);
+        assert_eq!(torrents[0]["name"], "Test Torrent");
+        assert_eq!(torrents[0]["category"], "remagnet");
+        assert_eq!(torrents[0]["tags"], json!([]));
+        assert_eq!(torrents[0]["state"], "seeding");
+        assert_eq!(torrents[0]["size"], 1024);
+    }
+
+    #[tokio::test]
+    async fn deluge_rejects_unrelated_torrents_for_delete_and_archive() {
+        let (_directory, downloads) = fixture_downloads();
+        let app = app_with_deluge(&downloads).await;
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.admin_delete(&format!("/api/torrents/{OTHER_HASH}")))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.device_json(
+                "POST",
+                &format!("/api/archive/{OTHER_HASH}/ticket"),
+                json!({}),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.admin_request(&format!("/archive/{OTHER_HASH}")))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["error"], "Torrent not found.");
+
+        // A related torrent is still removable through the same surface.
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.admin_delete(&format!("/api/torrents/{HASH}?deleteFiles=true")))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    }
+
+    #[tokio::test]
+    async fn deluge_archives_bytes_from_the_downloads_volume() {
+        let (_directory, downloads) = fixture_downloads();
+        let app = app_with_deluge(&downloads).await;
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.admin_request(&format!("/archive/{HASH}")))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers().get(header::CONTENT_TYPE).unwrap(),
+            "application/zip"
+        );
+        let disposition = response
+            .headers()
+            .get(header::CONTENT_DISPOSITION)
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert!(disposition.contains("Test Torrent.zip"));
+
+        let content_length = response
+            .headers()
+            .get(header::CONTENT_LENGTH)
+            .expect("archive responses carry an exact Content-Length")
+            .to_str()
+            .unwrap()
+            .parse::<usize>()
+            .unwrap();
+
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        assert_eq!(content_length, body.len());
+        let mut archive = zip::ZipArchive::new(Cursor::new(body)).unwrap();
+        assert_eq!(archive.len(), 1);
+        let mut bytes = Vec::new();
+        archive
+            .by_name("Test Torrent/readme.txt")
+            .unwrap()
+            .read_to_end(&mut bytes)
+            .unwrap();
+        assert_eq!(bytes, b"hello");
+    }
+
+    #[tokio::test]
+    async fn adds_a_torrent_file_through_deluge() {
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
+
+        let (_directory, downloads) = fixture_downloads();
+        let app = app_with_deluge(&downloads).await;
+        let (bytes, hash) = torrent_fixture("debian");
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.device_json(
+                "POST",
+                "/api/torrents",
+                torrent_body(
+                    json!([{
+                        "filename": "debian.torrent",
+                        "data": STANDARD.encode(&bytes),
+                    }]),
+                    true,
+                ),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["added"], 1);
+        assert_eq!(body["hashes"], json!([hash]));
+    }
+
+    #[tokio::test]
+    async fn rtorrent_reports_health_and_lists_labelled_torrents() {
+        let (_directory, downloads) = fixture_downloads();
+        let app = app_with_rtorrent(&downloads).await;
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.device_request("/api/health"))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["clientLabel"], "rTorrent");
+        assert_eq!(body["appVersion"], "0.9.8");
+        assert_eq!(body["webApiVersion"], "0.13.8");
+        assert_eq!(body["capabilities"]["pauseOnAdd"], true);
+        assert_eq!(body["capabilities"]["archiveDownload"], true);
+        assert_eq!(body["capabilities"]["categories"], true);
+        assert_eq!(body["capabilities"]["tags"], false);
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.device_request("/api/torrents"))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let torrents = body["torrents"].as_array().unwrap();
+        assert_eq!(torrents.len(), 1);
+        assert_eq!(torrents[0]["hash"], HASH);
+        assert_eq!(torrents[0]["name"], "Test Torrent");
+        assert_eq!(torrents[0]["category"], "remagnet");
+        assert_eq!(torrents[0]["tags"], json!([]));
+        assert_eq!(torrents[0]["state"], "seeding");
+        assert_eq!(torrents[0]["size"], 1024);
+    }
+
+    #[tokio::test]
+    async fn rtorrent_rejects_unrelated_torrents_for_delete_and_archive() {
+        let (_directory, downloads) = fixture_downloads();
+        let app = app_with_rtorrent(&downloads).await;
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.admin_delete(&format!("/api/torrents/{OTHER_HASH}")))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.device_json(
+                "POST",
+                &format!("/api/archive/{OTHER_HASH}/ticket"),
+                json!({}),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.admin_request(&format!("/archive/{OTHER_HASH}")))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["error"], "Torrent not found.");
+
+        // A related torrent is still removable through the same surface.
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.admin_delete(&format!("/api/torrents/{HASH}?deleteFiles=true")))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    }
+
+    #[tokio::test]
+    async fn rtorrent_archives_bytes_from_the_downloads_volume() {
+        let (_directory, downloads) = fixture_downloads();
+        let app = app_with_rtorrent(&downloads).await;
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.admin_request(&format!("/archive/{HASH}")))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers().get(header::CONTENT_TYPE).unwrap(),
+            "application/zip"
+        );
+        let disposition = response
+            .headers()
+            .get(header::CONTENT_DISPOSITION)
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert!(disposition.contains("Test Torrent.zip"));
+
+        let content_length = response
+            .headers()
+            .get(header::CONTENT_LENGTH)
+            .expect("archive responses carry an exact Content-Length")
+            .to_str()
+            .unwrap()
+            .parse::<usize>()
+            .unwrap();
+
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        assert_eq!(content_length, body.len());
+        let mut archive = zip::ZipArchive::new(Cursor::new(body)).unwrap();
+        assert_eq!(archive.len(), 1);
+        let mut bytes = Vec::new();
+        archive
+            .by_name("Test Torrent/readme.txt")
+            .unwrap()
+            .read_to_end(&mut bytes)
+            .unwrap();
+        assert_eq!(bytes, b"hello");
+    }
+
+    #[tokio::test]
+    async fn adds_a_torrent_file_through_rtorrent() {
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
+
+        let (_directory, downloads) = fixture_downloads();
+        let app = app_with_rtorrent(&downloads).await;
+        let (bytes, hash) = torrent_fixture("debian");
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.device_json(
+                "POST",
+                "/api/torrents",
+                torrent_body(
+                    json!([{
+                        "filename": "debian.torrent",
+                        "data": STANDARD.encode(&bytes),
+                    }]),
+                    true,
+                ),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["added"], 1);
+        assert_eq!(body["hashes"], json!([hash]));
+    }
+
     fn config_for(base_url: &str) -> Config {
         Config {
             client_kind: crate::backend::ClientKind::Qbittorrent,
@@ -1115,7 +1732,7 @@ mod tests {
         }
     }
 
-    fn app_from_config(config: Config, with_client: bool, _config_path: PathBuf) -> TestApp {
+    fn app_from_config(config: Config, with_client: bool) -> TestApp {
         app_from_config_with_overrides(config, with_client, EnvOverrides::default())
     }
 
@@ -1129,7 +1746,7 @@ mod tests {
         let auth_path = directory.path().join("auth.json");
         let mut config = config;
         env_overrides.apply_to(&mut config);
-        let qbit = if with_client {
+        let backend = if with_client {
             TorrentBackend::from_config(&config).unwrap()
         } else {
             None
@@ -1149,7 +1766,7 @@ mod tests {
             config_path,
             config: RwLock::new(config),
             env_overrides,
-            backend: RwLock::new(qbit),
+            backend: RwLock::new(backend),
             auth_path,
             auth: RwLock::new(data),
             setup_code: None,
@@ -1174,7 +1791,7 @@ mod tests {
         let mut config = config_for(&base_url);
         config.default_category = category.to_string();
         config.default_tags = tags.iter().map(|tag| tag.to_string()).collect();
-        app_from_config(config, true, test_config_path())
+        app_from_config(config, true)
     }
 
     async fn app(completed: bool) -> TestApp {
@@ -1350,7 +1967,7 @@ mod tests {
         let base_url = start_fake(true).await;
         let mut config = config_for(&base_url);
         config.api_key.clear();
-        let app = app_from_config(config, false, test_config_path());
+        let app = app_from_config(config, false);
 
         let response = app
             .router
@@ -1574,6 +2191,8 @@ mod tests {
         assert_eq!(body["defaultCategory"], "remagnet");
         assert_eq!(body["defaultTags"], json!(["remagnet"]));
         assert!(body.get("qbitApiKey").is_none());
+        assert!(body.get("apiKey").is_none());
+        assert!(body.get("password").is_none());
     }
 
     #[tokio::test]
@@ -1682,7 +2301,7 @@ mod tests {
         let base_url = start_fake(true).await;
         let mut config = config_for(&base_url);
         config.api_key.clear();
-        let app = app_from_config(config, false, test_config_path());
+        let app = app_from_config(config, false);
 
         let response = app
             .router

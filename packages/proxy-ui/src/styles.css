@@ -138,7 +138,7 @@
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.08em;
-  line-height: 1.4;
+  line-height: 1.35;
   text-transform: uppercase;
 }
 
@@ -168,7 +168,8 @@
   padding-top: 16px;
 }
 
-.badge {
+/* Scoped to the panel header so it cannot override @remagnet/ui's .badge. */
+.panel-head .badge {
   display: inline-flex;
   align-items: center;
   padding: 1px 7px;
@@ -204,6 +205,7 @@
   max-width: 232px;
   padding: 8px;
   border: 1px solid var(--line);
+  /* QR quiet zone needs pure white for reliable scanner contrast. */
   background: #fff;
 }
 
@@ -237,7 +239,7 @@
 }
 
 .recovery-code {
-  padding: 7px 9px;
+  padding: 8px;
   border: 1px solid var(--line);
   background: var(--panel);
   font: 13px / 1.2 var(--font-ui);

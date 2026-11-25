@@ -12,6 +12,9 @@ use serde_json::json;
 pub const INTERNAL_ERROR_MESSAGE: &str =
     "The Remagnet Proxy hit an unexpected internal error. Check the proxy container logs for details.";
 
+/// Longest upstream body included in a client-facing error message.
+pub const MAX_UPSTREAM_BODY_CHARS: usize = 300;
+
 /// Every failure the HTTP surface can report.
 ///
 /// Messages are written for the extension (or a person using the config page),
@@ -61,6 +64,31 @@ impl AppError {
             &technical,
             error.is_timeout(),
             error.is_connect(),
+        ))
+    }
+
+    /// Report a non-success status from a torrent client.
+    ///
+    /// The body is sanitized and truncated before it is shown; HTML pages and
+    /// empty bodies add no detail.
+    #[allow(dead_code)] // adopted by the client adapters in the next cleanup batch
+    pub fn upstream_status(
+        client_name: &str,
+        status: reqwest::StatusCode,
+        op: &str,
+        body: &str,
+    ) -> Self {
+        let detail = Self::sanitize_upstream_body(body, MAX_UPSTREAM_BODY_CHARS)
+            .map(|detail| format!(": {detail}"))
+            .unwrap_or_default();
+        Self::Upstream(format!("{client_name} returned {status} for {op}{detail}"))
+    }
+
+    /// Report a response from a torrent client that could not be decoded.
+    #[allow(dead_code)] // adopted by the client adapters in the next cleanup batch
+    pub fn upstream_unreadable(client_name: &str) -> Self {
+        Self::Upstream(format!(
+            "{client_name} returned a response Remagnet Proxy could not read. Check that {client_name} is running and up to date."
         ))
     }
 

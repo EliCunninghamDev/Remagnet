@@ -1,12 +1,13 @@
 # Remagnet Proxy
 
 The Remagnet proxy is the required adapter between the browser extension or
-Android client and qBittorrent. It adds, lists, filters and removes torrents
-through qBittorrent's Web API and turns completed torrents into ZIP streams. It
-talks to qBittorrent over the Docker network and streams each file from the Web
-API, so it does not need the downloads volume mounted and does not store
-archives. Clients only ever hold a per-device proxy token; qBittorrent
-credentials and the administrator password stay on this service.
+Android client and your torrent client. It supports qBittorrent, Transmission,
+Deluge, and rTorrent / ruTorrent. It adds, lists, filters and removes torrents
+through the client's API and turns completed torrents into ZIP streams.
+qBittorrent files are streamed from its Web API; Transmission, Deluge, and
+rTorrent read from a read-only downloads mount. Archives are never stored.
+Clients only ever hold a per-device proxy token; torrent-client credentials and
+the administrator password stay on this service.
 
 The directory was formerly `services/archive-bridge` and the service was
 formerly published as `remagnet-bridge`. The crate, binary, Docker image and
@@ -40,8 +41,8 @@ The proxy has one administrator account and any number of device tokens.
   Claiming it needs no password or second factor: possession of the code is the
   proof of presence. The response carries a newly minted device token encrypted
   with AES-256-GCM under a key derived from the code and session id, so request
-  logs are not enough to recover it. qBittorrent credentials are never part of
-  the payload.
+  logs are not enough to recover it. Torrent-client credentials are never part
+  of the payload.
 - **Archive tickets.** `POST /api/archive/{hash}/ticket` issues a 60-second,
   single-use ticket bound to one info hash. Browsers that cannot attach an
   `Authorization` header use `GET /archive/{hash}?ticket=…`; the ticket is
@@ -50,48 +51,48 @@ The proxy has one administrator account and any number of device tokens.
 
 ## Endpoints
 
-| Endpoint                           | Auth             | Purpose                                                     |
-| ---------------------------------- | ---------------- | ----------------------------------------------------------- |
-| `GET /`                            | none             | Proxy page: setup, sign-in, settings, pairing and devices   |
-| `GET /assets/departure-mono.woff2` | none             | Wordmark font used by the proxy page                        |
-| `GET /healthz`                     | none             | Liveness probe                                              |
-| `GET /api/auth/status`             | none             | Setup and sign-in state                                     |
-| `POST /api/auth/setup`             | none             | Create the administrator account                            |
-| `POST /api/auth/login`             | none             | Sign in (password plus optional TOTP/recovery code)         |
-| `POST /api/auth/logout`            | session          | Revoke the current administrator session                    |
-| `POST /api/auth/password`          | session          | Change the administrator password                           |
-| `POST /api/auth/2fa/setup`         | session          | Start TOTP enrolment                                        |
-| `POST /api/auth/2fa/enable`        | session          | Confirm TOTP and return recovery codes                      |
-| `POST /api/auth/2fa/disable`       | session          | Disable TOTP                                                |
-| `POST /api/auth/device`            | none             | Exchange credentials for a per-device token                 |
-| `GET /api/devices`                 | session          | List device records                                         |
-| `DELETE /api/devices/current`      | device           | Revoke the caller's own device token (self-service logout)  |
-| `DELETE /api/devices/:id`          | session          | Revoke any device token                                     |
-| `GET /api/health`                  | device           | API/proxy version, capabilities, defaults and qBit versions |
-| `GET /api/config`                  | session          | Read non-secret settings                                    |
-| `PUT /api/config`                  | session          | Update the qBittorrent URL, credentials and magnet defaults |
-| `GET /api/torrents`                | device           | List torrents owned by Remagnet                             |
-| `POST /api/torrents`               | device           | Add magnets with the configured category/tags               |
-| `GET /api/torrents/:hash`          | device           | Read one torrent, unfiltered                                |
-| `DELETE /api/torrents/:hash`       | device           | Remove a torrent owned by Remagnet                          |
-| `POST /api/pair`                   | session          | Mint a short-lived pairing code and QR                      |
-| `DELETE /api/pair/:id`             | session          | Revoke a pairing code                                       |
-| `POST /api/pair/claim`             | none             | Claim a code; returns an encrypted device token             |
-| `POST /api/archive/:hash/ticket`   | device           | Mint a single-use archive download ticket                   |
-| `GET /archive/:hash`               | device or ticket | Stream a completed torrent as a ZIP                         |
+| Endpoint                           | Auth             | Purpose                                                       |
+| ---------------------------------- | ---------------- | ------------------------------------------------------------- |
+| `GET /`                            | none             | Proxy page: setup, sign-in, settings, pairing and devices     |
+| `GET /assets/departure-mono.woff2` | none             | Wordmark font used by the proxy page                          |
+| `GET /healthz`                     | none             | Liveness probe                                                |
+| `GET /api/auth/status`             | none             | Setup and sign-in state                                       |
+| `POST /api/auth/setup`             | none             | Create the administrator account                              |
+| `POST /api/auth/login`             | none             | Sign in (password plus optional TOTP/recovery code)           |
+| `POST /api/auth/logout`            | session          | Revoke the current administrator session                      |
+| `POST /api/auth/password`          | session          | Change the administrator password                             |
+| `POST /api/auth/2fa/setup`         | session          | Start TOTP enrolment                                          |
+| `POST /api/auth/2fa/enable`        | session          | Confirm TOTP and return recovery codes                        |
+| `POST /api/auth/2fa/disable`       | session          | Disable TOTP                                                  |
+| `POST /api/auth/device`            | none             | Exchange credentials for a per-device token                   |
+| `GET /api/devices`                 | session          | List device records                                           |
+| `DELETE /api/devices/current`      | device           | Revoke the caller's own device token (self-service logout)    |
+| `DELETE /api/devices/:id`          | session          | Revoke any device token                                       |
+| `GET /api/health`                  | device           | API/proxy version, capabilities, defaults and client versions |
+| `GET /api/config`                  | session          | Read non-secret settings                                      |
+| `PUT /api/config`                  | session          | Update the client URL, credentials and magnet defaults        |
+| `GET /api/torrents`                | device           | List torrents owned by Remagnet                               |
+| `POST /api/torrents`               | device           | Add magnets with the configured category/tags                 |
+| `GET /api/torrents/:hash`          | device           | Read one torrent, unfiltered                                  |
+| `DELETE /api/torrents/:hash`       | device           | Remove a torrent owned by Remagnet                            |
+| `POST /api/pair`                   | session          | Mint a short-lived pairing code and QR                        |
+| `DELETE /api/pair/:id`             | session          | Revoke a pairing code                                         |
+| `POST /api/pair/claim`             | none             | Claim a code; returns an encrypted device token               |
+| `POST /api/archive/:hash/ticket`   | device           | Mint a single-use archive download ticket                     |
+| `GET /archive/:hash`               | device or ticket | Stream a completed torrent as a ZIP                           |
 
 `Authorization: Bearer rmg_…` is the normal device credential. The archive
 route additionally accepts `?ticket=…`, and an administrator session cookie is
 accepted anywhere a device token is, including the archive download.
 
-The proxy is the only component that talks to qBittorrent. It owns the Web UI
-credentials and the category/tags applied to Remagnet magnets, exposes neutral
-torrent endpoints, and keeps qBittorrent credentials off the extension and
-Android client. `GET /api/torrents` filters by the configured category/tags; `POST /api/torrents`
-always applies them and ignores any client-supplied values; `DELETE
-/api/torrents/:hash`, `POST /api/archive/:hash/ticket` and `GET /archive/:hash`
-refuse torrents outside that filter with `404`. All `/api/*` responses include
-`Cache-Control: no-store`.
+The proxy is the only component that talks to the torrent client. It owns the
+client credentials and the category/labels applied to Remagnet magnets, exposes
+neutral torrent endpoints, and keeps those credentials off the extension and
+Android client. `GET /api/torrents` filters by the configured category/tags;
+`POST /api/torrents` always applies them and ignores any client-supplied values;
+`DELETE /api/torrents/:hash`, `POST /api/archive/:hash/ticket` and `GET
+/archive/:hash` refuse torrents outside that filter with `404`. All `/api/*`
+responses include `Cache-Control: no-store`.
 
 The proxy page's **Pair a device** panel mints and rotates the code, renders the
 QR, and revokes it when hidden. Minting also accepts the origin to encode:
@@ -132,16 +133,28 @@ bundled at `src/departure-mono.woff2` under the SIL OFL 1.1
 
 Environment variables:
 
-| Variable                          | Default               | Notes                                                           |
-| --------------------------------- | --------------------- | --------------------------------------------------------------- |
-| `SETUP_CODE`                      | empty                 | Optional one-time code required to create the admin account.    |
-| `QBIT_BASE_URL`                   | `http://gluetun:8080` | Bootstrap value for the first boot.                             |
-| `QBIT_API_KEY`                    | empty                 | qBittorrent 5.2+ API key.                                       |
-| `QBIT_USERNAME` / `QBIT_PASSWORD` | empty                 | Fallback cookie login.                                          |
-| `REMAGNET_CATEGORY`               | `remagnet`            | Category applied to added magnets and used for listing.         |
-| `REMAGNET_TAGS`                   | `remagnet`            | Comma-separated tags applied to magnets and used for filtering. |
-| `DATA_DIR`                        | `/data`               | `config.json` and `auth.json` live here.                        |
-| `BIND_ADDR`                       | `0.0.0.0:8080`        | HTTP listen address.                                            |
+| Variable                                                                         | Default        | Notes                                                                                                                                                       |
+| -------------------------------------------------------------------------------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SETUP_CODE`                                                                     | empty          | Optional one-time code required to create the admin account.                                                                                                |
+| `CLIENT_KIND`                                                                    | `qbittorrent`  | `qbittorrent`, `transmission`, `deluge`, or `rtorrent`; `rutorrent` is an alias for `rtorrent`.                                                             |
+| `CLIENT_BASE_URL`                                                                | per client     | Client API URL. Defaults: `http://gluetun:8080`, `http://transmission:9091`, `http://deluge:8112`, or `http://rtorrent:8000`.                               |
+| `QBIT_BASE_URL`, `TRANSMISSION_BASE_URL`, `DELUGE_BASE_URL`, `RTORRENT_BASE_URL` | empty          | Older aliases for `CLIENT_BASE_URL`.                                                                                                                        |
+| `QBIT_API_KEY`                                                                   | empty          | qBittorrent 5.2+ API key.                                                                                                                                   |
+| `CLIENT_USERNAME` / `CLIENT_PASSWORD`                                            | empty          | Shared credentials: qBittorrent fallback login, Transmission, and rTorrent HTTP Basic Auth.                                                                 |
+| `QBIT_USERNAME` / `QBIT_PASSWORD`                                                | empty          | Older aliases for `CLIENT_USERNAME` / `CLIENT_PASSWORD`.                                                                                                    |
+| `DELUGE_PASSWORD`                                                                | empty          | Deluge Web UI password; used when `CLIENT_PASSWORD` is blank.                                                                                               |
+| `DOWNLOADS_DIR`                                                                  | empty          | Read-only mount of the client's completed files. Required for ZIP archives from Transmission, Deluge, and rTorrent; qBittorrent can stream through its API. |
+| `CLIENT_DOWNLOADS_DIR`                                                           | empty          | Prefix of save paths as the client reports them, stripped before resolving inside `DOWNLOADS_DIR`.                                                          |
+| `REMAGNET_CATEGORY`                                                              | `remagnet`     | Category or label applied to added magnets and used for listing. Ignored by Transmission.                                                                   |
+| `REMAGNET_TAGS`                                                                  | `remagnet`     | Comma-separated tags (labels for Transmission) applied and used for filtering. Ignored by Deluge and rTorrent.                                              |
+| `DATA_DIR`                                                                       | `/data`        | `config.json` and `auth.json` live here.                                                                                                                    |
+| `BIND_ADDR`                                                                      | `0.0.0.0:8080` | HTTP listen address.                                                                                                                                        |
+
+`CLIENT_KIND` selects the adapter. qBittorrent uses categories and tags,
+Transmission uses tags as labels and ignores the category, Deluge uses a single
+label from the category and ignores tags, and rTorrent / ruTorrent stores the
+category in its `custom1` label and ignores tags. See `.env.example` for each
+client's recommended values.
 
 Set `SETUP_CODE` only while the first boot is reachable from an untrusted
 network: it prevents a stranger from claiming the administrator account. Remove
@@ -152,23 +165,25 @@ Subsequent changes come from the proxy page and survive restarts. Account data
 goes to `auth.json` (also mode `0600`) when the administrator account or the
 first device is created: an Argon2id password hash, an optional TOTP secret and
 recovery-code hashes, and SHA-256 hashes of device tokens. Raw passwords, TOTP
-codes, recovery codes and device tokens are never written there. qBittorrent
-credentials are optional at boot: the proxy starts with an unconfigured client
-and answers `/api/health`, `/api/torrents*` and `/archive/*` with `503` until
-credentials are saved. Pressing **Save** on the proxy page activates the
-qBittorrent client without a restart.
+codes, recovery codes and device tokens are never written there. Torrent-client
+credentials follow the selected client: qBittorrent needs an API key or
+username, Transmission and rTorrent need only a URL unless their endpoint
+requires authentication, and Deluge also needs its password. The proxy starts
+with an unconfigured client and answers `/api/health`, `/api/torrents*` and
+`/archive/*` with `503` until credentials are saved. Pressing **Save** on the
+proxy page activates the selected client without a restart.
 
 ## Local development
 
 ```bash
 cp .env.example .env
-# edit .env, optionally setting SETUP_CODE and qBittorrent bootstrap values
+# edit .env, optionally setting SETUP_CODE and torrent-client bootstrap values
 set -a && . ./.env && set +a
 cargo run
 ```
 
 Open <http://127.0.0.1:8080/>, create the administrator account, and test the
-qBittorrent connection. Leave `SETUP_CODE` empty on a local-only machine.
+torrent-client connection. Leave `SETUP_CODE` empty on a local-only machine.
 
 ## Docker
 
@@ -186,8 +201,8 @@ docker compose up -d --build
 ```
 
 The compose file expects the external `media` network shared with Caddy and
-qBittorrent/gluetun. For a standalone host without that network, remove the
-`networks` block, publish port `8080`, and set `QBIT_BASE_URL` to an address the
+your torrent client or gluetun. For a standalone host without that network, remove the
+`networks` block, publish port `8080`, and set `CLIENT_BASE_URL` to an address the
 container can reach. The root README has a complete
 [Docker Compose quick start](../README.md#quick-start).
 
@@ -217,17 +232,19 @@ two-factor authentication is enabled.
 ## How archiving works
 
 1. Look up the torrent by info hash and require `progress == 1`.
-2. List its files with `torrents/files`.
-3. For each file, call `torrents/downloadFile` and copy the response into a
-   stored (uncompressed) ZIP entry with a data descriptor.
+2. List its files through the client API.
+3. For qBittorrent 5.2+, fetch each file with `torrents/downloadFile`. For
+   Transmission, Deluge, and rTorrent, resolve each file inside the read-only
+   `DOWNLOADS_DIR` mount. Copy the bytes into a stored (uncompressed) ZIP entry
+   with a data descriptor.
 4. Stream the ZIP body back to the browser without buffering the archive.
 5. If an upstream file stream fails mid-way, the HTTP body is aborted rather
    than ending cleanly. Without that, browsers save a truncated ZIP as a
    completed download because the response has no `Content-Length`.
 
 Media files do not benefit from ZIP compression, so entries use `Stored`.
-qBittorrent requests have no total deadline (archives can take a long time),
-but a 60-second read timeout still catches stalled connections.
+Upstream requests have no total deadline (archives can take a long time), but a
+60-second read timeout still catches stalled connections.
 
 ## Tests
 

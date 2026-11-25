@@ -8,13 +8,17 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::json;
-use subtle::ConstantTimeEq;
 
 use crate::{
     auth::{self, AdminAccount, PublicDevice},
     error::AppError,
     pairing, totp, AppState,
 };
+
+/// Longest accepted administrator username.
+const MAX_USERNAME_LEN: usize = 64;
+/// Shortest accepted administrator password.
+const MIN_PASSWORD_LEN: usize = 12;
 
 /// Authenticate an administrator browser session.
 ///
@@ -130,11 +134,22 @@ pub fn router() -> Router<Arc<AppState>> {
 }
 
 fn secure_cookie(headers: &HeaderMap) -> bool {
-    headers
-        .get("x-forwarded-proto")
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.split(',').next())
-        .is_some_and(|scheme| scheme.trim().eq_ignore_ascii_case("https"))
+    forwarded_proto(headers) == Some("https")
+}
+
+/// The scheme named by `X-Forwarded-Proto`, if it is `http` or `https`.
+///
+/// Proxies may append their own hop, so only the first value is considered.
+pub(crate) fn forwarded_proto(headers: &HeaderMap) -> Option<&'static str> {
+    let value = headers.get("x-forwarded-proto")?.to_str().ok()?;
+    let scheme = value.split(',').next()?.trim();
+    if scheme.eq_ignore_ascii_case("https") {
+        Some("https")
+    } else if scheme.eq_ignore_ascii_case("http") {
+        Some("http")
+    } else {
+        None
+    }
 }
 
 fn create_session(state: &AppState, username: &str) -> Result<String, AppError> {
@@ -249,7 +264,7 @@ fn verify_second_factor(admin: &mut AdminAccount, code: &str) -> Result<(), AppE
     let hashed = totp::hash_recovery_code(code);
     let mut matched = None;
     for (index, stored) in admin.recovery_code_hashes.iter().enumerate() {
-        if bool::from(stored.as_bytes().ct_eq(hashed.as_bytes())) {
+        if auth::ct_eq_str(stored, &hashed) {
             matched = Some(index);
         }
     }
@@ -306,7 +321,7 @@ fn setup_code_matches(expected: &str, provided: Option<&str>) -> bool {
         return false;
     };
     let provided = provided.trim();
-    expected.len() == provided.len() && bool::from(expected.as_bytes().ct_eq(provided.as_bytes()))
+    auth::ct_eq_str(expected, provided)
 }
 
 async fn setup(
@@ -332,15 +347,15 @@ async fn setup(
     }
 
     let username = request.username.trim().to_string();
-    if username.is_empty() || username.chars().count() > 64 {
-        return Err(AppError::BadRequest(
-            "The username must be between 1 and 64 characters.".to_string(),
-        ));
+    if username.is_empty() || username.chars().count() > MAX_USERNAME_LEN {
+        return Err(AppError::BadRequest(format!(
+            "The username must be between 1 and {MAX_USERNAME_LEN} characters."
+        )));
     }
-    if request.password.chars().count() < 12 {
-        return Err(AppError::BadRequest(
-            "The password must be at least 12 characters.".to_string(),
-        ));
+    if request.password.chars().count() < MIN_PASSWORD_LEN {
+        return Err(AppError::BadRequest(format!(
+            "The password must be at least {MIN_PASSWORD_LEN} characters."
+        )));
     }
 
     let password_hash = auth::hash_password(&request.password).map_err(AppError::internal)?;
@@ -440,10 +455,10 @@ async fn change_password(
 ) -> Result<impl axum::response::IntoResponse, AppError> {
     let username = require_admin(&state, &headers).await?;
 
-    if request.new_password.chars().count() < 12 {
-        return Err(AppError::BadRequest(
-            "The new password must be at least 12 characters.".to_string(),
-        ));
+    if request.new_password.chars().count() < MIN_PASSWORD_LEN {
+        return Err(AppError::BadRequest(format!(
+            "The new password must be at least {MIN_PASSWORD_LEN} characters."
+        )));
     }
     let password_hash = auth::hash_password(&request.new_password).map_err(AppError::internal)?;
 

@@ -1,4 +1,10 @@
-import { type IssueReportContext, IssueReportDialog, Wordmark } from "@remagnet/ui";
+import {
+  errorMessage,
+  type IssueReportContext,
+  IssueReportDialog,
+  PageFooter,
+  Wordmark,
+} from "@remagnet/ui";
 import {
   createEffect,
   createSignal,
@@ -18,6 +24,7 @@ import {
   fetchConfig,
   fetchLiveness,
   getAuthStatus,
+  isSessionExpired,
   type LoginRequest,
   loginAdmin,
   logoutAdmin,
@@ -166,7 +173,7 @@ export default function App() {
     try {
       applyPublicConfig(await fetchConfig());
     } catch (error) {
-      if (error instanceof ProxyApiError && error.expired) return;
+      if (isSessionExpired(error)) return;
 
       // A failed config read is not fatal; show Connection so the
       // administrator can finish setup and retry.
@@ -406,8 +413,8 @@ export default function App() {
                         <Match when={activeTab() === "connection"}>
                           <Show when={!configured()}>
                             <p class="status warn onboarding-note">
-                              Connect qBittorrent or Transmission below to start managing torrents
-                              and pairing devices.
+                              Connect qBittorrent, Transmission, Deluge, or rTorrent below to start
+                              managing torrents and pairing devices.
                             </p>
                           </Show>
                           <ClientConfigPanel
@@ -464,52 +471,4 @@ function LoadingView() {
       </div>
     </main>
   );
-}
-
-interface PageFooterProps {
-  version: string;
-  onReport: () => void;
-}
-
-/** Product links and the shared issue-report trigger for every page state. */
-function PageFooter(props: PageFooterProps) {
-  return (
-    <footer class="page-footer">
-      <span>{props.version ? `Remagnet Proxy ${props.version}` : "Remagnet Proxy"}</span>
-      <span class="sep" aria-hidden="true">
-        ·
-      </span>
-      <a href="https://remagnet.app" target="_blank" rel="noreferrer">
-        Website
-      </a>
-      <span class="sep" aria-hidden="true">
-        ·
-      </span>
-      <a href="https://github.com/EliCunninghamDev/Remagnet" target="_blank" rel="noreferrer">
-        GitHub
-      </a>
-      <span class="sep" aria-hidden="true">
-        ·
-      </span>
-      <button class="linkish" type="button" onClick={() => props.onReport()}>
-        Report an issue
-      </button>
-      <span class="sep" aria-hidden="true">
-        ·
-      </span>
-      <a href="https://remagnet.app/privacy.html" target="_blank" rel="noreferrer">
-        Privacy
-      </a>
-      <span class="sep" aria-hidden="true">
-        ·
-      </span>
-      <a href="https://ko-fi.com/elijahcunninghamdev" target="_blank" rel="noreferrer">
-        Support on Ko-fi
-      </a>
-    </footer>
-  );
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

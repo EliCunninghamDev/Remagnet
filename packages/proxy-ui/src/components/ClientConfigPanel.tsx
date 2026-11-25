@@ -1,17 +1,17 @@
-import type { IssueReportContext } from "@remagnet/ui";
-import { createSignal, onMount, Show } from "solid-js";
+import { errorMessage, type IssueReportContext, issueContextFromError } from "@remagnet/ui";
+import { createSignal, Match, onMount, Show, Switch } from "solid-js";
 import {
   type ConfigUpdate,
   type ConnectionHealth,
   fetchConfig,
   fetchHealth,
-  ProxyApiError,
+  isSessionExpired,
   type PublicConfig,
   saveConfig,
 } from "../api";
 import StatusLine, { type StatusMessage } from "./StatusLine";
 
-type ClientKind = "qbittorrent" | "transmission";
+type ClientKind = PublicConfig["clientKind"];
 
 export interface ClientConfigPanelProps {
   /** App-provided config so the panel does not fetch it twice on first paint. */
@@ -48,7 +48,26 @@ const TRANSMISSION_LOCK_FIELDS = [
   "defaultTags",
 ];
 
-/** Torrent client connection settings shared by qBittorrent and Transmission. */
+const DELUGE_LOCK_FIELDS = [
+  "clientKind",
+  "baseUrl",
+  "password",
+  "downloadsDir",
+  "clientDownloadsDir",
+  "defaultCategory",
+];
+
+const RTORRENT_LOCK_FIELDS = [
+  "clientKind",
+  "baseUrl",
+  "username",
+  "password",
+  "downloadsDir",
+  "clientDownloadsDir",
+  "defaultCategory",
+];
+
+/** Torrent client connection settings shared by qBittorrent, Transmission, Deluge and rTorrent. */
 export default function ClientConfigPanel(props: ClientConfigPanelProps) {
   const [clientKind, setClientKind] = createSignal<ClientKind>("qbittorrent");
 
@@ -68,6 +87,19 @@ export default function ClientConfigPanel(props: ClientConfigPanelProps) {
   const [transmissionDownloadsDir, setTransmissionDownloadsDir] = createSignal("");
   const [transmissionClientDownloadsDir, setTransmissionClientDownloadsDir] = createSignal("");
 
+  const [delugeUrl, setDelugeUrl] = createSignal("");
+  const [delugePassword, setDelugePassword] = createSignal("");
+  const [clearDelugePassword, setClearDelugePassword] = createSignal(false);
+  const [delugeDownloadsDir, setDelugeDownloadsDir] = createSignal("");
+  const [delugeClientDownloadsDir, setDelugeClientDownloadsDir] = createSignal("");
+
+  const [rtorrentUrl, setRtorrentUrl] = createSignal("");
+  const [rtorrentUsername, setRtorrentUsername] = createSignal("");
+  const [rtorrentPassword, setRtorrentPassword] = createSignal("");
+  const [clearRtorrentPassword, setClearRtorrentPassword] = createSignal(false);
+  const [rtorrentDownloadsDir, setRtorrentDownloadsDir] = createSignal("");
+  const [rtorrentClientDownloadsDir, setRtorrentClientDownloadsDir] = createSignal("");
+
   const [category, setCategory] = createSignal("");
   const [tags, setTags] = createSignal("");
 
@@ -83,13 +115,22 @@ export default function ClientConfigPanel(props: ClientConfigPanelProps) {
   });
   const [statusContext, setStatusContext] = createSignal<IssueReportContext>();
 
-  const transmission = () => clientKind() === "transmission";
   const envLocked = () => new Set(loadedConfig()?.envLocked ?? []);
   const isLocked = (field: string) => envLocked().has(field);
-  const allFieldsLocked = () =>
-    (transmission() ? TRANSMISSION_LOCK_FIELDS : QBIT_LOCK_FIELDS).every((field) =>
-      isLocked(field),
-    );
+
+  const lockFields = (kind: ClientKind) => {
+    switch (kind) {
+      case "transmission":
+        return TRANSMISSION_LOCK_FIELDS;
+      case "deluge":
+        return DELUGE_LOCK_FIELDS;
+      case "rtorrent":
+        return RTORRENT_LOCK_FIELDS;
+      default:
+        return QBIT_LOCK_FIELDS;
+    }
+  };
+  const allFieldsLocked = () => lockFields(clientKind()).every((field) => isLocked(field));
 
   onMount(() => {
     if (props.initialConfig) {
@@ -117,25 +158,30 @@ export default function ClientConfigPanel(props: ClientConfigPanelProps) {
 
   function applyConfig(config: PublicConfig) {
     setLoadedConfig(config);
-
-    const kind: ClientKind = config.clientKind === "transmission" ? "transmission" : "qbittorrent";
-    setClientKind(kind);
+    setClientKind(config.clientKind);
 
     const baseUrl = config.baseUrl || config.qbitBaseUrl || "";
     setQbitUrl(baseUrl);
     setTransmissionUrl(baseUrl);
+    setDelugeUrl(baseUrl);
+    setRtorrentUrl(baseUrl);
 
     const username = config.username || config.qbitUsername || "";
     setQbitUsername(username);
     setTransmissionUsername(username);
+    setRtorrentUsername(username);
 
     const downloadsDir = config.downloadsDir || "";
     setQbitDownloadsDir(downloadsDir);
     setTransmissionDownloadsDir(downloadsDir);
+    setDelugeDownloadsDir(downloadsDir);
+    setRtorrentDownloadsDir(downloadsDir);
 
     const clientDownloadsDir = config.clientDownloadsDir || "";
     setQbitClientDownloadsDir(clientDownloadsDir);
     setTransmissionClientDownloadsDir(clientDownloadsDir);
+    setDelugeClientDownloadsDir(clientDownloadsDir);
+    setRtorrentClientDownloadsDir(clientDownloadsDir);
 
     setCategory(config.defaultCategory || "");
     setTags((config.defaultTags || []).join(", "));
@@ -145,9 +191,13 @@ export default function ClientConfigPanel(props: ClientConfigPanelProps) {
     setApiKey("");
     setQbitPassword("");
     setTransmissionPassword("");
+    setDelugePassword("");
+    setRtorrentPassword("");
     setClearApiKey(false);
     setClearQbitPassword(false);
     setClearTransmissionPassword(false);
+    setClearDelugePassword(false);
+    setClearRtorrentPassword(false);
 
     setHasApiKey(config.hasApiKey);
     setHasPassword(config.hasPassword);
@@ -165,54 +215,123 @@ export default function ClientConfigPanel(props: ClientConfigPanelProps) {
         message: "Saved secrets are never sent back to this page.",
       });
     } catch (error) {
-      if (isExpired(error)) return;
+      if (isSessionExpired(error)) return;
       setStatus({ tone: "error", message: errorMessage(error) });
-      setStatusContext(issueContext(error, "Loading settings"));
+      setStatusContext(issueContextFromError(error, "Loading settings"));
+    }
+  }
+
+  function baseUrlFor(kind: ClientKind): string {
+    switch (kind) {
+      case "transmission":
+        return transmissionUrl();
+      case "deluge":
+        return delugeUrl();
+      case "rtorrent":
+        return rtorrentUrl();
+      default:
+        return qbitUrl();
+    }
+  }
+
+  function usernameFor(kind: ClientKind): string {
+    switch (kind) {
+      case "transmission":
+        return transmissionUsername();
+      case "rtorrent":
+        return rtorrentUsername();
+      default:
+        return qbitUsername();
     }
   }
 
   function payload(): ConfigUpdate {
+    const kind = clientKind();
     const body: ConfigUpdate = {};
-    const kind: ClientKind = transmission() ? "transmission" : "qbittorrent";
 
     if (!isLocked("clientKind")) body.clientKind = kind;
 
-    if (!isLocked("baseUrl")) {
-      body.baseUrl = (transmission() ? transmissionUrl() : qbitUrl()).trim();
-    }
-    if (!isLocked("username")) {
-      body.username = (transmission() ? transmissionUsername() : qbitUsername()).trim();
+    if (!isLocked("baseUrl")) body.baseUrl = baseUrlFor(kind).trim();
+    // Deluge authenticates with a password only; it has no username field.
+    if (kind !== "deluge" && !isLocked("username")) {
+      body.username = usernameFor(kind).trim();
     }
     if (!isLocked("downloadsDir")) {
-      body.downloadsDir = (transmission() ? transmissionDownloadsDir() : qbitDownloadsDir()).trim();
+      switch (kind) {
+        case "transmission":
+          body.downloadsDir = transmissionDownloadsDir().trim();
+          break;
+        case "deluge":
+          body.downloadsDir = delugeDownloadsDir().trim();
+          break;
+        case "rtorrent":
+          body.downloadsDir = rtorrentDownloadsDir().trim();
+          break;
+        default:
+          body.downloadsDir = qbitDownloadsDir().trim();
+      }
     }
     if (!isLocked("clientDownloadsDir")) {
-      body.clientDownloadsDir = (
-        transmission() ? transmissionClientDownloadsDir() : qbitClientDownloadsDir()
-      ).trim();
+      switch (kind) {
+        case "transmission":
+          body.clientDownloadsDir = transmissionClientDownloadsDir().trim();
+          break;
+        case "deluge":
+          body.clientDownloadsDir = delugeClientDownloadsDir().trim();
+          break;
+        case "rtorrent":
+          body.clientDownloadsDir = rtorrentClientDownloadsDir().trim();
+          break;
+        default:
+          body.clientDownloadsDir = qbitClientDownloadsDir().trim();
+      }
     }
     if (!isLocked("defaultCategory")) body.defaultCategory = category().trim();
-    if (!isLocked("defaultTags")) body.defaultTags = splitTags(tags());
+    if (!isLocked("defaultTags")) {
+      // Deluge and rTorrent filter by their single category/label field, so an
+      // empty list is what exposes every torrent.
+      body.defaultTags = kind === "deluge" || kind === "rtorrent" ? [] : splitTags(tags());
+    }
 
-    if (transmission()) {
-      if (!isLocked("password")) {
-        const password = transmissionPassword();
-        if (password) body.password = password;
-        if (clearTransmissionPassword()) body.password = "";
+    switch (kind) {
+      case "transmission": {
+        if (!isLocked("password")) {
+          const password = transmissionPassword();
+          if (password) body.password = password;
+          if (clearTransmissionPassword()) body.password = "";
+        }
+        break;
       }
-      return body;
+      case "deluge": {
+        if (!isLocked("password")) {
+          const password = delugePassword();
+          if (password) body.password = password;
+          if (clearDelugePassword()) body.password = "";
+        }
+        break;
+      }
+      case "rtorrent": {
+        if (!isLocked("password")) {
+          const password = rtorrentPassword();
+          if (password) body.password = password;
+          if (clearRtorrentPassword()) body.password = "";
+        }
+        break;
+      }
+      default: {
+        if (!isLocked("apiKey")) {
+          const key = apiKey().trim();
+          if (key) body.apiKey = key;
+          if (clearApiKey()) body.apiKey = "";
+        }
+        if (!isLocked("password")) {
+          const password = qbitPassword();
+          if (password) body.password = password;
+          if (clearQbitPassword()) body.password = "";
+        }
+      }
     }
 
-    if (!isLocked("apiKey")) {
-      const key = apiKey().trim();
-      if (key) body.apiKey = key;
-      if (clearApiKey()) body.apiKey = "";
-    }
-    if (!isLocked("password")) {
-      const password = qbitPassword();
-      if (password) body.password = password;
-      if (clearQbitPassword()) body.password = "";
-    }
     return body;
   }
 
@@ -230,9 +349,9 @@ export default function ClientConfigPanel(props: ClientConfigPanelProps) {
       setStatus({ tone: "ok", message: "Saved." });
       props.onConfigSaved?.();
     } catch (error) {
-      if (isExpired(error)) return;
+      if (isSessionExpired(error)) return;
       setStatus({ tone: "error", message: errorMessage(error) });
-      setStatusContext(issueContext(error, "Saving settings"));
+      setStatusContext(issueContextFromError(error, "Saving settings"));
     } finally {
       setSaving(false);
     }
@@ -261,9 +380,9 @@ export default function ClientConfigPanel(props: ClientConfigPanelProps) {
 
       setStatus({ tone: "ok", message });
     } catch (error) {
-      if (isExpired(error)) return;
+      if (isSessionExpired(error)) return;
       setStatus({ tone: "error", message: errorMessage(error) });
-      setStatusContext(issueContext(error, "Testing connection"));
+      setStatusContext(issueContextFromError(error, "Testing connection"));
     } finally {
       setTesting(false);
     }
@@ -279,14 +398,7 @@ export default function ClientConfigPanel(props: ClientConfigPanelProps) {
       <h2>Torrent client</h2>
 
       <label class="field">
-        <span class="field-label">
-          <span>Client</span>
-          <Show when={isLocked("clientKind")}>
-            <span class="env-badge" title="Managed by an environment variable">
-              Env
-            </span>
-          </Show>
-        </span>
+        <FieldLabel label="Client" locked={isLocked("clientKind")} />
         <select
           name="clientKind"
           value={clientKind()}
@@ -295,23 +407,168 @@ export default function ClientConfigPanel(props: ClientConfigPanelProps) {
         >
           <option value="qbittorrent">qBittorrent</option>
           <option value="transmission">Transmission</option>
+          <option value="deluge">Deluge</option>
+          <option value="rtorrent">rTorrent / ruTorrent</option>
         </select>
         <small>Choose the client this proxy connects to. You can switch at any time.</small>
       </label>
 
-      <Show
-        when={!transmission()}
+      <Switch
         fallback={
           <div class="stack">
             <label class="field">
-              <span class="field-label">
-                <span>RPC URL</span>
-                <Show when={isLocked("baseUrl")}>
-                  <span class="env-badge" title="Managed by an environment variable">
-                    Env
-                  </span>
-                </Show>
-              </span>
+              <FieldLabel label="Web UI URL" locked={isLocked("baseUrl")} />
+              <input
+                name="qbitUrl"
+                type="url"
+                spellcheck={false}
+                required
+                disabled={isLocked("baseUrl")}
+                placeholder="http://gluetun:8080"
+                value={qbitUrl()}
+                onInput={(event) => setQbitUrl(event.currentTarget.value)}
+              />
+              <small>
+                Where Remagnet Proxy reaches qBittorrent. The default is the container network name.
+              </small>
+            </label>
+
+            <label class="field">
+              <FieldLabel label="API key" locked={isLocked("apiKey")} />
+              <input
+                name="apiKey"
+                type="password"
+                autocomplete="off"
+                spellcheck={false}
+                disabled={isLocked("apiKey")}
+                placeholder={hasApiKey() ? "Saved key — leave blank to keep" : "qbt_…"}
+                value={apiKey()}
+                onInput={(event) => setApiKey(event.currentTarget.value)}
+              />
+              <small>
+                {hasApiKey()
+                  ? "An API key is saved. Leave the field blank to keep it."
+                  : "No API key saved. Add one, or use username and password below."}
+              </small>
+            </label>
+            <label class="check">
+              <input
+                type="checkbox"
+                checked={clearApiKey()}
+                disabled={isLocked("apiKey")}
+                onChange={(event) => setClearApiKey(event.currentTarget.checked)}
+              />
+              Remove the saved API key
+            </label>
+
+            <details>
+              <summary>Username and password fallback</summary>
+              <div class="stack">
+                <label class="field">
+                  <FieldLabel label="Username" locked={isLocked("username")} />
+                  <input
+                    name="qbitUsername"
+                    type="text"
+                    autocomplete="username"
+                    spellcheck={false}
+                    disabled={isLocked("username")}
+                    value={qbitUsername()}
+                    onInput={(event) => setQbitUsername(event.currentTarget.value)}
+                  />
+                </label>
+
+                <label class="field">
+                  <FieldLabel label="Password" locked={isLocked("password")} />
+                  <input
+                    name="qbitPassword"
+                    type="password"
+                    autocomplete="current-password"
+                    disabled={isLocked("password")}
+                    value={qbitPassword()}
+                    onInput={(event) => setQbitPassword(event.currentTarget.value)}
+                  />
+                  <small>
+                    {hasPassword()
+                      ? "A password is saved. Leave the field blank to keep it."
+                      : "Leave blank to keep the saved password."}
+                  </small>
+                </label>
+                <label class="check">
+                  <input
+                    type="checkbox"
+                    checked={clearQbitPassword()}
+                    disabled={isLocked("password")}
+                    onChange={(event) => setClearQbitPassword(event.currentTarget.checked)}
+                  />
+                  Remove the saved password
+                </label>
+              </div>
+            </details>
+
+            <details>
+              <summary>Downloads volume (qBittorrent 4.x fallback)</summary>
+              <div class="stack">
+                <label class="field">
+                  <FieldLabel label="Downloads directory" locked={isLocked("downloadsDir")} />
+                  <input
+                    name="qbitDownloadsDir"
+                    type="text"
+                    spellcheck={false}
+                    disabled={isLocked("downloadsDir")}
+                    placeholder="/downloads"
+                    value={qbitDownloadsDir()}
+                    onInput={(event) => setQbitDownloadsDir(event.currentTarget.value)}
+                  />
+                  <small>
+                    Mount qBittorrent's downloads volume read-only here to stream completed torrents
+                    as ZIP archives.
+                  </small>
+                </label>
+
+                <label class="field">
+                  <FieldLabel
+                    label="Client downloads path"
+                    locked={isLocked("clientDownloadsDir")}
+                  />
+                  <input
+                    name="qbitClientDownloadsDir"
+                    type="text"
+                    spellcheck={false}
+                    disabled={isLocked("clientDownloadsDir")}
+                    placeholder="/data/torrents"
+                    value={qbitClientDownloadsDir()}
+                    onInput={(event) => setQbitClientDownloadsDir(event.currentTarget.value)}
+                  />
+                  <small>
+                    Optional prefix of save paths as qBittorrent reports them. Leave blank when it
+                    matches the mount.
+                  </small>
+                </label>
+              </div>
+            </details>
+
+            <label class="field">
+              <FieldLabel label="Category" locked={isLocked("defaultCategory")} />
+              <input
+                name="category"
+                type="text"
+                spellcheck={false}
+                disabled={isLocked("defaultCategory")}
+                placeholder="remagnet"
+                value={category()}
+                onInput={(event) => setCategory(event.currentTarget.value)}
+              />
+              <small>
+                Applied to every magnet added through the proxy. Leave blank to skip categorizing.
+              </small>
+            </label>
+          </div>
+        }
+      >
+        <Match when={clientKind() === "transmission"}>
+          <div class="stack">
+            <label class="field">
+              <FieldLabel label="RPC URL" locked={isLocked("baseUrl")} />
               <input
                 name="transmissionUrl"
                 type="url"
@@ -328,14 +585,7 @@ export default function ClientConfigPanel(props: ClientConfigPanelProps) {
             </label>
 
             <label class="field">
-              <span class="field-label">
-                <span>Username</span>
-                <Show when={isLocked("username")}>
-                  <span class="env-badge" title="Managed by an environment variable">
-                    Env
-                  </span>
-                </Show>
-              </span>
+              <FieldLabel label="Username" locked={isLocked("username")} />
               <input
                 name="transmissionUsername"
                 type="text"
@@ -351,14 +601,7 @@ export default function ClientConfigPanel(props: ClientConfigPanelProps) {
             </label>
 
             <label class="field">
-              <span class="field-label">
-                <span>Password</span>
-                <Show when={isLocked("password")}>
-                  <span class="env-badge" title="Managed by an environment variable">
-                    Env
-                  </span>
-                </Show>
-              </span>
+              <FieldLabel label="Password" locked={isLocked("password")} />
               <input
                 name="transmissionPassword"
                 type="password"
@@ -384,14 +627,7 @@ export default function ClientConfigPanel(props: ClientConfigPanelProps) {
             </label>
 
             <label class="field">
-              <span class="field-label">
-                <span>Downloads directory</span>
-                <Show when={isLocked("downloadsDir")}>
-                  <span class="env-badge" title="Managed by an environment variable">
-                    Env
-                  </span>
-                </Show>
-              </span>
+              <FieldLabel label="Downloads directory" locked={isLocked("downloadsDir")} />
               <input
                 name="transmissionDownloadsDir"
                 type="text"
@@ -408,14 +644,7 @@ export default function ClientConfigPanel(props: ClientConfigPanelProps) {
             </label>
 
             <label class="field">
-              <span class="field-label">
-                <span>Client downloads path</span>
-                <Show when={isLocked("clientDownloadsDir")}>
-                  <span class="env-badge" title="Managed by an environment variable">
-                    Env
-                  </span>
-                </Show>
-              </span>
+              <FieldLabel label="Client downloads path" locked={isLocked("clientDownloadsDir")} />
               <input
                 name="transmissionClientDownloadsDir"
                 type="text"
@@ -431,230 +660,238 @@ export default function ClientConfigPanel(props: ClientConfigPanelProps) {
               </small>
             </label>
           </div>
-        }
-      >
-        <div class="stack">
-          <label class="field">
-            <span class="field-label">
-              <span>Web UI URL</span>
-              <Show when={isLocked("baseUrl")}>
-                <span class="env-badge" title="Managed by an environment variable">
-                  Env
-                </span>
-              </Show>
-            </span>
-            <input
-              name="qbitUrl"
-              type="url"
-              spellcheck={false}
-              required
-              disabled={isLocked("baseUrl")}
-              placeholder="http://gluetun:8080"
-              value={qbitUrl()}
-              onInput={(event) => setQbitUrl(event.currentTarget.value)}
-            />
-            <small>
-              Where Remagnet Proxy reaches qBittorrent. The default is the container network name.
-            </small>
-          </label>
+        </Match>
 
-          <label class="field">
-            <span class="field-label">
-              <span>API key</span>
-              <Show when={isLocked("apiKey")}>
-                <span class="env-badge" title="Managed by an environment variable">
-                  Env
-                </span>
-              </Show>
-            </span>
-            <input
-              name="apiKey"
-              type="password"
-              autocomplete="off"
-              spellcheck={false}
-              disabled={isLocked("apiKey")}
-              placeholder={hasApiKey() ? "Saved key — leave blank to keep" : "qbt_…"}
-              value={apiKey()}
-              onInput={(event) => setApiKey(event.currentTarget.value)}
-            />
-            <small>
-              {hasApiKey()
-                ? "An API key is saved. Leave the field blank to keep it."
-                : "No API key saved. Add one, or use username and password below."}
-            </small>
-          </label>
-          <label class="check">
-            <input
-              type="checkbox"
-              checked={clearApiKey()}
-              disabled={isLocked("apiKey")}
-              onChange={(event) => setClearApiKey(event.currentTarget.checked)}
-            />
-            Remove the saved API key
-          </label>
+        <Match when={clientKind() === "deluge"}>
+          <div class="stack">
+            <label class="field">
+              <FieldLabel label="Web UI URL" locked={isLocked("baseUrl")} />
+              <input
+                name="delugeUrl"
+                type="url"
+                spellcheck={false}
+                required
+                disabled={isLocked("baseUrl")}
+                placeholder="http://deluge:8112"
+                value={delugeUrl()}
+                onInput={(event) => setDelugeUrl(event.currentTarget.value)}
+              />
+              <small>Where Remagnet Proxy reaches Deluge's Web UI, usually port 8112.</small>
+            </label>
 
-          <details>
-            <summary>Username and password fallback</summary>
-            <div class="stack">
-              <label class="field">
-                <span class="field-label">
-                  <span>Username</span>
-                  <Show when={isLocked("username")}>
-                    <span class="env-badge" title="Managed by an environment variable">
-                      Env
-                    </span>
-                  </Show>
-                </span>
-                <input
-                  name="qbitUsername"
-                  type="text"
-                  autocomplete="username"
-                  spellcheck={false}
-                  disabled={isLocked("username")}
-                  value={qbitUsername()}
-                  onInput={(event) => setQbitUsername(event.currentTarget.value)}
-                />
-              </label>
+            <label class="field">
+              <FieldLabel label="Password" locked={isLocked("password")} />
+              <input
+                name="delugePassword"
+                type="password"
+                autocomplete="current-password"
+                disabled={isLocked("password")}
+                value={delugePassword()}
+                onInput={(event) => setDelugePassword(event.currentTarget.value)}
+              />
+              <small>
+                {hasPassword()
+                  ? "A password is saved; leave blank to keep it."
+                  : "Deluge Web UI password (default is deluge on a fresh install)."}
+              </small>
+            </label>
+            <label class="check">
+              <input
+                type="checkbox"
+                checked={clearDelugePassword()}
+                disabled={isLocked("password")}
+                onChange={(event) => setClearDelugePassword(event.currentTarget.checked)}
+              />
+              Remove the saved password
+            </label>
 
-              <label class="field">
-                <span class="field-label">
-                  <span>Password</span>
-                  <Show when={isLocked("password")}>
-                    <span class="env-badge" title="Managed by an environment variable">
-                      Env
-                    </span>
-                  </Show>
-                </span>
-                <input
-                  name="qbitPassword"
-                  type="password"
-                  autocomplete="current-password"
-                  disabled={isLocked("password")}
-                  value={qbitPassword()}
-                  onInput={(event) => setQbitPassword(event.currentTarget.value)}
-                />
-                <small>
-                  {hasPassword()
-                    ? "A password is saved. Leave the field blank to keep it."
-                    : "Leave blank to keep the saved password."}
-                </small>
-              </label>
-              <label class="check">
-                <input
-                  type="checkbox"
-                  checked={clearQbitPassword()}
-                  disabled={isLocked("password")}
-                  onChange={(event) => setClearQbitPassword(event.currentTarget.checked)}
-                />
-                Remove the saved password
-              </label>
-            </div>
-          </details>
+            <label class="field">
+              <FieldLabel label="Downloads directory" locked={isLocked("downloadsDir")} />
+              <input
+                name="delugeDownloadsDir"
+                type="text"
+                spellcheck={false}
+                disabled={isLocked("downloadsDir")}
+                placeholder="/downloads"
+                value={delugeDownloadsDir()}
+                onInput={(event) => setDelugeDownloadsDir(event.currentTarget.value)}
+              />
+              <small>
+                Mount Deluge's downloads volume read-only here to stream completed torrents as ZIP
+                archives.
+              </small>
+            </label>
 
-          <details>
-            <summary>Downloads volume (qBittorrent 4.x fallback)</summary>
-            <div class="stack">
-              <label class="field">
-                <span class="field-label">
-                  <span>Downloads directory</span>
-                  <Show when={isLocked("downloadsDir")}>
-                    <span class="env-badge" title="Managed by an environment variable">
-                      Env
-                    </span>
-                  </Show>
-                </span>
-                <input
-                  name="qbitDownloadsDir"
-                  type="text"
-                  spellcheck={false}
-                  disabled={isLocked("downloadsDir")}
-                  placeholder="/downloads"
-                  value={qbitDownloadsDir()}
-                  onInput={(event) => setQbitDownloadsDir(event.currentTarget.value)}
-                />
-                <small>
-                  Mount qBittorrent's downloads volume read-only here to stream completed torrents
-                  as ZIP archives.
-                </small>
-              </label>
+            <label class="field">
+              <FieldLabel label="Client downloads path" locked={isLocked("clientDownloadsDir")} />
+              <input
+                name="delugeClientDownloadsDir"
+                type="text"
+                spellcheck={false}
+                disabled={isLocked("clientDownloadsDir")}
+                placeholder="/downloads"
+                value={delugeClientDownloadsDir()}
+                onInput={(event) => setDelugeClientDownloadsDir(event.currentTarget.value)}
+              />
+              <small>Optional prefix of save paths as Deluge reports them.</small>
+            </label>
 
-              <label class="field">
-                <span class="field-label">
-                  <span>Client downloads path</span>
-                  <Show when={isLocked("clientDownloadsDir")}>
-                    <span class="env-badge" title="Managed by an environment variable">
-                      Env
-                    </span>
-                  </Show>
-                </span>
-                <input
-                  name="qbitClientDownloadsDir"
-                  type="text"
-                  spellcheck={false}
-                  disabled={isLocked("clientDownloadsDir")}
-                  placeholder="/data/torrents"
-                  value={qbitClientDownloadsDir()}
-                  onInput={(event) => setQbitClientDownloadsDir(event.currentTarget.value)}
-                />
-                <small>
-                  Optional prefix of save paths as qBittorrent reports them. Leave blank when it
-                  matches the mount.
-                </small>
-              </label>
-            </div>
-          </details>
+            <label class="field">
+              <FieldLabel label="Label" locked={isLocked("defaultCategory")} />
+              <input
+                name="delugeLabel"
+                type="text"
+                spellcheck={false}
+                disabled={isLocked("defaultCategory")}
+                placeholder="remagnet"
+                value={category()}
+                onInput={(event) => setCategory(event.currentTarget.value)}
+              />
+              <small>
+                Label applied via Deluge's Label plugin to every torrent added through the proxy.
+                Leave blank to expose every torrent.
+              </small>
+            </label>
+          </div>
+        </Match>
 
-          <label class="field">
-            <span class="field-label">
-              <span>Category</span>
-              <Show when={isLocked("defaultCategory")}>
-                <span class="env-badge" title="Managed by an environment variable">
-                  Env
-                </span>
-              </Show>
-            </span>
-            <input
-              name="category"
-              type="text"
-              spellcheck={false}
-              disabled={isLocked("defaultCategory")}
-              placeholder="remagnet"
-              value={category()}
-              onInput={(event) => setCategory(event.currentTarget.value)}
-            />
-            <small>
-              Applied to every magnet added through the proxy. Leave blank to skip categorizing.
-            </small>
-          </label>
-        </div>
+        <Match when={clientKind() === "rtorrent"}>
+          <div class="stack">
+            <label class="field">
+              <FieldLabel label="XML-RPC URL" locked={isLocked("baseUrl")} />
+              <input
+                name="rtorrentUrl"
+                type="url"
+                spellcheck={false}
+                required
+                disabled={isLocked("baseUrl")}
+                placeholder="http://rtorrent:8000"
+                value={rtorrentUrl()}
+                onInput={(event) => setRtorrentUrl(event.currentTarget.value)}
+              />
+              <small>
+                Where Remagnet Proxy reaches rTorrent's XML-RPC endpoint (/RPC2 or ruTorrent's
+                /plugins/rpc/rpc.php).
+              </small>
+            </label>
+
+            <label class="field">
+              <FieldLabel label="Username" locked={isLocked("username")} />
+              <input
+                name="rtorrentUsername"
+                type="text"
+                autocomplete="username"
+                spellcheck={false}
+                disabled={isLocked("username")}
+                value={rtorrentUsername()}
+                onInput={(event) => setRtorrentUsername(event.currentTarget.value)}
+              />
+              <small>
+                Optional. Leave blank when XML-RPC runs without HTTP Basic Auth on a private
+                network.
+              </small>
+            </label>
+
+            <label class="field">
+              <FieldLabel label="Password" locked={isLocked("password")} />
+              <input
+                name="rtorrentPassword"
+                type="password"
+                autocomplete="current-password"
+                disabled={isLocked("password")}
+                value={rtorrentPassword()}
+                onInput={(event) => setRtorrentPassword(event.currentTarget.value)}
+              />
+              <small>
+                Optional. Leave blank when XML-RPC runs without HTTP Basic Auth on a private
+                network.
+              </small>
+            </label>
+            <label class="check">
+              <input
+                type="checkbox"
+                checked={clearRtorrentPassword()}
+                disabled={isLocked("password")}
+                onChange={(event) => setClearRtorrentPassword(event.currentTarget.checked)}
+              />
+              Remove the saved password
+            </label>
+
+            <label class="field">
+              <FieldLabel label="Downloads directory" locked={isLocked("downloadsDir")} />
+              <input
+                name="rtorrentDownloadsDir"
+                type="text"
+                spellcheck={false}
+                disabled={isLocked("downloadsDir")}
+                placeholder="/downloads"
+                value={rtorrentDownloadsDir()}
+                onInput={(event) => setRtorrentDownloadsDir(event.currentTarget.value)}
+              />
+              <small>
+                Mount rTorrent's downloads volume read-only here to stream completed torrents as ZIP
+                archives.
+              </small>
+            </label>
+
+            <label class="field">
+              <FieldLabel label="Client downloads path" locked={isLocked("clientDownloadsDir")} />
+              <input
+                name="rtorrentClientDownloadsDir"
+                type="text"
+                spellcheck={false}
+                disabled={isLocked("clientDownloadsDir")}
+                placeholder="/downloads"
+                value={rtorrentClientDownloadsDir()}
+                onInput={(event) => setRtorrentClientDownloadsDir(event.currentTarget.value)}
+              />
+              <small>Optional prefix of save paths as rTorrent reports them.</small>
+            </label>
+
+            <label class="field">
+              <FieldLabel label="Label" locked={isLocked("defaultCategory")} />
+              <input
+                name="rtorrentLabel"
+                type="text"
+                spellcheck={false}
+                disabled={isLocked("defaultCategory")}
+                placeholder="remagnet"
+                value={category()}
+                onInput={(event) => setCategory(event.currentTarget.value)}
+              />
+              <small>
+                ruTorrent label (custom1) applied to every torrent added through the proxy. Leave
+                blank to expose every torrent.
+              </small>
+            </label>
+          </div>
+        </Match>
+      </Switch>
+
+      <Show when={clientKind() === "qbittorrent" || clientKind() === "transmission"}>
+        <label class="field">
+          <FieldLabel
+            label={clientKind() === "transmission" ? "Labels (tags)" : "Tags"}
+            locked={isLocked("defaultTags")}
+          />
+          <input
+            name="tags"
+            type="text"
+            spellcheck={false}
+            disabled={isLocked("defaultTags")}
+            placeholder="remagnet"
+            value={tags()}
+            onInput={(event) => setTags(event.currentTarget.value)}
+          />
+          <small>
+            {clientKind() === "transmission"
+              ? "Comma-separated labels applied to every magnet added through the proxy. " +
+                "Transmission exposes tags as labels. Leave blank to expose every torrent."
+              : "Comma-separated. The proxy uses these tags, and the category above, to decide " +
+                "which torrents belong to Remagnet. Leave both blank to expose every torrent."}
+          </small>
+        </label>
       </Show>
-
-      <label class="field">
-        <span class="field-label">
-          <span>{transmission() ? "Labels (tags)" : "Tags"}</span>
-          <Show when={isLocked("defaultTags")}>
-            <span class="env-badge" title="Managed by an environment variable">
-              Env
-            </span>
-          </Show>
-        </span>
-        <input
-          name="tags"
-          type="text"
-          spellcheck={false}
-          disabled={isLocked("defaultTags")}
-          placeholder="remagnet"
-          value={tags()}
-          onInput={(event) => setTags(event.currentTarget.value)}
-        />
-        <small>
-          {transmission()
-            ? "Comma-separated labels applied to every magnet added through the proxy. " +
-              "Transmission exposes tags as labels. Leave blank to expose every torrent."
-            : "Comma-separated. The proxy uses these tags, and the category above, to decide " +
-              "which torrents belong to Remagnet. Leave both blank to expose every torrent."}
-        </small>
-      </label>
 
       <div class="actions">
         <button type="submit" disabled={saving() || testing() || allFieldsLocked()}>
@@ -682,19 +919,15 @@ export default function ClientConfigPanel(props: ClientConfigPanelProps) {
   );
 }
 
-function isExpired(error: unknown): boolean {
-  return error instanceof ProxyApiError && error.expired;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function issueContext(cause: unknown, action: string): IssueReportContext {
-  const context: IssueReportContext = { action, message: errorMessage(cause) };
-  if (cause instanceof ProxyApiError) {
-    if (cause.code) context.code = cause.code;
-    if (cause.status !== undefined) context.status = cause.status;
-  }
-  return context;
+function FieldLabel(props: { label: string; locked: boolean }) {
+  return (
+    <span class="field-label">
+      <span>{props.label}</span>
+      <Show when={props.locked}>
+        <span class="env-badge" title="Managed by an environment variable">
+          Env
+        </span>
+      </Show>
+    </span>
+  );
 }
