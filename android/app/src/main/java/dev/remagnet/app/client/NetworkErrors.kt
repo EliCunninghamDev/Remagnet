@@ -1,11 +1,35 @@
 package dev.remagnet.app.client
 
+import com.google.gson.JsonParser
 import java.net.ConnectException
 import java.net.SocketTimeoutException
 import java.net.URI
 import java.net.UnknownHostException
 import java.security.cert.CertificateException
 import javax.net.ssl.SSLException
+
+/** The proxy's documented JSON error shape: `{"error": "...", "code": "..."}`. */
+data class ProxyErrorBody(val error: String? = null, val code: String? = null)
+
+/**
+ * Read a proxy error body without letting a non-JSON response (an HTML error
+ * page from a reverse proxy, for example) turn into an exception.
+ */
+fun parseProxyError(rawBody: String?): ProxyErrorBody {
+    if (rawBody.isNullOrBlank()) return ProxyErrorBody()
+
+    return try {
+        val json = JsonParser.parseString(rawBody).asJsonObject
+        ProxyErrorBody(
+            error = json.get("error")?.takeIf { it.isJsonPrimitive }?.asString
+                ?.trim()?.takeIf { it.isNotEmpty() },
+            code = json.get("code")?.takeIf { it.isJsonPrimitive }?.asString
+                ?.trim()?.takeIf { it.isNotEmpty() },
+        )
+    } catch (_: Exception) {
+        ProxyErrorBody()
+    }
+}
 
 /**
  * Say which network layer failed instead of reporting every [java.io.IOException]

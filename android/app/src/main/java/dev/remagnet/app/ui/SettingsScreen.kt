@@ -22,7 +22,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -34,6 +33,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -57,6 +57,7 @@ import dev.remagnet.app.data.parseOnboarding
 import dev.remagnet.app.ui.components.Field
 import dev.remagnet.app.ui.components.Panel
 import dev.remagnet.app.ui.components.PrimaryButton
+import dev.remagnet.app.ui.components.RemagnetTextFieldColors
 import dev.remagnet.app.ui.components.SecondaryButton
 import dev.remagnet.app.ui.components.SectionLabel
 import dev.remagnet.app.ui.components.StatusNote
@@ -86,6 +87,8 @@ fun SettingsScreen(
     onClearSignIn: () -> Unit = {},
     onDisconnect: () -> Unit = {},
     onReportIssue: (IssueReportContext) -> Unit = {},
+    openPaste: Boolean = false,
+    onOpenPasteConsumed: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var draft by remember(saved) { mutableStateOf(saved) }
@@ -159,6 +162,15 @@ fun SettingsScreen(
         if (scanResult != null) {
             applyImport(scanResult)
             onScanResultConsumed()
+        }
+    }
+
+    // "Paste code instead" in the scanner hands the user back to Settings with
+    // the paste dialog already open.
+    LaunchedEffect(openPaste) {
+        if (openPaste) {
+            showPaste = true
+            onOpenPasteConsumed()
         }
     }
 
@@ -623,11 +635,19 @@ fun SettingsScreen(
                         confirmDiscard = false
                         onBack()
                     },
+                    shape = RectangleShape,
                 ) { Text("Discard") }
             },
             dismissButton = {
-                TextButton(onClick = { confirmDiscard = false }) { Text("Keep editing") }
+                TextButton(
+                    onClick = { confirmDiscard = false },
+                    shape = RectangleShape,
+                ) { Text("Keep editing") }
             },
+            containerColor = RemagnetPalette.Panel,
+            titleContentColor = RemagnetPalette.Text,
+            textContentColor = RemagnetPalette.Text,
+            shape = RectangleShape,
         )
     }
 }
@@ -708,15 +728,7 @@ private fun PasteCodeDialog(
                         fontFamily = GeistMono,
                         fontSize = 11.sp,
                     ),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = RemagnetPalette.Accent,
-                        unfocusedBorderColor = RemagnetPalette.Line,
-                        focusedContainerColor = RemagnetPalette.Panel,
-                        unfocusedContainerColor = RemagnetPalette.Panel,
-                        cursorColor = RemagnetPalette.Accent,
-                        focusedTextColor = RemagnetPalette.Text,
-                        unfocusedTextColor = RemagnetPalette.Text,
-                    ),
+                    colors = RemagnetTextFieldColors(),
                 )
             }
         },
@@ -724,11 +736,19 @@ private fun PasteCodeDialog(
             TextButton(
                 onClick = { onImport(code) },
                 enabled = code.isNotBlank(),
+                shape = RectangleShape,
             ) { Text("Connect") }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(
+                onClick = onDismiss,
+                shape = RectangleShape,
+            ) { Text("Cancel") }
         },
+        containerColor = RemagnetPalette.Panel,
+        titleContentColor = RemagnetPalette.Text,
+        textContentColor = RemagnetPalette.Text,
+        shape = RectangleShape,
     )
 }
 

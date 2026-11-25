@@ -83,7 +83,7 @@ object PairingCrypto {
         }
 
         return PairedSettings(
-            proxyBaseUrl = proxyBaseUrl.trim().trimEnd('/'),
+            proxyBaseUrl = normalizeBaseUrl(proxyBaseUrl),
             proxyToken = token,
         )
     }

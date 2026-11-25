@@ -51,7 +51,7 @@ fun RemagnetWordmark(
                 fontSize = 22.sp,
                 fontWeight = FontWeight.Normal,
                 lineHeight = 22.sp,
-                letterSpacing = 0.2.sp,
+                letterSpacing = 0.22.sp,
             )
         }
         if (surface != null) {

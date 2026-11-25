@@ -22,13 +22,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.remagnet.app.data.RemagnetSettings
 import dev.remagnet.app.magnet.trackerHosts
+import dev.remagnet.app.ui.components.AdaptiveButtonRow
 import dev.remagnet.app.ui.components.CheckRow
 import dev.remagnet.app.ui.components.Field
 import dev.remagnet.app.ui.components.PrimaryButton
@@ -37,7 +37,6 @@ import dev.remagnet.app.ui.components.SectionLabel
 import dev.remagnet.app.ui.components.StatusNote
 import dev.remagnet.app.ui.components.StatusTone
 import dev.remagnet.app.ui.components.TextAction
-import dev.remagnet.app.ui.components.isLargeText
 import dev.remagnet.app.ui.theme.GeistMono
 import dev.remagnet.app.ui.theme.RemagnetPalette
 import dev.remagnet.app.util.IssueReportContext
@@ -81,7 +80,7 @@ fun AddMagnetSheet(
         sheetState = sheetState,
         containerColor = RemagnetPalette.Panel,
         contentColor = RemagnetPalette.Text,
-        scrimColor = Color.Black.copy(alpha = 0.55f),
+        scrimColor = RemagnetPalette.ScrimSheet,
         shape = RectangleShape,
         tonalElevation = 0.dp,
         dragHandle = {
@@ -180,34 +179,18 @@ private fun PasteContent(
         onClick = onPickTorrentFile,
         modifier = Modifier.fillMaxWidth(),
     )
-    if (isLargeText()) {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            PrimaryButton(
-                text = "Review",
-                onClick = onReview,
-                enabled = state.draft.isNotBlank(),
-                modifier = Modifier.fillMaxWidth(),
-            )
-            SecondaryButton(
-                text = "Cancel",
-                onClick = onDismiss,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-    } else {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            PrimaryButton(
-                text = "Review",
-                onClick = onReview,
-                enabled = state.draft.isNotBlank(),
-                modifier = Modifier.weight(1f),
-            )
-            SecondaryButton(
-                text = "Cancel",
-                onClick = onDismiss,
-                modifier = Modifier.weight(1f),
-            )
-        }
+    AdaptiveButtonRow {
+        PrimaryButton(
+            text = "Review",
+            onClick = onReview,
+            enabled = state.draft.isNotBlank(),
+            modifier = Modifier.buttonSlot(),
+        )
+        SecondaryButton(
+            text = "Cancel",
+            onClick = onDismiss,
+            modifier = Modifier.buttonSlot(),
+        )
     }
     if (!settings.proxyConfigured) {
         StatusNote(
@@ -261,7 +244,7 @@ private fun ReviewContent(
         )
     }
 
-    Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item.infoHash?.let { MetadataRow("Info hash", it, mono = true) }
         item.sizeBytes?.let { MetadataRow("Size", formatBytes(it)) }
         item.fileCount?.takeIf { it > 1 }?.let { count ->
@@ -312,36 +295,19 @@ private fun ReviewContent(
         state.duplicate is DuplicateState.Checking -> "Checking…"
         else -> "Send to qBittorrent"
     }
-    if (isLargeText()) {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            PrimaryButton(
-                text = sendLabel,
-                onClick = onSubmit,
-                enabled = state.canSubmit,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            SecondaryButton(
-                text = "Cancel",
-                onClick = onDismiss,
-                enabled = !state.submitting,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-    } else {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            PrimaryButton(
-                text = sendLabel,
-                onClick = onSubmit,
-                enabled = state.canSubmit,
-                modifier = Modifier.weight(1.6f),
-            )
-            SecondaryButton(
-                text = "Cancel",
-                onClick = onDismiss,
-                enabled = !state.submitting,
-                modifier = Modifier.weight(1f),
-            )
-        }
+    AdaptiveButtonRow {
+        PrimaryButton(
+            text = sendLabel,
+            onClick = onSubmit,
+            enabled = state.canSubmit,
+            modifier = Modifier.buttonSlot(1.6f),
+        )
+        SecondaryButton(
+            text = "Cancel",
+            onClick = onDismiss,
+            enabled = !state.submitting,
+            modifier = Modifier.buttonSlot(),
+        )
     }
 }
 
@@ -426,32 +392,17 @@ private fun AddedContent(
     if (state.category.isNotEmpty()) MetadataRow("Category", state.category)
     if (state.tags.isNotEmpty()) MetadataRow("Tags", state.tags.joinToString(", "))
 
-    if (isLargeText()) {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            PrimaryButton(
-                text = "Add another",
-                onClick = onAddAnother,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            SecondaryButton(
-                text = "Done",
-                onClick = onDismiss,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-    } else {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            PrimaryButton(
-                text = "Add another",
-                onClick = onAddAnother,
-                modifier = Modifier.weight(1f),
-            )
-            SecondaryButton(
-                text = "Done",
-                onClick = onDismiss,
-                modifier = Modifier.weight(1f),
-            )
-        }
+    AdaptiveButtonRow {
+        PrimaryButton(
+            text = "Add another",
+            onClick = onAddAnother,
+            modifier = Modifier.buttonSlot(),
+        )
+        SecondaryButton(
+            text = "Done",
+            onClick = onDismiss,
+            modifier = Modifier.buttonSlot(),
+        )
     }
 }
 

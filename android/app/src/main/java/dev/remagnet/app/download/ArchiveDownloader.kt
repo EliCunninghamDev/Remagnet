@@ -1,7 +1,9 @@
 package dev.remagnet.app.download
 
-import com.google.gson.JsonParser
 import dev.remagnet.app.client.describeProxyConnectionFailure
+import dev.remagnet.app.client.parseProxyError
+import dev.remagnet.app.data.normalizeBaseUrl
+import dev.remagnet.app.proxy.ProxyApi
 import java.io.IOException
 import java.io.InputStream
 import java.util.concurrent.TimeUnit
@@ -31,7 +33,7 @@ class ArchiveDownloader(
     private val token: String,
     private val http: OkHttpClient = defaultArchiveHttp,
 ) {
-    private val baseUrl = baseUrl.trim().trimEnd('/')
+    private val baseUrl = normalizeBaseUrl(baseUrl)
 
     fun open(hash: String): ArchiveOpenResult {
         val clean = hash.trim()
@@ -81,7 +83,7 @@ class ArchiveDownloader(
 /** A message that tells the user what to do about each documented status. */
 fun archiveErrorMessage(status: Int, detail: String? = null): String {
     val clean = detail?.trim()
-    proxyErrorMessage(clean)?.let { return it }
+    parseProxyError(clean).error?.let { return it }
 
     val base = when (status) {
         400 -> "The Remagnet Proxy rejected that info hash."
@@ -101,23 +103,8 @@ fun archiveErrorMessage(status: Int, detail: String? = null): String {
     return if (text == null) base else "$base $text"
 }
 
-/** The proxy reports failures as `{"error": "..."}`; prefer that over a fallback. */
-private fun proxyErrorMessage(detail: String?): String? {
-    if (detail.isNullOrEmpty() || !detail.startsWith("{")) return null
-    return try {
-        JsonParser.parseString(detail).asJsonObject.get("error")
-            ?.takeIf { it.isJsonPrimitive }
-            ?.asString
-            ?.trim()
-            ?.takeIf { it.isNotEmpty() }
-    } catch (_: Exception) {
-        null
-    }
-}
-
 private val defaultArchiveHttp: OkHttpClient by lazy {
-    OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
+    ProxyApi.sharedHttpClient.newBuilder()
         // The archive is produced while it is read; a long torrent or a slow
         // disk must not trip a read timeout mid-stream.
         .readTimeout(0, TimeUnit.MILLISECONDS)

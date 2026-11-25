@@ -22,6 +22,7 @@ import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import dev.remagnet.app.ui.theme.RemagnetMotion
 import dev.remagnet.app.ui.theme.RemagnetPalette
 
 /** Colors for one phase, using the same shade factors as the extension. */
@@ -69,7 +70,10 @@ fun SquareBar(
     val barHeight = with(density) { tileBarHeight(options).toDp() }
     val displayed by animateFloatAsState(
         targetValue = progress.coerceIn(0f, 1f),
-        animationSpec = tween(durationMillis = 460),
+        animationSpec = tween(
+            durationMillis = RemagnetMotion.ProgressDurationMs,
+            easing = RemagnetMotion.OutCubic,
+        ),
         label = "tile-bar-progress",
     )
     val colors = remember(phase) { tileBarColors(phase) }
@@ -85,7 +89,10 @@ fun SquareBar(
             initialValue = 0f,
             targetValue = 1f,
             animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 1300, easing = LinearEasing),
+                animation = tween(
+                    durationMillis = RemagnetMotion.SweepDurationMs,
+                    easing = LinearEasing,
+                ),
             ),
             label = "tile-bar-sweep-position",
         )
@@ -142,7 +149,7 @@ fun SquareBar(
                 bottom = top + layout.gridHeight,
             ) {
                 drawRect(
-                    color = Color.White.copy(alpha = 0.11f),
+                    color = RemagnetPalette.Sweep.copy(alpha = 0.11f),
                     topLeft = Offset(
                         x = layout.offsetX + gridWidth * sweepPosition - cell,
                         y = top,

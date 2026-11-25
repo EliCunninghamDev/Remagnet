@@ -124,9 +124,7 @@ object PendingTorrentStore {
 
         val bytes = output.toByteArray()
         if (bytes.size > MAX_TORRENT_FILE_BYTES) {
-            throw TorrentTooLargeException(
-                "The .torrent file is too large. The maximum is 10 MiB.",
-            )
+            throw TorrentTooLargeException(ERROR_TOO_LARGE)
         }
         return bytes
     }

@@ -1,6 +1,7 @@
 package dev.remagnet.app.magnet
 
-import java.net.URI
+import dev.remagnet.app.util.SHORT_HASH_LENGTH
+import dev.remagnet.app.util.toHexString
 import java.net.URLDecoder
 import java.util.Locale
 
@@ -98,19 +99,12 @@ fun magnetFromText(value: String?): String? {
 /** A readable label for a parsed magnet, falling back to a short hash. */
 fun magnetLabel(magnet: MagnetLink): String {
     magnet.displayName?.let { return it }
-    magnet.infoHash?.let { return it.take(12) }
+    magnet.infoHash?.let { return it.take(SHORT_HASH_LENGTH) }
     return "Magnet link"
 }
 
 /** Unique tracker hostnames, for a compact summary. */
-fun trackerHosts(magnet: MagnetLink): List<String> {
-    val hosts = LinkedHashSet<String>()
-    for (tracker in magnet.trackers) {
-        val host = runCatching { URI(tracker).host }.getOrNull()
-        if (!host.isNullOrBlank()) hosts += host
-    }
-    return hosts.toList()
-}
+fun trackerHosts(magnet: MagnetLink): List<String> = trackerHosts(magnet.trackers)
 
 private fun parseBitTorrentHash(value: String): String? {
     val trimmed = value.trim()
@@ -144,7 +138,7 @@ private fun base32ToHex(value: String): String? {
     }
 
     if (bytes.size != 20) return null
-    return bytes.joinToString("") { byte -> byte.toInt().and(0xff).toString(16).padStart(2, '0') }
+    return bytes.toByteArray().toHexString()
 }
 
 /**

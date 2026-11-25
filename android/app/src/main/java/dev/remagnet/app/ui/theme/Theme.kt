@@ -1,5 +1,6 @@
 package dev.remagnet.app.ui.theme
 
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
@@ -36,6 +37,15 @@ object RemagnetPalette {
     val ErrorPanel = Color(0xFF2A1C1C)
     val OkPanel = Color(0xFF1B241F)
     val WarnPanel = Color(0xFF2A2418)
+
+    /** The diagonal highlight that crosses the square bar while zipping. */
+    val Sweep = Color(0xFFE4E7E9)
+
+    /** Scrim behind the add-torrent sheet. */
+    val ScrimSheet = Color.Black.copy(alpha = 0.55f)
+
+    /** Scrim punched through by the QR scanner's scan window. */
+    val ScrimScanner = Color.Black.copy(alpha = 0.62f)
 }
 
 /** Geist Mono carries the interface, as it does in the browser clients. */
@@ -64,6 +74,13 @@ private val RemagnetColorScheme = darkColorScheme(
     onSurface = RemagnetPalette.Text,
     surfaceVariant = RemagnetPalette.Track,
     onSurfaceVariant = RemagnetPalette.Muted,
+    // Material surfaces for dialogs, menus and sheets. Without these, M3 falls
+    // back to its purplish-gray dark defaults under our always-dark scheme.
+    surfaceContainerLowest = RemagnetPalette.Panel,
+    surfaceContainerLow = RemagnetPalette.Panel,
+    surfaceContainer = RemagnetPalette.Panel,
+    surfaceContainerHigh = RemagnetPalette.Track,
+    surfaceContainerHighest = RemagnetPalette.Track,
     outline = RemagnetPalette.Line,
     outlineVariant = RemagnetPalette.Line,
     error = RemagnetPalette.Error,
@@ -76,13 +93,28 @@ private val RemagnetColorScheme = darkColorScheme(
  * Remagnet uses square corners everywhere, including Material controls that
  * default to a rounded shape.
  */
-private val SquareShapes = Shapes(
+private val RemagnetShapes = Shapes(
     extraSmall = RoundedCornerShape(0.dp),
     small = RoundedCornerShape(0.dp),
     medium = RoundedCornerShape(0.dp),
     large = RoundedCornerShape(0.dp),
     extraLarge = RoundedCornerShape(0.dp),
 )
+
+/**
+ * Durations and easing shared by the square-bar progress animation, mirroring
+ * the `motion` group in `tokens.js`.
+ */
+object RemagnetMotion {
+    /** Tiles ease toward a new progress value over this window. */
+    const val ProgressDurationMs = 460
+
+    /** One pass of the sweep highlight while a torrent is zipping. */
+    const val SweepDurationMs = 1300
+
+    /** Ease-out cubic, matching the browser clients' progress easing. */
+    val OutCubic = CubicBezierEasing(0.33f, 1f, 0.68f, 1f)
+}
 
 private val RemagnetTypography = Typography().let { base ->
     base.copy(
@@ -109,7 +141,7 @@ fun RemagnetTheme(content: @Composable () -> Unit) {
     MaterialTheme(
         colorScheme = RemagnetColorScheme,
         typography = RemagnetTypography,
-        shapes = SquareShapes,
+        shapes = RemagnetShapes,
         content = content,
     )
 }

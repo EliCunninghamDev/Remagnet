@@ -1,6 +1,5 @@
 package dev.remagnet.app.client
 
-import com.google.gson.JsonParser
 import dev.remagnet.app.data.RemagnetSettings
 import dev.remagnet.app.data.validateProxySettings
 import dev.remagnet.app.proxy.ProxyApi
@@ -120,13 +119,7 @@ class ProxyHealthClient(
             response.errorBody()?.string()
         } catch (_: IOException) {
             null
-        } ?: return null
-
-        return try {
-            val entry = JsonParser.parseString(text).asJsonObject.get("error")
-            if (entry != null && entry.isJsonPrimitive) entry.asString else null
-        } catch (_: Exception) {
-            null
         }
+        return parseProxyError(text).error
     }
 }

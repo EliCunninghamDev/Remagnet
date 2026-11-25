@@ -43,6 +43,8 @@ private const val PRIVACY_NOTICE =
     "Nothing is sent automatically. Review the redacted diagnostics below before " +
         "choosing how to report."
 
+private val DiagnosticsMaxHeight = 190.dp
+
 /**
  * The opt-in issue report dialog.
  *
@@ -123,7 +125,7 @@ fun IssueReportDialog(
                     lineHeight = 15.sp,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(max = 190.dp)
+                        .heightIn(max = DiagnosticsMaxHeight)
                         .background(RemagnetPalette.Track)
                         .border(1.dp, RemagnetPalette.Line)
                         .verticalScroll(rememberScrollState())
@@ -169,7 +171,10 @@ fun IssueReportDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(
+                onClick = onDismiss,
+                shape = RectangleShape,
+            ) {
                 Text(
                     text = "Close",
                     color = RemagnetPalette.Accent,

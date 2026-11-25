@@ -1,5 +1,7 @@
 package dev.remagnet.app.magnet
 
+import dev.remagnet.app.util.SHORT_HASH_LENGTH
+import dev.remagnet.app.util.toHexString
 import java.net.URI
 import java.security.MessageDigest
 
@@ -25,10 +27,9 @@ sealed interface TorrentFileParseResult {
 }
 
 private const val MAX_BENCODE_DEPTH = 64
-private const val MAX_MIB_LABEL = "10 MiB"
 private const val ERROR_EMPTY = "The .torrent file is empty."
-private const val ERROR_TOO_LARGE =
-    "The .torrent file is too large. The maximum is $MAX_MIB_LABEL."
+const val ERROR_TOO_LARGE =
+    "The .torrent file is too large. The maximum is 10 MiB."
 private const val ERROR_NO_INFO = "The .torrent file has no info dictionary."
 private const val ERROR_NO_HASH =
     "The .torrent file has neither v1 piece hashes nor BitTorrent v2 metadata."
@@ -60,7 +61,7 @@ fun parseTorrentFile(bytes: ByteArray, filename: String? = null): TorrentFilePar
         ?: return TorrentFileParseResult.Invalid(ERROR_NO_HASH)
     val contents = torrentContents(info.entries)
 
-    val fallbackName = "${infoHash.take(12)}.torrent"
+    val fallbackName = "${infoHash.take(SHORT_HASH_LENGTH)}.torrent"
     return TorrentFileParseResult.Valid(
         TorrentFileInfo(
             filename = filename?.trim()?.takeIf { it.isNotEmpty() } ?: fallbackName,
@@ -82,7 +83,7 @@ fun torrentFileLabel(file: TorrentFileInfo): String {
     val filename = file.filename.replace(TORRENT_SUFFIX, "").trim()
     if (filename.isNotEmpty()) return filename
 
-    return file.infoHash.take(12)
+    return file.infoHash.take(SHORT_HASH_LENGTH)
 }
 
 /** Unique tracker hostnames, for a compact summary. */
@@ -363,9 +364,5 @@ private fun isDigit(value: Int?): Boolean =
 
 private fun decodeText(bytes: ByteArray): String = String(bytes, Charsets.UTF_8)
 
-private fun digestHex(algorithm: String, bytes: ByteArray): String {
-    val digest = MessageDigest.getInstance(algorithm).digest(bytes)
-    return digest.joinToString("") { byte ->
-        (byte.toInt() and 0xff).toString(16).padStart(2, '0')
-    }
-}
+private fun digestHex(algorithm: String, bytes: ByteArray): String =
+    MessageDigest.getInstance(algorithm).digest(bytes).toHexString()

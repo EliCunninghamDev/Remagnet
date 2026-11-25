@@ -1,10 +1,11 @@
 package dev.remagnet.app.client
 
 import com.google.gson.Gson
-import com.google.gson.JsonParser
 import dev.remagnet.app.data.PairedSettings
 import dev.remagnet.app.data.PairingCrypto
 import dev.remagnet.app.data.PairingLink
+import dev.remagnet.app.data.normalizeBaseUrl
+import dev.remagnet.app.proxy.ProxyApi
 import java.io.IOException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -28,7 +29,7 @@ sealed interface PairingClaim {
  * reverse proxy never sees the proxy token.
  */
 class PairingClient(
-    private val http: OkHttpClient = OkHttpClient(),
+    private val http: OkHttpClient = ProxyApi.sharedHttpClient.newBuilder().build(),
     private val gson: Gson = Gson(),
     private val deviceName: String = androidDeviceName(),
 ) {
@@ -53,7 +54,7 @@ class PairingClient(
             ),
         ).toRequestBody(JSON)
         val request = Request.Builder()
-            .url("${link.proxyBaseUrl.trimEnd('/')}/api/pair/claim")
+            .url("${normalizeBaseUrl(link.proxyBaseUrl)}/api/pair/claim")
             .header("Accept", "application/json")
             .post(body)
             .build()
@@ -75,9 +76,7 @@ class PairingClient(
         response.use {
             val text = runCatching { it.body.string() }.getOrDefault("")
             if (!it.isSuccessful) {
-                val detail = runCatching {
-                    JsonParser.parseString(text).asJsonObject["error"]?.asString
-                }.getOrNull()
+                val detail = parseProxyError(text).error
                 return@withContext PairingClaim.Failed(
                     detail ?: "The pairing code was rejected (HTTP ${it.code}).",
                 )

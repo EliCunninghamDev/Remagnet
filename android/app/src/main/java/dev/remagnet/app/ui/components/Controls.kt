@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -24,6 +25,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextFieldColors
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -33,10 +35,13 @@ import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.remagnet.app.ui.theme.GeistMono
 import dev.remagnet.app.ui.theme.RemagnetPalette
+import dev.remagnet.app.ui.theme.SectionLabelSize
+import dev.remagnet.app.ui.theme.SectionLabelSpacing
 
 /**
  * True when the system font scale is large enough that side-by-side controls
@@ -56,11 +61,35 @@ fun SectionLabel(
         modifier = modifier,
         color = RemagnetPalette.Muted,
         fontFamily = GeistMono,
-        fontSize = 10.sp,
+        fontSize = SectionLabelSize,
         fontWeight = FontWeight.SemiBold,
-        letterSpacing = 1.2.sp,
+        letterSpacing = SectionLabelSpacing,
     )
 }
+
+/**
+ * Field colors shared by every square-bordered text field, so dialogs and forms
+ * cannot drift back to Material's rounded, purple-tinted defaults.
+ */
+@Composable
+fun RemagnetTextFieldColors(): TextFieldColors = OutlinedTextFieldDefaults.colors(
+    focusedBorderColor = RemagnetPalette.Accent,
+    unfocusedBorderColor = RemagnetPalette.Line,
+    disabledBorderColor = RemagnetPalette.Line,
+    errorBorderColor = RemagnetPalette.Error,
+    focusedContainerColor = RemagnetPalette.Panel,
+    unfocusedContainerColor = RemagnetPalette.Panel,
+    errorContainerColor = RemagnetPalette.Panel,
+    cursorColor = RemagnetPalette.Accent,
+    focusedTextColor = RemagnetPalette.Text,
+    unfocusedTextColor = RemagnetPalette.Text,
+    errorTextColor = RemagnetPalette.Text,
+    focusedPlaceholderColor = RemagnetPalette.Muted,
+    unfocusedPlaceholderColor = RemagnetPalette.Muted,
+    focusedLabelColor = RemagnetPalette.Muted,
+    unfocusedLabelColor = RemagnetPalette.Muted,
+    errorLabelColor = RemagnetPalette.Error,
+)
 
 @Composable
 fun Panel(
@@ -111,21 +140,7 @@ fun Field(
                 fontFamily = GeistMono,
                 fontSize = 13.sp,
             ),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = RemagnetPalette.Accent,
-                unfocusedBorderColor = RemagnetPalette.Line,
-                disabledBorderColor = RemagnetPalette.Line,
-                errorBorderColor = RemagnetPalette.Error,
-                focusedContainerColor = RemagnetPalette.Panel,
-                unfocusedContainerColor = RemagnetPalette.Panel,
-                errorContainerColor = RemagnetPalette.Panel,
-                cursorColor = RemagnetPalette.Accent,
-                focusedTextColor = RemagnetPalette.Text,
-                unfocusedTextColor = RemagnetPalette.Text,
-                errorTextColor = RemagnetPalette.Text,
-                focusedPlaceholderColor = RemagnetPalette.Muted,
-                unfocusedPlaceholderColor = RemagnetPalette.Muted,
-            ),
+            colors = RemagnetTextFieldColors(),
         )
         val note = error ?: help
         if (note != null) {
@@ -281,31 +296,43 @@ fun CheckRow(
     }
 }
 
-/** A compact two-state switch used for the authentication mode. */
-@Composable
-fun SegmentedChoice(
-    options: List<Pair<String, Boolean>>,
-    onSelect: (Int) -> Unit,
-    modifier: Modifier = Modifier,
+/**
+ * Scope for [AdaptiveButtonRow]. Each button claims its slot with
+ * [buttonSlot], which is a proportional width beside its siblings and the full
+ * width once the bar stacks.
+ */
+class AdaptiveButtonRowScope internal constructor(
+    private val row: RowScope?,
 ) {
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        options.forEachIndexed { index, (label, selected) ->
-            if (selected) {
-                PrimaryButton(
-                    text = label,
-                    onClick = { onSelect(index) },
-                    modifier = Modifier.weight(1f),
-                )
-            } else {
-                SecondaryButton(
-                    text = label,
-                    onClick = { onSelect(index) },
-                    modifier = Modifier.weight(1f),
-                )
-            }
+    fun Modifier.buttonSlot(weight: Float = 1f): Modifier {
+        val base = this
+        return if (row != null) with(row) { base.weight(weight) } else base.fillMaxWidth()
+    }
+}
+
+/**
+ * A button bar that sits side by side at normal text sizes and stacks
+ * full-width once the system font scale would squeeze the labels.
+ */
+@Composable
+fun AdaptiveButtonRow(
+    modifier: Modifier = Modifier,
+    spacing: Dp = 8.dp,
+    content: @Composable AdaptiveButtonRowScope.() -> Unit,
+) {
+    if (isLargeText()) {
+        Column(
+            modifier = modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(spacing),
+        ) {
+            content(AdaptiveButtonRowScope(row = null))
+        }
+    } else {
+        Row(
+            modifier = modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(spacing),
+        ) {
+            content(AdaptiveButtonRowScope(row = this))
         }
     }
 }

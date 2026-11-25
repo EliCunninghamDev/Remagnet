@@ -1,7 +1,7 @@
 package dev.remagnet.app.client
 
-import com.google.gson.JsonParser
 import dev.remagnet.app.data.RemagnetSettings
+import dev.remagnet.app.data.normalizeBaseUrl
 import dev.remagnet.app.data.parseHttpUrl
 import dev.remagnet.app.proxy.ProxyApi
 import dev.remagnet.proxy.models.AddTorrentRequest as ProxyAddTorrentRequest
@@ -26,7 +26,7 @@ class ProxyTorrentClient(
         ProxyApi(url, value)
     },
 ) : TorrentClient {
-    private val baseUrl: String = baseUrl.trim().trimEnd('/')
+    private val baseUrl: String = normalizeBaseUrl(baseUrl)
     private val token: String = token.trim()
 
     // Built lazily so a bad URL or token surfaces as a typed failure inside
@@ -166,8 +166,13 @@ class ProxyTorrentClient(
     )
 
     private fun errorFor(response: Response<*>, fallback: String): QbitError {
-        val error = errorBody(response)
-        val detail = error.message
+        val text = try {
+            response.errorBody()?.string()
+        } catch (_: IOException) {
+            null
+        }
+        val error = parseProxyError(text)
+        val detail = error.error
         val code = error.code
         return when (response.code()) {
             401 -> QbitError.Unauthorized(
@@ -204,28 +209,6 @@ class ProxyTorrentClient(
                 detail ?: "$fallback (HTTP ${response.code()})",
                 code,
             )
-        }
-    }
-
-    private data class ProxyErrorBody(val message: String? = null, val code: String? = null)
-
-    private fun errorBody(response: Response<*>): ProxyErrorBody {
-        val text = try {
-            response.errorBody()?.string()
-        } catch (_: IOException) {
-            null
-        } ?: return ProxyErrorBody()
-
-        return try {
-            val json = JsonParser.parseString(text).asJsonObject
-            ProxyErrorBody(
-                message = json.get("error")?.takeIf { it.isJsonPrimitive }?.asString
-                    ?.trim()?.takeIf { it.isNotEmpty() },
-                code = json.get("code")?.takeIf { it.isJsonPrimitive }?.asString
-                    ?.trim()?.takeIf { it.isNotEmpty() },
-            )
-        } catch (_: Exception) {
-            ProxyErrorBody()
         }
     }
 

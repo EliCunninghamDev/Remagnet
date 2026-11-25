@@ -1,8 +1,8 @@
 package dev.remagnet.app.client
 
-import com.google.gson.JsonParser
 import dev.remagnet.app.data.normalizeBaseUrl
 import dev.remagnet.app.data.parseHttpUrl
+import dev.remagnet.app.proxy.ProxyApi
 import dev.remagnet.proxy.apis.AuthApi
 import dev.remagnet.proxy.infrastructure.ApiClient
 import dev.remagnet.proxy.models.DeviceLoginRequest
@@ -37,7 +37,7 @@ sealed interface DeviceLoginResult {
  * attached to the request that replaces it.
  */
 class DeviceLoginClient(
-    private val http: OkHttpClient = OkHttpClient(),
+    private val http: OkHttpClient = ProxyApi.sharedHttpClient.newBuilder().build(),
     private val defaultDeviceName: String = androidDeviceName(),
     private val createApi: (String) -> AuthApi = { baseUrl ->
         ApiClient(
@@ -81,9 +81,9 @@ class DeviceLoginClient(
         }
 
         if (!response.isSuccessful) {
-            val failure = parseFailure(response.errorBody()?.string())
+            val failure = parseProxyError(response.errorBody()?.string())
             return@withContext when {
-                response.code() == 401 && failure?.code == TOTP_REQUIRED -> {
+                response.code() == 401 && failure.code == TOTP_REQUIRED -> {
                     DeviceLoginResult.TotpRequired(
                         failure.error ?: "Enter the two-factor code for this account.",
                     )
@@ -98,12 +98,12 @@ class DeviceLoginClient(
                 )
 
                 response.code() == 429 -> DeviceLoginResult.Failed(
-                    failure?.error
+                    failure.error
                         ?: "Too many sign-in attempts. Wait a few minutes and try again.",
                 )
 
                 else -> DeviceLoginResult.Failed(
-                    failure?.error
+                    failure.error
                         ?: "The Remagnet Proxy rejected the sign-in (HTTP ${response.code()}).",
                 )
             }
@@ -122,25 +122,6 @@ class DeviceLoginClient(
             deviceName = resolvedName,
         )
     }
-
-    private fun parseFailure(text: String?): Failure? {
-        if (text.isNullOrBlank()) return null
-        return try {
-            val json = JsonParser.parseString(text).asJsonObject
-            Failure(
-                error = json.get("error")
-                    ?.takeIf { it.isJsonPrimitive }
-                    ?.asString,
-                code = json.get("code")
-                    ?.takeIf { it.isJsonPrimitive }
-                    ?.asString,
-            )
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    private data class Failure(val error: String?, val code: String?)
 
     private companion object {
         const val TOTP_REQUIRED = "totp_required"

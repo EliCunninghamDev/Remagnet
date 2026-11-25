@@ -2,8 +2,8 @@ package dev.remagnet.app.download
 
 import android.content.Context
 import android.os.Environment
+import dev.remagnet.app.util.decodeUrlComponent
 import java.io.File
-import java.net.URLDecoder
 
 private val ILLEGAL_FILE_CHARACTERS = Regex("""[/\\:*?"<>|\u0000-\u001f]""")
 private val WHITESPACE = Regex("\\s+")
@@ -60,9 +60,7 @@ fun fileNameFromDisposition(header: String?): String? {
     ).find(header)?.groupValues?.get(1)
     if (encoded != null) {
         val value = encoded.trim().trim('"')
-        val decoded = runCatching {
-            URLDecoder.decode(value.replace("+", "%2B"), "UTF-8")
-        }.getOrDefault(value)
+        val decoded = decodeUrlComponent(value)
         return decoded.takeIf { it.isNotBlank() }
     }
 

@@ -27,7 +27,8 @@ data class IssueReportPayload(
 )
 
 private const val COMPONENT = "Android app"
-private const val GITHUB_ISSUES_URL = "https://github.com/EliCunninghamDev/Remagnet/issues/new"
+const val GITHUB_REPO_URL = "https://github.com/EliCunninghamDev/Remagnet"
+private const val GITHUB_ISSUES_URL = "$GITHUB_REPO_URL/issues/new"
 private const val CONTACT_EMAIL = "contact@elijahcunningham.dev"
 
 /** GitHub rejects issue URLs longer than this, so the diagnostics param is trimmed. */
@@ -127,26 +128,20 @@ private fun formatDiagnostics(
 
 private fun buildGithubUrl(version: String, diagnostics: String): String {
     val fitted = fitDiagnosticsForUrl(version, diagnostics)
-    val query = listOf(
-        "template" to "bug_report.yml",
-        "component" to COMPONENT,
-        "version" to version,
-        "diagnostics" to fitted,
-    ).joinToString("&") { (name, value) -> "${encode(name)}=${encode(value)}" }
-
-    return "$GITHUB_ISSUES_URL?$query"
+    return "$GITHUB_ISSUES_URL?${githubQuery(version, fitted)}"
 }
 
-private fun githubUrlLength(version: String, diagnostics: String): Int {
-    val query = listOf(
+private fun githubUrlLength(version: String, diagnostics: String): Int =
+    GITHUB_ISSUES_URL.length + 1 + githubQuery(version, diagnostics).length
+
+/** The encoded query shared by the issue URL and its length check. */
+private fun githubQuery(version: String, diagnostics: String): String =
+    listOf(
         "template" to "bug_report.yml",
         "component" to COMPONENT,
         "version" to version,
         "diagnostics" to diagnostics,
     ).joinToString("&") { (name, value) -> "${encode(name)}=${encode(value)}" }
-
-    return GITHUB_ISSUES_URL.length + 1 + query.length
-}
 
 /** Longest prefix of [diagnostics] whose encoded URL still fits GitHub's limit. */
 private fun fitDiagnosticsForUrl(version: String, diagnostics: String): String {

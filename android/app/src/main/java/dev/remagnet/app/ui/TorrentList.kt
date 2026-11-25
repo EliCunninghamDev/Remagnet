@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.sp
 import dev.remagnet.app.client.TorrentState
 import dev.remagnet.app.client.TorrentSummary
 import dev.remagnet.app.download.ArchiveDownloadState
+import dev.remagnet.app.ui.components.AdaptiveButtonRow
 import dev.remagnet.app.ui.components.Panel
 import dev.remagnet.app.ui.components.PrimaryButton
 import dev.remagnet.app.ui.components.SecondaryButton
@@ -180,7 +181,7 @@ private fun TorrentRow(
                 text = torrent.name,
                 color = RemagnetPalette.Text,
                 fontFamily = GeistMono,
-                fontSize = 12.sp,
+                fontSize = 12.5.sp,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -193,7 +194,7 @@ private fun TorrentRow(
                     text = name.head,
                     color = RemagnetPalette.Text,
                     fontFamily = GeistMono,
-                    fontSize = 12.sp,
+                    fontSize = 12.5.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Clip,
                     modifier = Modifier.weight(1f),
@@ -203,7 +204,7 @@ private fun TorrentRow(
                         text = name.tail,
                         color = RemagnetPalette.Text,
                         fontFamily = GeistMono,
-                        fontSize = 12.sp,
+                        fontSize = 12.5.sp,
                         maxLines = 1,
                     )
                 }
@@ -300,50 +301,26 @@ private fun TorrentRow(
                 fontWeight = FontWeight.SemiBold,
             )
             Spacer(Modifier.height(6.dp))
-            if (isLargeText()) {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    SecondaryButton(
-                        text = "Keep files",
-                        onClick = { onRemove(false) },
-                        enabled = !removing,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    SecondaryButton(
-                        text = "Delete files",
-                        onClick = { onRemove(true) },
-                        enabled = !removing,
-                        danger = true,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    SecondaryButton(
-                        text = "Cancel",
-                        onClick = onCancelRemove,
-                        enabled = !removing,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-            } else {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    SecondaryButton(
-                        text = "Keep files",
-                        onClick = { onRemove(false) },
-                        enabled = !removing,
-                        modifier = Modifier.weight(1f),
-                    )
-                    SecondaryButton(
-                        text = "Delete files",
-                        onClick = { onRemove(true) },
-                        enabled = !removing,
-                        danger = true,
-                        modifier = Modifier.weight(1f),
-                    )
-                    SecondaryButton(
-                        text = "Cancel",
-                        onClick = onCancelRemove,
-                        enabled = !removing,
-                        modifier = Modifier.weight(1f),
-                    )
-                }
+            AdaptiveButtonRow(spacing = 6.dp) {
+                SecondaryButton(
+                    text = "Keep files",
+                    onClick = { onRemove(false) },
+                    enabled = !removing,
+                    modifier = Modifier.buttonSlot(),
+                )
+                SecondaryButton(
+                    text = "Delete files",
+                    onClick = { onRemove(true) },
+                    enabled = !removing,
+                    danger = true,
+                    modifier = Modifier.buttonSlot(),
+                )
+                SecondaryButton(
+                    text = "Cancel",
+                    onClick = onCancelRemove,
+                    enabled = !removing,
+                    modifier = Modifier.buttonSlot(),
+                )
             }
         } else {
             Spacer(Modifier.height(8.dp))

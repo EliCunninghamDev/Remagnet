@@ -18,21 +18,21 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.journeyapps.barcodescanner.ScanContract
-import com.journeyapps.barcodescanner.ScanOptions
 import dev.remagnet.app.client.ProxyStatus
 import dev.remagnet.app.client.TorrentSummary
 import dev.remagnet.app.download.openArchive
 import dev.remagnet.app.util.IssueReportContext
 
-private enum class Screen { Home, Settings }
+private enum class Screen { Home, Settings, Scan }
 
 @Composable
 fun RemagnetApp(viewModel: RemagnetViewModel = viewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var screen by rememberSaveable { mutableStateOf(Screen.Home) }
+    var scanReturnScreen by rememberSaveable { mutableStateOf(Screen.Home) }
     var scanResult by rememberSaveable { mutableStateOf<String?>(null) }
+    var openPaste by remember { mutableStateOf(false) }
     var pendingDownload by remember { mutableStateOf<TorrentSummary?>(null) }
     var reportContext by remember { mutableStateOf<IssueReportContext?>(null) }
     var reportOpen by remember { mutableStateOf(false) }
@@ -46,15 +46,6 @@ fun RemagnetApp(viewModel: RemagnetViewModel = viewModel()) {
         if (state.addSheet !is AddSheetState.Closed) screen = Screen.Home
     }
 
-    val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
-        val contents = result.contents
-        if (!contents.isNullOrBlank()) {
-            // Settings owns code handling: pairing saves immediately, while a
-            // connect link fills the form for review.
-            screen = Screen.Settings
-            scanResult = contents
-        }
-    }
     // The manifest claims only application/x-bittorrent, but many providers tag
     // .torrent files as octet-stream. The parser rejects anything that is not
     // bencoded torrent metadata, so the picker can accept both.
@@ -65,7 +56,8 @@ fun RemagnetApp(viewModel: RemagnetViewModel = viewModel()) {
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
         if (granted) {
-            scanLauncher.launch(scanOptions())
+            scanReturnScreen = screen
+            screen = Screen.Scan
         } else {
             Toast.makeText(
                 context,
@@ -80,7 +72,10 @@ fun RemagnetApp(viewModel: RemagnetViewModel = viewModel()) {
             context,
             Manifest.permission.CAMERA,
         ) == PackageManager.PERMISSION_GRANTED
-        if (granted) scanLauncher.launch(scanOptions()) else {
+        if (granted) {
+            scanReturnScreen = screen
+            screen = Screen.Scan
+        } else {
             permissionLauncher.launch(Manifest.permission.CAMERA)
         }
     }
@@ -170,6 +165,22 @@ fun RemagnetApp(viewModel: RemagnetViewModel = viewModel()) {
             onClearSignIn = viewModel::clearSignInState,
             onDisconnect = viewModel::disconnect,
             onReportIssue = ::openReport,
+            openPaste = openPaste,
+            onOpenPasteConsumed = { openPaste = false },
+        )
+
+        Screen.Scan -> QrScannerScreen(
+            onScanned = { contents ->
+                // Settings owns code handling: pairing saves immediately, while
+                // a connect link fills the form for review.
+                scanResult = contents
+                screen = Screen.Settings
+            },
+            onClose = { screen = scanReturnScreen },
+            onPasteCode = {
+                openPaste = true
+                screen = Screen.Settings
+            },
         )
     }
 
@@ -208,11 +219,4 @@ fun RemagnetApp(viewModel: RemagnetViewModel = viewModel()) {
             },
         )
     }
-}
-
-private fun scanOptions(): ScanOptions = ScanOptions().apply {
-    setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-    setPrompt("Scan a Remagnet connect or pairing code")
-    setBeepEnabled(false)
-    setOrientationLocked(false)
 }

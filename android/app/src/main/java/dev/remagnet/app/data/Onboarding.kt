@@ -2,8 +2,8 @@ package dev.remagnet.app.data
 
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
+import dev.remagnet.app.util.decodeUrlComponent
 import java.net.URI
-import java.net.URLDecoder
 
 /**
  * A connection package that can be scanned from a QR code.
@@ -95,7 +95,7 @@ private fun fromPairingValues(values: Map<String, String>): OnboardingResult {
         values[key]?.takeIf { it.isNotBlank() }
     }
 
-    val proxy = value("url", "proxy", "proxyUrl")?.trim()?.trimEnd('/')
+    val proxy = value("url", "proxy", "proxyUrl")?.let(::normalizeBaseUrl)
     val id = value("id")?.trim()
     val code = value("code", "pairingCode")?.trim()
 
@@ -103,22 +103,10 @@ private fun fromPairingValues(values: Map<String, String>): OnboardingResult {
         return OnboardingResult.Invalid("The pairing code is incomplete. Show a new code and scan it again.")
     }
 
-    val uri = try {
-        URI(proxy)
-    } catch (_: Exception) {
-        return OnboardingResult.Invalid("The pairing code does not contain a valid proxy URL.")
-    }
-    if (!uri.scheme.equals("http", ignoreCase = true) &&
-        !uri.scheme.equals("https", ignoreCase = true)
-    ) {
-        return OnboardingResult.Invalid("The pairing proxy URL must use http:// or https://.")
-    }
-    if (uri.host.isNullOrEmpty()) {
-        return OnboardingResult.Invalid("The pairing proxy URL needs a host.")
-    }
-    if (uri.userInfo != null) {
-        return OnboardingResult.Invalid("The pairing proxy URL must not contain credentials.")
-    }
+    val uri = parseHttpUrl(proxy)
+        ?: return OnboardingResult.Invalid(
+            "The pairing proxy URL must use http:// or https:// without credentials, a query or a fragment.",
+        )
     // The pairing response carries the proxy token, so a non-loopback plain
     // HTTP origin would let anyone on the path read it despite the inner
     // encryption. The Android network security config also blocks cleartext.
@@ -150,7 +138,7 @@ private fun fromValues(values: Map<String, String>): OnboardingResult {
         values[key]?.takeIf { it.isNotBlank() }
     }
 
-    val proxy = value("proxy", "proxyUrl", "url")?.trim()?.trimEnd('/')
+    val proxy = value("proxy", "proxyUrl", "url")?.let(::normalizeBaseUrl)
     val token = value("token", "proxyToken")?.trim()
 
     if (proxy == null && token == null) {
@@ -173,22 +161,12 @@ private fun parseQuery(rawQuery: String?): Map<String, String> {
             if (separator <= 0) {
                 null
             } else {
-                decodeQuery(pair.substring(0, separator)) to
-                    decodeQuery(pair.substring(separator + 1))
+                decodeUrlComponent(pair.substring(0, separator)) to
+                    decodeUrlComponent(pair.substring(separator + 1))
             }
         }
         .toMap()
 }
-
-/**
- * Query values follow URL encoding except that `+` stays a plus. Base64
- * tokens commonly contain `+`, and forms rarely put spaces in these fields;
- * encoded spaces arrive as `%20`.
- */
-private fun decodeQuery(value: String): String = runCatching {
-    // The String overload is available on API 26; the Charset overload is not.
-    URLDecoder.decode(value.replace("+", "%2B"), "UTF-8")
-}.getOrDefault(value)
 
 private fun JsonObject.toStringMap(): Map<String, String> = buildMap {
     for ((key, element) in entrySet()) {

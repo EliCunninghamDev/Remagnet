@@ -1,12 +1,13 @@
 package dev.remagnet.app.client
 
+import dev.remagnet.app.util.ETA_UNKNOWN_SECONDS
 import java.util.Locale
 
 /** Progress at or above this value is treated as complete everywhere. */
 const val COMPLETE_PROGRESS = 0.999_999
 
 /** qBittorrent's sentinel for an unknown ETA, passed through by the proxy. */
-const val ETA_UNKNOWN = 8_640_000L
+const val ETA_UNKNOWN = ETA_UNKNOWN_SECONDS
 
 /**
  * A normalized torrent lifecycle state.

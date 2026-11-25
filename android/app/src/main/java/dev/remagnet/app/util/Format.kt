@@ -1,5 +1,6 @@
 package dev.remagnet.app.util
 
+import java.net.URLDecoder
 import java.util.Locale
 import kotlin.math.floor
 import kotlin.math.ln
@@ -9,6 +10,24 @@ import kotlin.math.pow
 import kotlin.math.roundToInt
 
 private val BYTE_UNITS = arrayOf("B", "KB", "MB", "GB", "TB", "PB")
+
+/** Characters of an info hash shown when no display name is available. */
+const val SHORT_HASH_LENGTH = 12
+
+/** Lowercase hex, the form tracker clients and the proxy use for info hashes. */
+fun ByteArray.toHexString(): String =
+    joinToString("") { byte -> (byte.toInt() and 0xff).toString(16).padStart(2, '0') }
+
+/**
+ * Decode a URL query value without treating `+` as a space.
+ *
+ * Base64 tokens commonly contain `+`, and these fields encode spaces as `%20`.
+ * Decoding failures keep the raw value rather than dropping the parameter.
+ */
+fun decodeUrlComponent(value: String): String = runCatching {
+    // The String overload is available on API 26; the Charset overload is not.
+    URLDecoder.decode(value.replace("+", "%2B"), "UTF-8")
+}.getOrDefault(value)
 
 /**
  * Format a byte count the way the browser clients do: one decimal below 100,

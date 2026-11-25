@@ -94,7 +94,11 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.okhttp)
     implementation(libs.gson)
-    implementation(libs.zxing.embedded)
+    implementation(libs.camerax.core)
+    implementation(libs.camerax.camera2)
+    implementation(libs.camerax.lifecycle)
+    implementation(libs.camerax.view)
+    implementation(libs.zxing.core)
 
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.foundation)

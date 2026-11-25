@@ -7,9 +7,17 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
-    <!-- The app still works by pasting a connect code without a camera. -->
+    <!-- The app still works by pasting a connect code without a camera. The
+         autofocus and flash features are declared explicitly so Play does not
+         infer them as required now that the old embedded scanner is gone. -->
     <uses-feature
         android:name="android.hardware.camera"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.camera.autofocus"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.camera.flash"
         android:required="false" />
 
     <application

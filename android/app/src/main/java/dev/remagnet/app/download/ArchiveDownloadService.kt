@@ -17,6 +17,7 @@ import dev.remagnet.app.R
 import dev.remagnet.app.data.settingsRepositoryFor
 import dev.remagnet.app.data.validateProxySettings
 import dev.remagnet.app.util.formatBytes
+import dev.remagnet.app.util.formatSpeed
 import java.io.File
 import java.io.IOException
 import java.io.InputStream
@@ -104,7 +105,7 @@ class ArchiveDownloadService : Service() {
         if (!ArchiveDownloads.claim(request.hash, request.name, request.size)) {
             startForegroundSafely(busyNotification())
             scope.launch {
-                delay(3_000)
+                delay(STOP_IDLE_DELAY_MS)
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
             }
@@ -156,7 +157,7 @@ class ArchiveDownloadService : Service() {
             val meter = SpeedMeter()
             var bytes = 0L
             part.outputStream().buffered().use { output ->
-                val buffer = ByteArray(64 * 1024)
+                val buffer = ByteArray(COPY_BUFFER_BYTES)
                 while (true) {
                     currentCoroutineContext().ensureActive()
                     val read = opened.stream.read(buffer)
@@ -290,8 +291,7 @@ class ArchiveDownloadService : Service() {
             }
             if (speed > 0) {
                 append(" · ")
-                append(formatBytes(speed))
-                append("/s")
+                append(formatSpeed(speed))
             }
         }
 
@@ -443,6 +443,8 @@ class ArchiveDownloadService : Service() {
         private const val CHANNEL_ID = "archive-downloads"
         private const val PROGRESS_MAX = 1000
         private const val UPDATE_INTERVAL_MS = 250L
+        private const val STOP_IDLE_DELAY_MS = 3_000L
+        private const val COPY_BUFFER_BYTES = 64 * 1024
 
         private const val REQUEST_OPEN_APP = 101
         private const val REQUEST_OPEN_ARCHIVE = 102
