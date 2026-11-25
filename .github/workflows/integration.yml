@@ -50,7 +50,19 @@ jobs:
         run: bun run tests/integration/prepare.ts --client ${{ matrix.client }}
 
       - name: Start ${{ matrix.client }} and Remagnet Proxy
-        run: docker compose -f tests/integration/compose.${{ matrix.client }}.yml up -d --build
+        run: |
+          # lscr.io rate-limits bursts of image pulls, and the four matrix jobs
+          # start together. Back off and retry instead of failing the run.
+          for attempt in 1 2 3 4 5; do
+            if docker compose -f tests/integration/compose.${{ matrix.client }}.yml up -d --build; then
+              exit 0
+            fi
+            echo "compose up failed (attempt ${attempt}/5); retrying in $((attempt * 15))s" >&2
+            docker compose -f tests/integration/compose.${{ matrix.client }}.yml down -v --remove-orphans || true
+            sleep $((attempt * 15))
+          done
+          echo "compose up failed after 5 attempts" >&2
+          exit 1
 
       - name: Run integration suite
         run: bun run tests/integration/run.ts --client ${{ matrix.client }}
