@@ -20,7 +20,7 @@ services:
       BIND_ADDR: 0.0.0.0:8080
       SETUP_CODE: integration-setup-code
       CLIENT_KIND: qbittorrent
-      QBIT_BASE_URL: http://qbittorrent:8080
+      CLIENT_BASE_URL: http://qbittorrent:8080
       REMAGNET_CATEGORY: remagnet
       REMAGNET_TAGS: remagnet
     ports:

@@ -160,13 +160,13 @@ export default function ClientConfigPanel(props: ClientConfigPanelProps) {
     setLoadedConfig(config);
     setClientKind(config.clientKind);
 
-    const baseUrl = config.baseUrl || config.qbitBaseUrl || "";
+    const baseUrl = config.baseUrl || "";
     setQbitUrl(baseUrl);
     setTransmissionUrl(baseUrl);
     setDelugeUrl(baseUrl);
     setRtorrentUrl(baseUrl);
 
-    const username = config.username || config.qbitUsername || "";
+    const username = config.username || "";
     setQbitUsername(username);
     setTransmissionUsername(username);
     setRtorrentUsername(username);

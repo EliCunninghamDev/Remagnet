@@ -28,7 +28,7 @@ import com.google.gson.annotations.SerializedName
 
 /**
  * @param ok Always true for a successful liveness probe.
- * @param service Historical service name kept for deployment compatibility.
+ * @param service Stable service identifier.
  * @param version Crate version from `CARGO_PKG_VERSION`.
  * @param apiVersion Version of the client-facing HTTP contract. Currently `1`; it only changes for a breaking change.
  */
@@ -40,7 +40,7 @@ data class Liveness (
     @SerializedName("ok")
     val ok: kotlin.Boolean,
 
-    /* Historical service name kept for deployment compatibility. */
+    /* Stable service identifier. */
     @SerializedName("service")
     val service: kotlin.String,
 

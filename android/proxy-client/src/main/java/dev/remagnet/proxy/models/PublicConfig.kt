@@ -32,9 +32,7 @@ import com.google.gson.annotations.SerializedName
  *
  * @param clientKind
  * @param baseUrl Normalized torrent client URL without a trailing slash. For qBittorrent this is the Web UI URL; for Transmission it is the RPC endpoint.
- * @param qbitBaseUrl Deprecated alias for `baseUrl`, kept for older clients. Always has the same value.
  * @param username Saved torrent client username, or an empty string.
- * @param qbitUsername Deprecated alias for `username`, kept for older clients.
  * @param hasApiKey Whether a qBittorrent API key is saved.
  * @param hasPassword Whether a torrent client password is saved.
  * @param downloadsDir Path on the proxy where the client's downloads volume is mounted read-only, or an empty string when ZIP streaming is disabled.
@@ -55,17 +53,9 @@ data class PublicConfig (
     @SerializedName("baseUrl")
     val baseUrl: java.net.URI,
 
-    /* Deprecated alias for `baseUrl`, kept for older clients. Always has the same value.  */
-    @SerializedName("qbitBaseUrl")
-    val qbitBaseUrl: java.net.URI,
-
     /* Saved torrent client username, or an empty string. */
     @SerializedName("username")
     val username: kotlin.String,
-
-    /* Deprecated alias for `username`, kept for older clients. */
-    @SerializedName("qbitUsername")
-    val qbitUsername: kotlin.String,
 
     /* Whether a qBittorrent API key is saved. */
     @SerializedName("hasApiKey")

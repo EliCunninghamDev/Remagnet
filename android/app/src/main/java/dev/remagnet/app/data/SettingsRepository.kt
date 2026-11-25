@@ -12,9 +12,8 @@ import com.google.gson.JsonParser
  * JVM zero value and release builds do not need Gson keep rules for these
  * classes.
  *
- * Older builds wrote qBittorrent credentials and magnet defaults to the same
- * keys. Those fields are simply not read any more; a load leaves them in place
- * until the next save rewrites the objects with the proxy-only shape.
+ * Fields that are not part of the current shape are ignored; a load leaves them
+ * in place until the next save rewrites the objects.
  */
 class SettingsRepository(
     private val store: KeyValueStore,

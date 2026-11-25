@@ -87,12 +87,10 @@ export interface paths {
          *     torrent client.
          *
          *     Values supplied through environment variables (`CLIENT_KIND`,
-         *     `CLIENT_BASE_URL`/`QBIT_BASE_URL`/`TRANSMISSION_BASE_URL`,
-         *     `DELUGE_BASE_URL`, `RTORRENT_BASE_URL`, `QBIT_API_KEY`,
-         *     `CLIENT_USERNAME`/`QBIT_USERNAME`, `CLIENT_PASSWORD`/`QBIT_PASSWORD`,
-         *     `DELUGE_PASSWORD`, `DOWNLOADS_DIR`, `CLIENT_DOWNLOADS_DIR`,
-         *     `REMAGNET_CATEGORY`, and `REMAGNET_TAGS`) override `config.json` and are
-         *     listed in `envLocked`.
+         *     `CLIENT_BASE_URL`, `QBIT_API_KEY`, `CLIENT_USERNAME`,
+         *     `CLIENT_PASSWORD`, `DELUGE_PASSWORD`, `DOWNLOADS_DIR`,
+         *     `CLIENT_DOWNLOADS_DIR`, `REMAGNET_CATEGORY`, and `REMAGNET_TAGS`)
+         *     override `config.json` and are listed in `envLocked`.
          *     Leave those fields disabled in the UI: a subsequent `PUT /api/config`
          *     keeps the environment value even if it sends a different one.
          */
@@ -104,18 +102,18 @@ export interface paths {
          *     configured or `baseUrl` is locked by an environment variable; omitting
          *     it keeps the current URL. It is normalized by trimming whitespace and
          *     trailing slashes; credentials in the URL, query strings and fragments
-         *     are rejected. `qbitBaseUrl` is accepted as an alias.
+         *     are rejected.
          *
          *     Fields listed in `envLocked` are read-only: a value sent for one is
          *     ignored and the environment value stays in effect. Environment-provided
          *     API keys and passwords are never written to `config.json`.
          *
-         *     For the secret fields (`apiKey`, `username`, `password`, plus the
-         *     `qbit*` aliases), omitting a field keeps the saved value and sending an
-         *     empty string clears it. Credentials are not required when saving: the
-         *     proxy remains bootable and client-backed endpoints return `503` until
-         *     setup is complete. Transmission only needs a URL; a private network can
-         *     leave its optional username and password blank. Deluge needs its Web UI
+         *     For the secret fields (`apiKey`, `username`, `password`), omitting a
+         *     field keeps the saved value and sending an empty string clears it.
+         *     Credentials are not required when saving: the proxy remains bootable
+         *     and client-backed endpoints return `503` until setup is complete.
+         *     Transmission only needs a URL; a private network can leave its optional
+         *     username and password blank. Deluge needs its Web UI
          *     URL plus the Web UI password. rTorrent/ruTorrent needs its XML-RPC URL,
          *     with optional HTTP Basic Auth via `username` and `password`. Saving
          *     valid settings activates the client without a restart.
@@ -693,7 +691,7 @@ export interface components {
              */
             ok: boolean;
             /**
-             * @description Historical service name kept for deployment compatibility.
+             * @description Stable service identifier.
              * @example remagnet-proxy
              */
             service: string;
@@ -943,17 +941,8 @@ export interface components {
              * @example http://gluetun:8080
              */
             baseUrl: string;
-            /**
-             * Format: uri
-             * @description Deprecated alias for `baseUrl`, kept for older clients. Always has
-             *     the same value.
-             * @example http://gluetun:8080
-             */
-            qbitBaseUrl: string;
             /** @description Saved torrent client username, or an empty string. */
             username: string;
-            /** @description Deprecated alias for `username`, kept for older clients. */
-            qbitUsername: string;
             /** @description Whether a qBittorrent API key is saved. */
             hasApiKey: boolean;
             /** @description Whether a torrent client password is saved. */
@@ -1015,38 +1004,25 @@ export interface components {
              * Format: uri
              * @description Torrent client URL. Must use `http://` or `https://`, must not
              *     contain credentials, a query or a fragment, and is stored without
-             *     trailing slashes. `qbitBaseUrl` is accepted as an alias.
+             *     trailing slashes.
              * @example http://gluetun:8080
              */
             baseUrl?: string;
             /**
-             * Format: uri
-             * @description Alias for `baseUrl`, kept for older clients. Do not send both
-             *     fields in one request.
-             * @example http://gluetun:8080
-             */
-            qbitBaseUrl?: string;
-            /**
              * @description qBittorrent 5.2+ API key. Omit to keep the saved key; send an empty
-             *     string to clear it. `qbitApiKey` is accepted as an alias.
+             *     string to clear it.
              */
             apiKey?: string;
-            /** @description Alias for `apiKey`, kept for older clients. */
-            qbitApiKey?: string;
             /**
              * @description Torrent client username. Omit to keep the saved username; send an
-             *     empty string to clear it. `qbitUsername` is accepted as an alias.
+             *     empty string to clear it.
              */
             username?: string;
-            /** @description Alias for `username`, kept for older clients. */
-            qbitUsername?: string;
             /**
              * @description Torrent client password. Omit to keep the saved password; send an
-             *     empty string to clear it. `qbitPassword` is accepted as an alias.
+             *     empty string to clear it.
              */
             password?: string;
-            /** @description Alias for `password`, kept for older clients. */
-            qbitPassword?: string;
             /**
              * @description Path on the proxy where the client's downloads volume is mounted
              *     read-only. Required for ZIP archive downloads; send an empty string
@@ -1574,9 +1550,7 @@ export interface operations {
                      * @example {
                      *       "clientKind": "qbittorrent",
                      *       "baseUrl": "http://gluetun:8080",
-                     *       "qbitBaseUrl": "http://gluetun:8080",
                      *       "username": "",
-                     *       "qbitUsername": "",
                      *       "hasApiKey": true,
                      *       "hasPassword": false,
                      *       "downloadsDir": "/downloads",

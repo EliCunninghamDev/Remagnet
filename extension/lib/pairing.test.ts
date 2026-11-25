@@ -130,7 +130,7 @@ describe("claimPairing", () => {
 
   test("asks the user to update when the payload is not version 2", async () => {
     const encrypted = await encrypt(
-      JSON.stringify({ version: 1, qbitBaseUrl: "https://qbt", proxyToken: "token" }),
+      JSON.stringify({ version: 1, proxyToken: "0123456789abcdef" }),
       ID,
       CODE,
     );
@@ -149,7 +149,7 @@ describe("claimPairing", () => {
   test("rejects a payload encrypted for a different code", async () => {
     const other = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE";
     const encrypted = await encrypt(
-      JSON.stringify({ version: 1, qbitBaseUrl: "https://qbt", proxyToken: "token" }),
+      JSON.stringify({ version: 1, proxyToken: "0123456789abcdef" }),
       ID,
       other,
     );

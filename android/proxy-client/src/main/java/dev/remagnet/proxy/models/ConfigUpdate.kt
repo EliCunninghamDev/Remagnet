@@ -31,14 +31,10 @@ import com.google.gson.annotations.SerializedName
  * Fields the config page may change. A missing field keeps the saved value. For secret fields, sending an empty string clears the value.  `baseUrl` is required only when no URL is saved yet and the field is not locked by an environment variable; otherwise omitting it keeps the current URL. Fields reported in `envLocked` are ignored when sent.
  *
  * @param clientKind
- * @param baseUrl Torrent client URL. Must use `http://` or `https://`, must not contain credentials, a query or a fragment, and is stored without trailing slashes. `qbitBaseUrl` is accepted as an alias.
- * @param qbitBaseUrl Alias for `baseUrl`, kept for older clients. Do not send both fields in one request.
- * @param apiKey qBittorrent 5.2+ API key. Omit to keep the saved key; send an empty string to clear it. `qbitApiKey` is accepted as an alias.
- * @param qbitApiKey Alias for `apiKey`, kept for older clients.
- * @param username Torrent client username. Omit to keep the saved username; send an empty string to clear it. `qbitUsername` is accepted as an alias.
- * @param qbitUsername Alias for `username`, kept for older clients.
- * @param password Torrent client password. Omit to keep the saved password; send an empty string to clear it. `qbitPassword` is accepted as an alias.
- * @param qbitPassword Alias for `password`, kept for older clients.
+ * @param baseUrl Torrent client URL. Must use `http://` or `https://`, must not contain credentials, a query or a fragment, and is stored without trailing slashes.
+ * @param apiKey qBittorrent 5.2+ API key. Omit to keep the saved key; send an empty string to clear it.
+ * @param username Torrent client username. Omit to keep the saved username; send an empty string to clear it.
+ * @param password Torrent client password. Omit to keep the saved password; send an empty string to clear it.
  * @param downloadsDir Path on the proxy where the client's downloads volume is mounted read-only. Required for ZIP archive downloads; send an empty string to disable them.
  * @param clientDownloadsDir Optional prefix of torrent download paths as seen by the torrent client, such as `/data/torrents`. Used together with `downloadsDir` to locate completed files.
  * @param defaultCategory Category applied to new magnets and used to decide which torrents Remagnet owns. Omit to keep the saved value; send an empty string to disable category matching.
@@ -51,37 +47,21 @@ data class ConfigUpdate (
     @SerializedName("clientKind")
     val clientKind: ClientKind? = null,
 
-    /* Torrent client URL. Must use `http://` or `https://`, must not contain credentials, a query or a fragment, and is stored without trailing slashes. `qbitBaseUrl` is accepted as an alias.  */
+    /* Torrent client URL. Must use `http://` or `https://`, must not contain credentials, a query or a fragment, and is stored without trailing slashes.  */
     @SerializedName("baseUrl")
     val baseUrl: java.net.URI? = null,
 
-    /* Alias for `baseUrl`, kept for older clients. Do not send both fields in one request.  */
-    @SerializedName("qbitBaseUrl")
-    val qbitBaseUrl: java.net.URI? = null,
-
-    /* qBittorrent 5.2+ API key. Omit to keep the saved key; send an empty string to clear it. `qbitApiKey` is accepted as an alias.  */
+    /* qBittorrent 5.2+ API key. Omit to keep the saved key; send an empty string to clear it.  */
     @SerializedName("apiKey")
     val apiKey: kotlin.String? = null,
 
-    /* Alias for `apiKey`, kept for older clients. */
-    @SerializedName("qbitApiKey")
-    val qbitApiKey: kotlin.String? = null,
-
-    /* Torrent client username. Omit to keep the saved username; send an empty string to clear it. `qbitUsername` is accepted as an alias.  */
+    /* Torrent client username. Omit to keep the saved username; send an empty string to clear it.  */
     @SerializedName("username")
     val username: kotlin.String? = null,
 
-    /* Alias for `username`, kept for older clients. */
-    @SerializedName("qbitUsername")
-    val qbitUsername: kotlin.String? = null,
-
-    /* Torrent client password. Omit to keep the saved password; send an empty string to clear it. `qbitPassword` is accepted as an alias.  */
+    /* Torrent client password. Omit to keep the saved password; send an empty string to clear it.  */
     @SerializedName("password")
     val password: kotlin.String? = null,
-
-    /* Alias for `password`, kept for older clients. */
-    @SerializedName("qbitPassword")
-    val qbitPassword: kotlin.String? = null,
 
     /* Path on the proxy where the client's downloads volume is mounted read-only. Required for ZIP archive downloads; send an empty string to disable them.  */
     @SerializedName("downloadsDir")

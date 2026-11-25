@@ -2194,7 +2194,8 @@ mod tests {
         assert_eq!(body["hasApiKey"], true);
         assert_eq!(body["defaultCategory"], "remagnet");
         assert_eq!(body["defaultTags"], json!(["remagnet"]));
-        assert!(body.get("qbitApiKey").is_none());
+        assert!(body.get("qbitBaseUrl").is_none());
+        assert!(body.get("qbitUsername").is_none());
         assert!(body.get("apiKey").is_none());
         assert!(body.get("password").is_none());
     }
@@ -2293,7 +2294,7 @@ mod tests {
             .oneshot(app.device_json(
                 "PUT",
                 "/api/config",
-                json!({ "qbitBaseUrl": "http://127.0.0.1:1" }),
+                json!({ "baseUrl": "http://127.0.0.1:1" }),
             ))
             .await
             .unwrap();
@@ -2322,8 +2323,8 @@ mod tests {
                 "PUT",
                 "/api/config",
                 json!({
-                    "qbitBaseUrl": base_url,
-                    "qbitApiKey": "qbt_test",
+                    "baseUrl": base_url,
+                    "apiKey": "qbt_test",
                     "defaultCategory": "remagnet",
                     "defaultTags": ["remagnet"],
                 }),
@@ -2799,7 +2800,7 @@ mod tests {
         let token = claimed.payload["proxyToken"].as_str().unwrap();
         assert!(token.starts_with("rmg_"));
         assert_ne!(token, app.device_token);
-        assert!(claimed.payload.get("qbitBaseUrl").is_none());
+        assert!(claimed.payload.get("baseUrl").is_none());
         assert!(claimed.payload.get("authMode").is_none());
         assert!(claimed.payload.get("apiKey").is_none());
         assert!(claimed.payload.get("username").is_none());

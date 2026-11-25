@@ -121,7 +121,7 @@ class PairingClientTest {
             "session-1",
             code,
             ByteArray(12),
-            """{"version":1,"qbitBaseUrl":"https://qbt.example.com"}""",
+            """{"version":1,"proxyToken":"0123456789abcdef"}""",
         )
         respond("""{"iv":"$iv","data":"$data"}""")
 

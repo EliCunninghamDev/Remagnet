@@ -34,9 +34,7 @@ const health = {
 const config = {
   clientKind: "qbittorrent",
   baseUrl: "http://gluetun:8080",
-  qbitBaseUrl: "http://gluetun:8080",
   username: "admin",
-  qbitUsername: "admin",
   hasApiKey: true,
   hasPassword: true,
   downloadsDir: "/downloads",
@@ -234,9 +232,7 @@ test("unconfigured dashboard starts on Connection and unlocks after saving", asy
   const unconfigured = {
     ...config,
     baseUrl: "",
-    qbitBaseUrl: "",
     username: "",
-    qbitUsername: "",
     hasApiKey: false,
     hasPassword: false,
     configured: false,

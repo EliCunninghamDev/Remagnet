@@ -29,20 +29,18 @@ fn default_tags() -> Vec<String> {
 /// instead, so this file holds only the torrent client connection and the
 /// magnet defaults returned by the config API.
 ///
-/// Field names are client-neutral; the `qbit*` aliases keep configuration files
-/// written by earlier versions readable.
+/// Field names are client-neutral.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Config {
     #[serde(default)]
     pub client_kind: ClientKind,
-    #[serde(alias = "qbitBaseUrl")]
     pub base_url: String,
-    #[serde(default, alias = "qbitApiKey")]
+    #[serde(default)]
     pub api_key: String,
-    #[serde(default, alias = "qbitUsername")]
+    #[serde(default)]
     pub username: String,
-    #[serde(default, alias = "qbitPassword")]
+    #[serde(default)]
     pub password: String,
     #[serde(default)]
     pub downloads_dir: String,
@@ -101,22 +99,16 @@ fn env_non_empty(name: &str) -> Option<String> {
 /// The first non-empty base URL supplied by the environment.
 fn env_base_url() -> Option<String> {
     env_non_empty("CLIENT_BASE_URL")
-        .or_else(|| env_non_empty("QBIT_BASE_URL"))
-        .or_else(|| env_non_empty("TRANSMISSION_BASE_URL"))
-        .or_else(|| env_non_empty("DELUGE_BASE_URL"))
-        .or_else(|| env_non_empty("RTORRENT_BASE_URL"))
 }
 
 /// The first non-empty username supplied by the environment.
 fn env_username() -> Option<String> {
-    env_non_empty("CLIENT_USERNAME").or_else(|| env_non_empty("QBIT_USERNAME"))
+    env_non_empty("CLIENT_USERNAME")
 }
 
 /// The first non-empty password supplied by the environment.
 fn env_password() -> Option<String> {
-    env_non_empty("CLIENT_PASSWORD")
-        .or_else(|| env_non_empty("QBIT_PASSWORD"))
-        .or_else(|| env_non_empty("DELUGE_PASSWORD"))
+    env_non_empty("CLIENT_PASSWORD").or_else(|| env_non_empty("DELUGE_PASSWORD"))
 }
 
 /// Pick the bootstrap URL for the configured client kind.
@@ -267,13 +259,13 @@ impl EnvOverrides {
 pub struct ConfigUpdate {
     #[serde(default)]
     pub client_kind: Option<ClientKind>,
-    #[serde(default, alias = "qbitBaseUrl")]
+    #[serde(default)]
     pub base_url: Option<String>,
-    #[serde(default, alias = "qbitApiKey")]
+    #[serde(default)]
     pub api_key: Option<String>,
-    #[serde(default, alias = "qbitUsername")]
+    #[serde(default)]
     pub username: Option<String>,
-    #[serde(default, alias = "qbitPassword")]
+    #[serde(default)]
     pub password: Option<String>,
     #[serde(default)]
     pub downloads_dir: Option<String>,
@@ -290,11 +282,7 @@ pub struct ConfigUpdate {
 pub struct PublicConfig {
     pub client_kind: ClientKind,
     pub base_url: String,
-    /// Kept for older clients; the same value as `baseUrl`.
-    pub qbit_base_url: String,
     pub username: String,
-    /// Kept for older clients; the same value as `username`.
-    pub qbit_username: String,
     pub has_api_key: bool,
     pub has_password: bool,
     pub downloads_dir: String,
@@ -312,9 +300,7 @@ impl PublicConfig {
         Self {
             client_kind: config.client_kind,
             base_url: config.base_url.clone(),
-            qbit_base_url: config.base_url.clone(),
             username: config.username.clone(),
-            qbit_username: config.username.clone(),
             has_api_key: !config.api_key.is_empty(),
             has_password: !config.password.is_empty(),
             downloads_dir: config.downloads_dir.clone(),
@@ -622,15 +608,9 @@ mod tests {
     const ENV_NAMES: &[&str] = &[
         "CLIENT_KIND",
         "CLIENT_BASE_URL",
-        "QBIT_BASE_URL",
-        "TRANSMISSION_BASE_URL",
-        "DELUGE_BASE_URL",
-        "RTORRENT_BASE_URL",
         "QBIT_API_KEY",
         "CLIENT_USERNAME",
-        "QBIT_USERNAME",
         "CLIENT_PASSWORD",
-        "QBIT_PASSWORD",
         "DELUGE_PASSWORD",
         "DOWNLOADS_DIR",
         "CLIENT_DOWNLOADS_DIR",
@@ -733,26 +713,6 @@ mod tests {
     }
 
     #[test]
-    fn legacy_config_files_get_the_default_magnet_settings() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("config.json");
-        std::fs::write(
-            &path,
-            r#"{"qbitBaseUrl":"http://gluetun:8080","qbitApiKey":"qbt_test"}"#,
-        )
-        .unwrap();
-
-        let (config, created) = load_or_create(&path, env(), &EnvOverrides::default()).unwrap();
-        assert!(!created);
-        assert_eq!(config.client_kind, ClientKind::Qbittorrent);
-        assert_eq!(config.base_url, "http://gluetun:8080");
-        assert_eq!(config.api_key, "qbt_test");
-        assert!(config.downloads_dir.is_empty());
-        assert_eq!(config.default_category, "remagnet");
-        assert_eq!(config.default_tags, vec!["remagnet"]);
-    }
-
-    #[test]
     fn neutral_config_names_are_written_and_read_back() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("config.json");
@@ -775,7 +735,6 @@ mod tests {
         let raw = std::fs::read_to_string(&path).unwrap();
         assert!(raw.contains("\"baseUrl\""));
         assert!(raw.contains("\"clientKind\""));
-        assert!(!raw.contains("qbitBaseUrl"));
     }
 
     #[test]
@@ -861,7 +820,7 @@ mod tests {
         {
             let _guard = EnvGuard::new(&[
                 ("CLIENT_KIND", "deluge"),
-                ("DELUGE_BASE_URL", " http://deluge.local:8112/ "),
+                ("CLIENT_BASE_URL", " http://deluge.local:8112/ "),
                 ("DELUGE_PASSWORD", "secret"),
             ]);
             let overrides = EnvOverrides::from_env().unwrap();
@@ -876,7 +835,7 @@ mod tests {
         {
             let _guard = EnvGuard::new(&[
                 ("CLIENT_KIND", "rutorrent"),
-                ("RTORRENT_BASE_URL", "http://rtorrent.local:8000"),
+                ("CLIENT_BASE_URL", "http://rtorrent.local:8000"),
             ]);
             let overrides = EnvOverrides::from_env().unwrap();
             let mut config = Config::from_env(env()).unwrap();

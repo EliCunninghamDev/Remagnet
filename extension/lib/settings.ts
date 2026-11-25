@@ -22,7 +22,7 @@ interface Secrets {
   proxyToken: string;
 }
 
-/** Shape older builds may still have on disk, including plain-text secrets. */
+/** Stored settings may be partial or contain fields from an older shape. */
 type StoredSettings = Partial<Settings>;
 
 const PUBLIC_DEFAULTS: PublicSettings = {
@@ -98,9 +98,8 @@ export async function getPublicSettings(): Promise<PublicSettings> {
  * Read settings with defaults filled in.
  *
  * Storage returns the stored object as-is, so settings written before a field
- * existed would otherwise be `undefined` at runtime. Older builds also kept
- * client credentials and archive settings in these items; removed fields,
- * including any plain-text secrets, are dropped instead of migrated.
+ * existed would otherwise be `undefined` at runtime. Fields that are not part
+ * of the current public shape are dropped.
  */
 export async function getSettings(): Promise<Settings> {
   const [storedValue, encrypted] = await Promise.all([

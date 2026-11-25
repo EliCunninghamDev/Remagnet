@@ -9,11 +9,6 @@ rTorrent read from a read-only downloads mount. Archives are never stored.
 Clients only ever hold a per-device proxy token; torrent-client credentials and
 the administrator password stay on this service.
 
-The directory was formerly `services/archive-bridge` and the service was
-formerly published as `remagnet-bridge`. The crate, binary, Docker image and
-container are now named `remagnet-proxy`; update existing deployments and Caddy
-upstreams before upgrading.
-
 ## Authentication
 
 The proxy has one administrator account and any number of device tokens.
@@ -133,22 +128,20 @@ bundled at `src/departure-mono.woff2` under the SIL OFL 1.1
 
 Environment variables:
 
-| Variable                                                                         | Default        | Notes                                                                                                                                                       |
-| -------------------------------------------------------------------------------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `SETUP_CODE`                                                                     | empty          | Optional one-time code required to create the admin account.                                                                                                |
-| `CLIENT_KIND`                                                                    | `qbittorrent`  | `qbittorrent`, `transmission`, `deluge`, or `rtorrent`; `rutorrent` is an alias for `rtorrent`.                                                             |
-| `CLIENT_BASE_URL`                                                                | per client     | Client API URL. Defaults: `http://gluetun:8080`, `http://transmission:9091`, `http://deluge:8112`, or `http://rtorrent:8000`.                               |
-| `QBIT_BASE_URL`, `TRANSMISSION_BASE_URL`, `DELUGE_BASE_URL`, `RTORRENT_BASE_URL` | empty          | Older aliases for `CLIENT_BASE_URL`.                                                                                                                        |
-| `QBIT_API_KEY`                                                                   | empty          | qBittorrent 5.2+ API key.                                                                                                                                   |
-| `CLIENT_USERNAME` / `CLIENT_PASSWORD`                                            | empty          | Shared credentials: qBittorrent fallback login, Transmission, and rTorrent HTTP Basic Auth.                                                                 |
-| `QBIT_USERNAME` / `QBIT_PASSWORD`                                                | empty          | Older aliases for `CLIENT_USERNAME` / `CLIENT_PASSWORD`.                                                                                                    |
-| `DELUGE_PASSWORD`                                                                | empty          | Deluge Web UI password; used when `CLIENT_PASSWORD` is blank.                                                                                               |
-| `DOWNLOADS_DIR`                                                                  | empty          | Read-only mount of the client's completed files. Required for ZIP archives from Transmission, Deluge, and rTorrent; qBittorrent can stream through its API. |
-| `CLIENT_DOWNLOADS_DIR`                                                           | empty          | Prefix of save paths as the client reports them, stripped before resolving inside `DOWNLOADS_DIR`.                                                          |
-| `REMAGNET_CATEGORY`                                                              | `remagnet`     | Category or label applied to added magnets and used for listing. Ignored by Transmission.                                                                   |
-| `REMAGNET_TAGS`                                                                  | `remagnet`     | Comma-separated tags (labels for Transmission) applied and used for filtering. Ignored by Deluge and rTorrent.                                              |
-| `DATA_DIR`                                                                       | `/data`        | `config.json` and `auth.json` live here.                                                                                                                    |
-| `BIND_ADDR`                                                                      | `0.0.0.0:8080` | HTTP listen address.                                                                                                                                        |
+| Variable                              | Default        | Notes                                                                                                                                                       |
+| ------------------------------------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SETUP_CODE`                          | empty          | Optional one-time code required to create the admin account.                                                                                                |
+| `CLIENT_KIND`                         | `qbittorrent`  | `qbittorrent`, `transmission`, `deluge`, or `rtorrent`; `rutorrent` is an alias for `rtorrent`.                                                             |
+| `CLIENT_BASE_URL`                     | per client     | Client API URL. Defaults: `http://gluetun:8080`, `http://transmission:9091`, `http://deluge:8112`, or `http://rtorrent:8000`.                               |
+| `QBIT_API_KEY`                        | empty          | qBittorrent 5.2+ API key.                                                                                                                                   |
+| `CLIENT_USERNAME` / `CLIENT_PASSWORD` | empty          | Shared credentials: qBittorrent fallback login, Transmission, and rTorrent HTTP Basic Auth.                                                                 |
+| `DELUGE_PASSWORD`                     | empty          | Deluge Web UI password; used when `CLIENT_PASSWORD` is blank.                                                                                               |
+| `DOWNLOADS_DIR`                       | empty          | Read-only mount of the client's completed files. Required for ZIP archives from Transmission, Deluge, and rTorrent; qBittorrent can stream through its API. |
+| `CLIENT_DOWNLOADS_DIR`                | empty          | Prefix of save paths as the client reports them, stripped before resolving inside `DOWNLOADS_DIR`.                                                          |
+| `REMAGNET_CATEGORY`                   | `remagnet`     | Category or label applied to added magnets and used for listing. Ignored by Transmission.                                                                   |
+| `REMAGNET_TAGS`                       | `remagnet`     | Comma-separated tags (labels for Transmission) applied and used for filtering. Ignored by Deluge and rTorrent.                                              |
+| `DATA_DIR`                            | `/data`        | `config.json` and `auth.json` live here.                                                                                                                    |
+| `BIND_ADDR`                           | `0.0.0.0:8080` | HTTP listen address.                                                                                                                                        |
 
 `CLIENT_KIND` selects the adapter. qBittorrent uses categories and tags,
 Transmission uses tags as labels and ignores the category, Deluge uses a single

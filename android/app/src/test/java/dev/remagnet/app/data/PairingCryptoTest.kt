@@ -28,7 +28,7 @@ class PairingCryptoTest {
     @Test
     fun decryptsAnEncryptedPayload() {
         val nonce = ByteArray(12) { it.toByte() }
-        val plaintext = """{"qbitBaseUrl":"https://qbt.example.com","apiKey":"qbt_key"}"""
+        val plaintext = """{"version":2,"proxyToken":"0123456789abcdef"}"""
         val (iv, data) = PairingCrypto.encrypt("session-1", code, nonce, plaintext)
 
         assertEquals(plaintext, PairingCrypto.decrypt("session-1", code, iv, data))

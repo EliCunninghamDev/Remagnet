@@ -185,8 +185,8 @@ async function runProxy(client: ClientKind): Promise<void> {
   };
 
   if (client === "qbittorrent") {
-    env.QBIT_USERNAME = process.env.QBIT_USERNAME ?? "admin";
-    env.QBIT_PASSWORD = process.env.QBIT_PASSWORD ?? "adminadmin";
+    env.CLIENT_USERNAME = process.env.CLIENT_USERNAME ?? "admin";
+    env.CLIENT_PASSWORD = process.env.CLIENT_PASSWORD ?? "adminadmin";
   }
 
   if (client === "deluge") {

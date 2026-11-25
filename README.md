@@ -93,7 +93,7 @@ SETUP_CODE=
 
 # Where the proxy reaches qBittorrent's Web UI. Use the service name on a
 # shared Docker network (for example http://gluetun:8080).
-QBIT_BASE_URL=http://host.docker.internal:8080
+CLIENT_BASE_URL=http://host.docker.internal:8080
 QBIT_API_KEY=
 
 # Category and tags applied to Remagnet magnets and used to scope listing,

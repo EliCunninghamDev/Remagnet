@@ -73,31 +73,29 @@ class SettingsRepositoryTest {
 
         val public = store.values.getValue("settings.public.v1")
         val secrets = store.values.getValue("settings.secrets.v1")
-        assertFalse(public.contains("qbit"))
+        assertTrue(public.contains("\"proxyBaseUrl\""))
         assertFalse(public.contains("defaultCategory"))
-        assertFalse(secrets.contains("qbit"))
+        assertFalse(public.contains("defaultTags"))
+        assertTrue(secrets.contains("enc:"))
     }
 
     @Test
-    fun ignoresLegacyQbitFields() {
+    fun ignoresUnknownFields() {
         val store = FakeStore()
         val cipher = FakeCipher()
         store.putString(
             "settings.public.v1",
             """
             {
-              "qbitBaseUrl": "http://127.0.0.1:8080",
-              "authMode": "password",
-              "qbitUsername": "admin",
-              "defaultCategory": "remagnet",
-              "defaultTags": "remagnet, android",
+              "unrelatedSetting": "ignored",
+              "anotherSetting": 42,
               "proxyBaseUrl": "https://proxy.example.com"
             }
             """.trimIndent(),
         )
         store.putString(
             "settings.secrets.v1",
-            cipher.encrypt("""{"qbitApiKey":"qbt_key","qbitPassword":"secret","proxyToken":"0123456789abcdef"}"""),
+            cipher.encrypt("""{"unrelatedSecret":"ignored","proxyToken":"0123456789abcdef"}"""),
         )
 
         val loaded = SettingsRepository(store, cipher).load()
@@ -179,7 +177,7 @@ class SettingsRepositoryTest {
         val store = FakeStore()
         store.putString(
             "settings.public.v1",
-            """{"qbitBaseUrl":"https://qbt.example.com"}""",
+            """{"unrelatedSetting":"ignored"}""",
         )
 
         val loaded = SettingsRepository(store, FakeCipher()).load()
