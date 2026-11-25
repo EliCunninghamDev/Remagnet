@@ -34,6 +34,11 @@ const MAX_RESPONSE_BYTES: u64 = 32 * 1024 * 1024;
 const DAEMON_CONNECT_ATTEMPTS: usize = 15;
 /// Delay between daemon connection polls.
 const DAEMON_CONNECT_POLL_INTERVAL: Duration = Duration::from_millis(100);
+/// Deluge enables the Label plugin asynchronously after the Web UI connects to
+/// its daemon, so the first label call can arrive before its RPC methods exist.
+const LABEL_READY_ATTEMPTS: usize = 20;
+/// Delay between Label plugin readiness polls.
+const LABEL_READY_POLL_INTERVAL: Duration = Duration::from_millis(50);
 /// gzip stream marker, used when the response header omits `Content-Encoding`.
 const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
 /// Position of the connection status in a `web.get_hosts` host entry.
@@ -261,7 +266,7 @@ impl DelugeClient {
             .ok_or_else(|| AppError::BadRequest(rejected_message.to_string()))?;
 
         if !label.is_empty() {
-            self.rpc("label.set_torrent", json!([&added_hash, label]))
+            self.label_rpc("label.set_torrent", json!([&added_hash, label]))
                 .await?;
         }
 
@@ -450,7 +455,7 @@ impl DelugeClient {
             return Ok(());
         }
 
-        match self.rpc_raw("label.add", json!([label])).await {
+        match self.label_rpc_raw("label.add", json!([label])).await {
             Ok(_) => Ok(()),
             Err(failure) => {
                 // Tolerate a concurrent create race.
@@ -468,7 +473,40 @@ impl DelugeClient {
     }
 
     async fn labels(&self) -> Result<Vec<String>, AppError> {
-        self.string_array_rpc("label.get_labels").await
+        let value = self.label_rpc("label.get_labels", json!([])).await?;
+        Ok(value
+            .as_array()
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default())
+    }
+
+    /// Call a Label plugin method, waiting out the plugin's asynchronous load.
+    async fn label_rpc(&self, method: &str, params: Value) -> Result<Value, AppError> {
+        self.label_rpc_raw(method, params)
+            .await
+            .map_err(|failure| failure.into_app_error(method))
+    }
+
+    async fn label_rpc_raw(&self, method: &str, params: Value) -> Result<Value, RpcFailure> {
+        for attempt in 0..LABEL_READY_ATTEMPTS {
+            match self.rpc_raw(method, params.clone()).await {
+                Ok(value) => return Ok(value),
+                Err(RpcFailure::Rpc { message, .. })
+                    if attempt + 1 < LABEL_READY_ATTEMPTS && is_unknown_method(&message) =>
+                {
+                    tokio::time::sleep(LABEL_READY_POLL_INTERVAL).await;
+                }
+                Err(failure) => return Err(failure),
+            }
+        }
+
+        unreachable!("the retry loop always returns")
     }
 
     async fn ensure_login(&self) -> Result<(), AppError> {
@@ -725,6 +763,10 @@ fn is_session_or_connection_error(code: Option<i64>, message: &str) -> bool {
     }
     let lower = message.to_ascii_lowercase();
     lower.contains("not connected") || lower.contains("daemon is not connected")
+}
+
+fn is_unknown_method(message: &str) -> bool {
+    message.to_ascii_lowercase().contains("unknown method")
 }
 
 fn is_valid_deluge_label(label: &str) -> bool {

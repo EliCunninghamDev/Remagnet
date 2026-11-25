@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashSet},
     sync::Arc,
 };
 
@@ -416,7 +416,7 @@ impl RtorrentClient {
                 } else {
                     (*entry, vec![XmlValue::String(target.clone())])
                 };
-                let mut map = HashMap::new();
+                let mut map = BTreeMap::new();
                 map.insert(
                     "methodName".to_string(),
                     XmlValue::String(method.to_string()),
@@ -426,9 +426,19 @@ impl RtorrentClient {
             })
             .collect();
 
-        let response = self
-            .rpc("system.multicall", &[XmlValue::Array(calls)])
-            .await?;
+        let response = match self
+            .rpc_raw("system.multicall", &[XmlValue::Array(calls)])
+            .await
+        {
+            Ok(response) => response,
+            // rTorrent aborts a multicall at the first fault, so an unknown
+            // info hash arrives as a method-level error rather than a per-item
+            // fault. Treat it as "not present" instead of an upstream failure.
+            Err(RpcFailure::Fault { code, message }) if is_not_found_fault(code, &message) => {
+                return Ok(None);
+            }
+            Err(other) => return Err(other.into_app_error("system.multicall")),
+        };
         let results = response
             .as_array()
             .ok_or_else(|| AppError::upstream_unreadable("rTorrent"))?;
@@ -632,10 +642,10 @@ fn decode_label(raw: &str) -> String {
 }
 
 fn is_not_found_fault(code: i64, message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
     code == FAULT_INFO_HASH_NOT_FOUND
-        || message
-            .to_ascii_lowercase()
-            .contains("could not find info-hash")
+        || lower.contains("could not find info-hash")
+        || lower.contains("info-hash not found")
 }
 
 fn map_load_failure(failure: RpcFailure, method: &str) -> AppError {
@@ -1115,7 +1125,7 @@ mod tests {
                             out.push(XmlValue::Array(vec![torrent.field_by_method(sub_method)]));
                         }
                         None => {
-                            let mut fault = HashMap::new();
+                            let mut fault = BTreeMap::new();
                             fault.insert(
                                 "faultCode".to_string(),
                                 XmlValue::Int(FAULT_INFO_HASH_NOT_FOUND),

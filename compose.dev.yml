@@ -41,7 +41,7 @@ services:
       - ./.dev/dev-stack/deluge/downloads:/downloads
 
   rtorrent:
-    image: crazymax/rtorrent-rutorrent:latest
+    image: docker.io/crazymax/rtorrent-rutorrent:latest
     profiles: ["rtorrent"]
     environment:
       PUID: "${PUID:-1000}"

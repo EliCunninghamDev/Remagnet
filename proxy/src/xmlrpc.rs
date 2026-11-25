@@ -4,7 +4,7 @@
 //! but the XML itself still needs a real parser. `quick-xml` handles tokenizing
 //! and escaping so this module only maps XML-RPC values on top of its events.
 
-use std::{collections::HashMap, io};
+use std::{collections::BTreeMap, io};
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use quick_xml::{
@@ -24,7 +24,8 @@ pub enum Value {
     Double(f64),
     Base64(Vec<u8>),
     Array(Vec<Value>),
-    Struct(HashMap<String, Value>),
+    /// Ordered so `system.multicall` members keep `methodName` before `params`.
+    Struct(BTreeMap<String, Value>),
     Nil,
 }
 
@@ -168,7 +169,7 @@ pub fn encode_response(value: &Value) -> String {
 /// Encode a `<fault>` response.
 #[cfg(test)]
 pub fn encode_fault(code: i64, message: &str) -> String {
-    let mut members = HashMap::new();
+    let mut members = BTreeMap::new();
     members.insert("faultCode".to_string(), Value::Int(code));
     members.insert(
         "faultString".to_string(),
@@ -612,7 +613,7 @@ impl Parser {
     }
 
     fn parse_struct(&mut self, depth: usize, empty: bool) -> Result<Value, ParseError> {
-        let mut members = HashMap::new();
+        let mut members = BTreeMap::new();
         if !empty {
             loop {
                 self.skip_ignorable();
@@ -706,7 +707,7 @@ mod tests {
 
     #[test]
     fn encodes_all_value_kinds() {
-        let mut members = HashMap::new();
+        let mut members = BTreeMap::new();
         members.insert("name".to_string(), Value::String("A & B".to_string()));
 
         let params = vec![
@@ -739,6 +740,27 @@ mod tests {
     }
 
     #[test]
+    fn encodes_multicall_members_with_method_name_first() {
+        let mut call = BTreeMap::new();
+        call.insert("params".to_string(), Value::Array(Vec::new()));
+        call.insert(
+            "methodName".to_string(),
+            Value::String("d.hash".to_string()),
+        );
+
+        let xml = encode_call(
+            "system.multicall",
+            &[Value::Array(vec![Value::Struct(call)])],
+        );
+        let method = xml.find("<name>methodName</name>").unwrap();
+        let params = xml.find("<name>params</name>").unwrap();
+        assert!(
+            method < params,
+            "rTorrent requires methodName before params"
+        );
+    }
+
+    #[test]
     fn escapes_method_names() {
         let xml = encode_call("a&b<c", &[]);
         assert!(xml.contains("<methodName>a&amp;b&lt;c</methodName>"));
@@ -746,7 +768,7 @@ mod tests {
 
     #[test]
     fn round_trips_calls() {
-        let mut members = HashMap::new();
+        let mut members = BTreeMap::new();
         members.insert("hash".to_string(), Value::String("abc".to_string()));
         members.insert("done".to_string(), Value::Bool(false));
         let params = vec![
@@ -815,7 +837,7 @@ mod tests {
         );
         assert_eq!(
             parse_response(&response("<struct/>")).unwrap(),
-            Value::Struct(HashMap::new())
+            Value::Struct(BTreeMap::new())
         );
         assert_eq!(parse_response(&response("<ex:nil/>")).unwrap(), Value::Nil);
         assert_eq!(
@@ -891,7 +913,7 @@ mod tests {
 
     #[test]
     fn round_trips_responses() {
-        let mut members = HashMap::new();
+        let mut members = BTreeMap::new();
         members.insert("name".to_string(), Value::String("A & B".to_string()));
         let value = Value::Array(vec![
             Value::String("A & B <3>".to_string()),

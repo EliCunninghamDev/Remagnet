@@ -1328,13 +1328,17 @@ mod tests {
                     rt_response(Value::Array(results))
                 }
                 None => {
-                    let fault = Value::Struct(HashMap::from([
-                        ("faultCode".to_string(), Value::Int(-501)),
-                        (
-                            "faultString".to_string(),
-                            Value::String("Could not find info-hash.".to_string()),
-                        ),
-                    ]));
+                    let fault = Value::Struct(
+                        [
+                            ("faultCode".to_string(), Value::Int(-501)),
+                            (
+                                "faultString".to_string(),
+                                Value::String("Could not find info-hash.".to_string()),
+                            ),
+                        ]
+                        .into_iter()
+                        .collect(),
+                    );
                     rt_response(Value::Array(vec![fault; 23]))
                 }
             };

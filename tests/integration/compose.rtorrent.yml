@@ -1,6 +1,6 @@
 services:
   rtorrent:
-    image: crazymax/rtorrent-rutorrent:latest
+    image: docker.io/crazymax/rtorrent-rutorrent:latest
     environment:
       PUID: "1000"
       PGID: "1000"
