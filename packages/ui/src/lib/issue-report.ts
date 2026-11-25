@@ -14,6 +14,37 @@ export interface IssueReportContext {
   backend?: string;
 }
 
+/** Read a human-readable message from any thrown value. */
+export function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Build report context from a caught error and the action that failed.
+ *
+ * Errors are matched structurally so proxy-client's `ProxyHttpError` (and any
+ * other error carrying `status`/`code`) works without importing its class here.
+ */
+export function issueContextFromError(
+  cause: unknown,
+  action: string,
+  extra?: Partial<IssueReportContext>,
+): IssueReportContext {
+  const context: IssueReportContext = {
+    action,
+    message: errorMessage(cause),
+    ...extra,
+  };
+
+  if (typeof cause === "object" && cause !== null) {
+    const { code, status } = cause as { code?: unknown; status?: unknown };
+    if (typeof status === "number") context.status = status;
+    if (typeof code === "string" && code.length > 0) context.code = code;
+  }
+
+  return context;
+}
+
 export type IssueReportComponent = "Firefox extension" | "Chrome extension" | (string & {});
 
 export interface IssueReportInput {

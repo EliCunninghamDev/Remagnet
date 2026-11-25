@@ -1,6 +1,9 @@
 /** Largest `.torrent` metainfo file the extension will parse. */
 export const MAX_TORRENT_FILE_BYTES = 10 * 1024 * 1024;
 
+/** Characters of an info hash kept when a full name is unavailable. */
+export const SHORT_HASH_LENGTH = 12;
+
 /** A `.torrent` file reduced to the details the add flow shows before uploading. */
 export interface ParsedTorrentFile {
   /** Original filename, including the `.torrent` suffix when the browser knows it. */
@@ -78,7 +81,7 @@ export function torrentFileLabel(file: ParsedTorrentFile): string {
   const filename = file.filename.replace(/\.torrent$/i, "").trim();
   if (filename) return filename;
 
-  return file.infoHash.slice(0, 12);
+  return file.infoHash.slice(0, SHORT_HASH_LENGTH);
 }
 
 /** Unique tracker hostnames, for a compact summary. */

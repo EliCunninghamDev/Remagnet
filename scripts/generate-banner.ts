@@ -14,7 +14,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { formatBytes, formatEta, splitTorrentName } from "../extension/lib/format";
 import { BAR_DEFAULTS, barLayout, counterBitmap } from "../extension/lib/tile-bar";
-import { type ColorValue, type TokenGroup, tokens } from "../tokens.js";
+import { type ColorValue, type DimensionValue, type TokenGroup, tokens } from "../tokens.js";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 
@@ -49,6 +49,18 @@ function color(group: TokenGroup<ColorValue>, name: string): string {
   const green = Number.parseInt(hex.slice(3, 5), 16);
   const blue = Number.parseInt(hex.slice(5, 7), 16);
   return `rgba(${red},${green},${blue},${alpha})`;
+}
+
+/** Read a pixel dimension from a token group such as `layout.popup`. */
+function dimension(group: unknown, name: string): number {
+  const entry =
+    group && typeof group === "object" ? (group as Record<string, unknown>)[name] : undefined;
+  if (!entry || typeof entry !== "object" || !("$value" in entry)) {
+    throw new Error(`Missing dimension token: layout.popup.${name}`);
+  }
+  const { value, unit } = entry.$value as DimensionValue;
+  if (unit !== "px") throw new Error(`Dimension token layout.popup.${name} must use px`);
+  return value;
 }
 
 function rgb(hex: string): [number, number, number] {
@@ -126,14 +138,14 @@ const palette = {
 
 /** The popover's measured CSS box, in CSS pixels. */
 const POPUP = {
-  width: 440,
+  width: dimension(tokens.layout.popup, "width"),
   height: 340,
   x: 676,
   y: 20,
   border: 1,
-  padding: 14,
+  padding: dimension(tokens.layout.popup, "padding"),
   header: 26,
-  gap: 12,
+  gap: dimension(tokens.layout.popup, "gap"),
   nameSize: 12.5,
   nameLineHeight: 1.35,
   statsSize: 10,

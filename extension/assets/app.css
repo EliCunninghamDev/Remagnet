@@ -43,15 +43,6 @@
   padding: 20px 18px 28px;
 }
 
-.popup {
-  width: 420px;
-  max-height: 560px;
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
 .popup-header {
   display: flex;
   align-items: flex-start;
@@ -267,6 +258,8 @@ body.popup-body,
   --done: #84bc98;
   --warn: #cfa65e;
   --track: #1d1f21;
+  --surface: rgba(127, 127, 127, 0.06);
+  --hover: rgba(127, 127, 127, 0.14);
   --tile-0: #4a4e52;
   --tile-1: #52565a;
   --tile-2: #5a5e62;
@@ -389,7 +382,7 @@ body.popup-body code {
 /* Flat rows: one left edge for filename, bar and stats, hairlines between. */
 .torrent {
   gap: 6px;
-  padding: 10px 0 11px;
+  padding: 10px 0 12px;
   border: 0;
   border-radius: 0;
   background: none;
@@ -468,12 +461,12 @@ body.popup-body code {
 }
 
 .add-flow .actions button {
-  padding: 6px 11px;
+  padding: 6px 12px;
   font-size: 12px;
 }
 
 .add-flow .submit-row [type="submit"] {
-  padding: 6px 11px;
+  padding: 6px 12px;
   font-size: 12px;
 }
 
@@ -494,7 +487,7 @@ body.popup-body code {
 }
 
 .popup .report-head h2 {
-  font-size: 15px;
+  font-size: 14px;
 }
 
 .popup .diagnostics-preview {

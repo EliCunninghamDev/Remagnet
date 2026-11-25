@@ -20,7 +20,13 @@
   --error-text: #8d3838;
   --warn-bg: #f5eddb;
   --warn-text: #7d5f23;
+  --surface: rgba(127, 127, 127, 0.06);
+  --hover: rgba(127, 127, 127, 0.14);
   --sweep: #ffffff;
+  --backdrop: rgba(8, 10, 12, 0.62);
+  --dialog-shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+  --duration-fast: 120ms;
+  --ease-out-cubic: cubic-bezier(0.33, 1, 0.68, 1);
   --font-ui: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --font-prose: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-wordmark: "Departure Mono", var(--font-ui);
@@ -48,6 +54,8 @@
     --error-text: #d98c8c;
     --warn-bg: #2b2418;
     --warn-text: #cfa65e;
+    --surface: rgba(127, 127, 127, 0.06);
+    --hover: rgba(127, 127, 127, 0.14);
     --sweep: #e4e7e9;
   }
 }
@@ -76,7 +84,7 @@ h1 {
 }
 
 h2 {
-  font-size: 15px;
+  font-size: 16px;
   margin-bottom: 6px;
 }
 
@@ -248,7 +256,7 @@ textarea {
   font-family: var(--font-ui);
   font-size: 9px;
   font-weight: 600;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
@@ -371,7 +379,7 @@ fieldset.field {
 
 .status {
   border-radius: 0;
-  padding: 9px 12px;
+  padding: 10px 12px;
   font-family: var(--font-prose);
   font-size: 13px;
   line-height: 1.5;
@@ -433,8 +441,8 @@ fieldset.field {
   padding: 10px 12px;
   background: transparent;
   transition:
-    border-color 120ms ease,
-    background-color 120ms ease;
+    border-color var(--duration-fast) var(--ease-out-cubic),
+    background-color var(--duration-fast) var(--ease-out-cubic);
 }
 
 .dropzone-hint {
@@ -471,9 +479,9 @@ fieldset.field {
   justify-content: center;
   width: 100%;
   gap: 12px;
-  border: 1.5px dashed var(--border);
+  border: 1px dashed var(--border);
   border-radius: 0;
-  padding: 36px 20px;
+  padding: 32px 20px;
   background: var(--bg);
   color: var(--text);
   font: inherit;
@@ -481,9 +489,9 @@ fieldset.field {
   text-align: center;
   cursor: pointer;
   transition:
-    border-color 120ms ease,
-    background-color 120ms ease,
-    filter 120ms ease;
+    border-color var(--duration-fast) var(--ease-out-cubic),
+    background-color var(--duration-fast) var(--ease-out-cubic),
+    filter var(--duration-fast) var(--ease-out-cubic);
 }
 
 .upload-zone:hover:not(:disabled) {
@@ -511,8 +519,8 @@ fieldset.field {
   background: var(--panel);
   color: var(--accent);
   transition:
-    border-color 120ms ease,
-    transform 120ms ease;
+    border-color var(--duration-fast) var(--ease-out-cubic),
+    transform var(--duration-fast) var(--ease-out-cubic);
 }
 
 .upload-zone-active .upload-icon,
@@ -627,7 +635,7 @@ fieldset.field {
   margin: 0;
   padding: 0;
   list-style: none;
-  max-height: 380px;
+  max-height: 400px;
   overflow-y: auto;
 }
 
@@ -638,7 +646,7 @@ fieldset.field {
   border: 1px solid var(--border);
   border-radius: 0;
   background: var(--panel);
-  padding: 9px 10px;
+  padding: 10px;
 }
 
 .torrent-head {
@@ -790,13 +798,16 @@ button.client-link:hover:not(:disabled) {
 }
 
 .count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
   border-radius: 0;
   padding: 0 6px;
   background: var(--track);
   color: var(--muted);
   font-size: 9px;
-  line-height: 15px;
+  line-height: 1;
 }
 
 .torrent-name-head {
@@ -826,9 +837,9 @@ button.client-link:hover:not(:disabled) {
   line-height: 1;
   opacity: 1;
   transition:
-    opacity 120ms ease,
-    color 120ms ease,
-    background 120ms ease;
+    opacity var(--duration-fast) var(--ease-out-cubic),
+    color var(--duration-fast) var(--ease-out-cubic),
+    background var(--duration-fast) var(--ease-out-cubic);
 }
 
 /* Remove stays on screen at all times, just quiet until the row is engaged. */
@@ -843,7 +854,7 @@ button.client-link:hover:not(:disabled) {
 }
 
 .row-icon:hover:not(:disabled) {
-  background: rgba(127, 127, 127, 0.14);
+  background: var(--hover);
   color: var(--text);
   filter: none;
 }
@@ -852,7 +863,7 @@ button.client-link:hover:not(:disabled) {
   padding: 0 5px;
   font-size: 9px;
   font-weight: 600;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.06em;
   opacity: 1;
 }
 
@@ -869,7 +880,7 @@ button.client-link:hover:not(:disabled) {
   color: var(--muted);
   font-size: 9px;
   font-weight: 600;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.06em;
   white-space: nowrap;
 }
 
@@ -944,7 +955,7 @@ button.client-link:hover:not(:disabled) {
 
 .remove-confirm button {
   padding: 1px 7px;
-  font-size: 9.5px;
+  font-size: 9px;
 }
 
 .report-backdrop {
@@ -955,7 +966,7 @@ button.client-link:hover:not(:disabled) {
   align-items: center;
   justify-content: center;
   padding: 16px;
-  background: rgba(8, 10, 12, 0.62);
+  background: var(--backdrop);
 }
 
 .report-dialog {
@@ -970,7 +981,7 @@ button.client-link:hover:not(:disabled) {
   background: var(--panel);
   color: var(--text);
   padding: 18px;
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--dialog-shadow);
 }
 
 .report-head {
@@ -987,7 +998,7 @@ button.client-link:hover:not(:disabled) {
 
 .report-close {
   flex: none;
-  padding: 4px 9px;
+  padding: 4px 10px;
   font-size: 11px;
 }
 
@@ -1007,7 +1018,7 @@ button.client-link:hover:not(:disabled) {
   color: var(--text);
   font-family: var(--font-ui);
   font-size: 11px;
-  line-height: 1.55;
+  line-height: 1.5;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   user-select: text;
@@ -1021,7 +1032,7 @@ button.client-link:hover:not(:disabled) {
 
 .report-actions .button,
 .report-actions button {
-  padding: 7px 11px;
+  padding: 7px 12px;
   font-size: 12px;
 }
 

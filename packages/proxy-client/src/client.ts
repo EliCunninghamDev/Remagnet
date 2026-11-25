@@ -200,6 +200,30 @@ export function archiveDownloadUrl(baseUrl: string, hash: string, ticket?: strin
   return url.toString();
 }
 
-function normalizeBaseUrl(baseUrl: string): string {
+/** Trim surrounding whitespace and trailing slashes from a proxy origin. */
+export function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.trim().replace(/\/+$/, "");
+}
+
+/**
+ * Whether a hostname refers to the local machine or the Android emulator host.
+ *
+ * Browsers accept a handful of spellings for loopback (`localhost`, `127.0.0.1`
+ * and both bracketed and bare IPv6 forms), and `10.0.2.2` is how the Android
+ * emulator reaches its host. Matching is case-insensitive.
+ */
+export function isLoopbackHost(hostname: string): boolean {
+  const host = hostname.trim().toLowerCase();
+  return (
+    host === "localhost" ||
+    host === "127.0.0.1" ||
+    host === "::1" ||
+    host === "[::1]" ||
+    host === "10.0.2.2"
+  );
+}
+
+/** Read a human-readable message from any thrown value. */
+export function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

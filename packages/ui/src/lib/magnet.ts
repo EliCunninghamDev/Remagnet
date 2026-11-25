@@ -1,3 +1,8 @@
+import { trackerHostsFromList } from "./torrent-file";
+
+/** Characters of an info hash kept when a full name is unavailable. */
+export const SHORT_HASH_LENGTH = 12;
+
 /** A parsed magnet link. */
 export interface MagnetLink {
   /** The original, trimmed URI. */
@@ -87,21 +92,13 @@ export function magnetFromText(value: string | undefined): string | null {
 /** A readable label for a parsed magnet, falling back to a short hash. */
 export function magnetLabel(magnet: MagnetLink): string {
   if (magnet.displayName) return magnet.displayName;
-  if (magnet.infoHash) return magnet.infoHash.slice(0, 12);
+  if (magnet.infoHash) return magnet.infoHash.slice(0, SHORT_HASH_LENGTH);
   return "Magnet link";
 }
 
 /** Unique tracker hostnames, for a compact summary. */
 export function trackerHosts(magnet: MagnetLink): string[] {
-  const hosts = new Set<string>();
-  for (const tracker of magnet.trackers) {
-    try {
-      hosts.add(new URL(tracker).host);
-    } catch {
-      // Trackers are not always valid URLs; ignore malformed ones.
-    }
-  }
-  return [...hosts];
+  return trackerHostsFromList(magnet.trackers);
 }
 
 function parseBitTorrentHash(value: string): string | null {

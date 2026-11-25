@@ -21,6 +21,42 @@ const FALLBACK: Record<BarPhase, string> = {
 const TILE_VARS = ["--tile-0", "--tile-1", "--tile-2"] as const;
 const IDLE_FALLBACK = ["#4a4e52", "#52565a", "#5a5e62"] as const;
 
+/** Pop highlight: mix each phase color toward the panel's light gray. */
+const LIGHTEN_MIX = 0.55;
+const LIGHTEN_TARGET_RGB: Rgb = [230, 232, 234];
+
+/** Overshoot constant for the ease-out-back pop. */
+const OVERSHOOT_C1 = 1.9;
+
+/** Cap the backing store at 2x; higher densities are not visible here. */
+const DPR_CAP = 2;
+
+/** Delay between neighbouring counter tiles as the readout ripples, in ms. */
+const RIPPLE_STEP_MS = 9;
+/** The endless zip sweep runs at roughly 30fps; other frames follow the display. */
+const FRAME_INTERVAL_MS = 30;
+const COUNTER_POP_MS = 260;
+const COUNTER_FADE_MS = 150;
+/** Peak alpha of the diagonal sweep highlight. */
+const SWEEP_ALPHA = 0.3;
+/** Progress smoothing rate per second and frame-delta fallbacks, in seconds. */
+const PROGRESS_EASE_RATE = 5;
+const MAX_FRAME_SECONDS = 0.05;
+const DEFAULT_FRAME_SECONDS = 0.016;
+const ALPHA_RAMP = 4;
+/** Cells drift outward as they pop, measured in cell widths. */
+const POP_SPREAD_X = 4;
+const POP_LIFT_Y = 2.6;
+const SETTLE_EPSILON = 1e-4;
+const BACKWARD_EPSILON = 1e-3;
+const SNAP_EPSILON = 2e-4;
+const THRESHOLD_EPSILON = 1e-9;
+const PERCENT_EPSILON = 1e-6;
+
+/** Sweep geometry: zip loops forever, done plays once. */
+const ZIP_SWEEP = { pos: -16, speed: 38, width: 14, loop: true } as const;
+const DONE_SWEEP = { pos: -20, speed: 110, width: 20, loop: false } as const;
+
 function parseColor(value: string): Rgb | null {
   const hex = /^#([0-9a-f]{6})$/i.exec(value.trim());
   if (hex?.[1]) {
@@ -46,11 +82,10 @@ function rgbCss([r, g, b]: Rgb, factor = 1): string {
 
 /** Lift a phase color toward the panel's light gray for the pop-in highlight. */
 function lighten(color: Rgb): Rgb {
-  const target: Rgb = [230, 232, 234];
   return [
-    color[0] + (target[0] - color[0]) * 0.55,
-    color[1] + (target[1] - color[1]) * 0.55,
-    color[2] + (target[2] - color[2]) * 0.55,
+    color[0] + (LIGHTEN_TARGET_RGB[0] - color[0]) * LIGHTEN_MIX,
+    color[1] + (LIGHTEN_TARGET_RGB[1] - color[1]) * LIGHTEN_MIX,
+    color[2] + (LIGHTEN_TARGET_RGB[2] - color[2]) * LIGHTEN_MIX,
   ];
 }
 
@@ -63,9 +98,8 @@ function cssColor(host: HTMLElement, name: string, fallback: string): Rgb {
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 const easeOutCubic = (t: number) => 1 - (1 - t) ** 3;
 const easeOutBack = (t: number) => {
-  const c1 = 1.9;
-  const c3 = c1 + 1;
-  return 1 + c3 * (t - 1) ** 3 + c1 * (t - 1) ** 2;
+  const c3 = OVERSHOOT_C1 + 1;
+  return 1 + c3 * (t - 1) ** 3 + OVERSHOOT_C1 * (t - 1) ** 2;
 };
 
 /**
@@ -135,7 +169,7 @@ class SquareBarCanvas {
     this.host = host;
     this.step = this.o.cell + this.o.gap;
     this.height = this.o.rows * this.step - this.o.gap;
-    this.pad = Math.ceil(this.o.cell * 3.5);
+    this.pad = barLayout(0, this.o).pad;
     this.reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
     const idle = TILE_VARS.map((name, index) => {
       return cssColor(host, name, IDLE_FALLBACK[index] ?? IDLE_FALLBACK[0]);
@@ -190,8 +224,8 @@ class SquareBarCanvas {
   setProgress(progress: number): void {
     const value = clamp(progress, 0, 1);
     // Floor the readout so 100% never appears before the torrent is complete.
-    const percent = Math.floor(value * 100 + 1e-6);
-    if (value < this.displayed - 1e-3) {
+    const percent = Math.floor(value * 100 + PERCENT_EPSILON);
+    if (value < this.displayed - BACKWARD_EPSILON) {
       this.displayed = value;
       this.counterPercent = percent;
       this.rebuild(value);
@@ -215,7 +249,7 @@ class SquareBarCanvas {
     const value = clamp(progress, 0, 1);
     this.displayed = value;
     this.target = value;
-    this.counterPercent = Math.floor(value * 100 + 1e-6);
+    this.counterPercent = Math.floor(value * 100 + PERCENT_EPSILON);
     this.lastPercent = this.counterPercent;
     this.host.setAttribute("aria-valuenow", String(this.lastPercent));
     this.host.setAttribute("aria-valuetext", `${this.lastPercent}%`);
@@ -235,9 +269,9 @@ class SquareBarCanvas {
       this.sweep = null;
       return;
     }
-    if (phase === "zip") this.sweep = { pos: -16, speed: 38, width: 14, loop: true };
+    if (phase === "zip") this.sweep = { ...ZIP_SWEEP };
     else if (phase === "done" && animate) {
-      this.sweep = { pos: -20, speed: 110, width: 20, loop: false };
+      this.sweep = { ...DONE_SWEEP };
     } else this.sweep = null;
     this.wake();
   }
@@ -255,7 +289,7 @@ class SquareBarCanvas {
 
     const layout = barLayout(width, this.o);
     const canvasHeight = this.height + this.pad * 2;
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const dpr = Math.min(window.devicePixelRatio || 1, DPR_CAP);
 
     for (const canvas of [this.base, this.fx]) {
       canvas.width = Math.round(width * dpr);
@@ -379,7 +413,7 @@ class SquareBarCanvas {
         if (state === 1 || state === 2) continue;
         this.counterStates[index] = 1;
         // Left-to-right ripple across the readout.
-        this.counterStarts[index] = now + (index % this.counterCols) * 9;
+        this.counterStarts[index] = now + (index % this.counterCols) * RIPPLE_STEP_MS;
       } else {
         if (state === 0 || state === 3) continue;
         if (state === 2) this.drawCounterTrack(index);
@@ -441,25 +475,30 @@ class SquareBarCanvas {
       sweep?.loop &&
       this.animating.length === 0 &&
       this.counterAnimating.length === 0 &&
-      now - this.lastFrame < 30 &&
-      Math.abs(this.target - this.displayed) < 1e-4
+      now - this.lastFrame < FRAME_INTERVAL_MS &&
+      Math.abs(this.target - this.displayed) < SETTLE_EPSILON
     ) {
       this.frame = requestAnimationFrame(this.tick);
       return;
     }
 
-    const delta = Math.min(0.05, (now - this.lastFrame) / 1000 || 0.016);
+    const delta = Math.min(
+      MAX_FRAME_SECONDS,
+      (now - this.lastFrame) / 1000 || DEFAULT_FRAME_SECONDS,
+    );
     this.lastFrame = now;
 
     const difference = this.target - this.displayed;
-    if (Math.abs(difference) > 1e-4) {
-      this.displayed += this.reduce ? difference : difference * (1 - Math.exp(-delta * 5));
-      if (Math.abs(this.target - this.displayed) < 2e-4) this.displayed = this.target;
+    if (Math.abs(difference) > SETTLE_EPSILON) {
+      this.displayed += this.reduce
+        ? difference
+        : difference * (1 - Math.exp(-delta * PROGRESS_EASE_RATE));
+      if (Math.abs(this.target - this.displayed) < SNAP_EPSILON) this.displayed = this.target;
     }
 
     while (
       this.pointer < this.count &&
-      (this.thresholds[this.order[this.pointer] ?? 0] ?? 1) <= this.displayed + 1e-9
+      (this.thresholds[this.order[this.pointer] ?? 0] ?? 1) <= this.displayed + THRESHOLD_EPSILON
     ) {
       const index = this.order[this.pointer] ?? 0;
       this.pointer++;
@@ -494,12 +533,12 @@ class SquareBarCanvas {
       const eased = easeOutCubic(t);
       const size = easeOutBack(t) * cell;
       const direction = row < middle ? -1 : row > middle ? 1 : 0;
-      const centerX = x + cell / 2 + (direction === 0 ? -(1 - eased) * cell * 4 : 0);
-      const centerY = y + cell / 2 + (1 - eased) * direction * cell * 2.6;
+      const centerX = x + cell / 2 + (direction === 0 ? -(1 - eased) * cell * POP_SPREAD_X : 0);
+      const centerY = y + cell / 2 + (1 - eased) * direction * cell * POP_LIFT_Y;
       const [ar, ag, ab] = this.colors[this.phase ?? "fetch"];
       const factor = SHADE_FACTORS[this.shadeIndex[index] ?? 0] ?? 1;
       const [hr, hg, hb] = this.hot[this.phase ?? "fetch"];
-      context.globalAlpha = Math.min(1, t * 4);
+      context.globalAlpha = Math.min(1, t * ALPHA_RAMP);
       context.fillStyle = `rgb(${
         (hr + (ar * factor - hr) * eased) | 0
       },${(hg + (ag * factor - hg) * eased) | 0},${(hb + (ab * factor - hb) * eased) | 0})`;
@@ -521,7 +560,7 @@ class SquareBarCanvas {
       const [x, y] = this.counterCoordinates(index);
 
       if (this.counterStates[index] === 1) {
-        const t = elapsed / 260;
+        const t = elapsed / COUNTER_POP_MS;
         if (t >= 1) {
           this.drawCounterLit(index);
           this.counterActive[index] = 0;
@@ -533,7 +572,7 @@ class SquareBarCanvas {
         }
         const eased = easeOutCubic(t);
         const size = easeOutBack(t) * counterTile;
-        context.globalAlpha = Math.min(1, t * 4);
+        context.globalAlpha = Math.min(1, t * ALPHA_RAMP);
         context.fillStyle = `rgb(${
           (chr + (cr - chr) * eased) | 0
         },${(chg + (cg - chg) * eased) | 0},${(chb + (cb - chb) * eased) | 0})`;
@@ -544,7 +583,7 @@ class SquareBarCanvas {
           size,
         );
       } else {
-        const t = elapsed / 150;
+        const t = elapsed / COUNTER_FADE_MS;
         if (t >= 1) {
           this.counterStates[index] = 0;
           this.counterActive[index] = 0;
@@ -573,7 +612,7 @@ class SquareBarCanvas {
           if (this.states[index] !== 2) continue;
           const distance = Math.abs(col + row - sweep.pos) / sweep.width;
           if (distance >= 1) continue;
-          context.globalAlpha = (1 - distance) ** 2 * 0.3;
+          context.globalAlpha = (1 - distance) ** 2 * SWEEP_ALPHA;
           const [x, y] = this.coordinates(index);
           context.fillRect(x, y, cell, cell);
         }
@@ -591,7 +630,7 @@ class SquareBarCanvas {
     if (
       this.animating.length ||
       this.counterAnimating.length ||
-      Math.abs(this.target - this.displayed) > 1e-4 ||
+      Math.abs(this.target - this.displayed) > SETTLE_EPSILON ||
       this.sweep !== null
     ) {
       this.frame = requestAnimationFrame(this.tick);

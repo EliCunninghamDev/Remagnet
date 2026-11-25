@@ -1,6 +1,6 @@
 import { Show } from "solid-js";
 import { formatBytes, formatEta, splitTorrentName, stateLabel, stateTone } from "../lib/format";
-import { COMPLETE_PROGRESS, type TorrentSummary } from "../lib/torrents";
+import { isTorrentComplete, type TorrentSummary } from "../lib/torrents";
 import SquareBar, { type BarPhase } from "./SquareBar";
 
 export interface TorrentCardProps {
@@ -26,7 +26,7 @@ export interface TorrentCardProps {
  * client.
  */
 export default function TorrentCard(props: TorrentCardProps) {
-  const complete = () => props.torrent.progress >= COMPLETE_PROGRESS;
+  const complete = () => isTorrentComplete(props.torrent);
 
   const status = (): { phase: BarPhase; label: string } => {
     if (props.zipping) return { phase: "zip", label: "Zipping" };

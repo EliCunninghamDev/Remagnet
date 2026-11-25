@@ -1,4 +1,5 @@
 import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js";
+import { COPY_FEEDBACK_MS, copyText } from "../lib/clipboard";
 import { buildIssueReport, type IssueReportContext } from "../lib/issue-report";
 
 export interface IssueReportDialogProps {
@@ -67,21 +68,12 @@ export default function IssueReportDialog(props: IssueReportDialogProps) {
     copyTimer = window.setTimeout(() => {
       copyTimer = undefined;
       setCopyState("idle");
-    }, 2000);
+    }, COPY_FEEDBACK_MS);
   }
 
   async function copyDiagnostics() {
-    const text = report().diagnostics;
-    try {
-      await navigator.clipboard.writeText(text);
-      flash("copied");
-    } catch {
-      // Older browsers and denied permissions can reject the async clipboard;
-      // fall back to selecting a transient textarea so the user still gets the
-      // text without an unhandled rejection.
-      if (legacyCopy(text)) flash("copied");
-      else flash("failed");
-    }
+    const copied = await copyText(report().diagnostics);
+    flash(copied ? "copied" : "failed");
   }
 
   const copyLabel = () => {
@@ -141,21 +133,4 @@ function platformSummary(): string {
   if (typeof navigator === "undefined") return "";
   const nav = navigator as Navigator & { userAgentData?: { platform?: string } };
   return (nav.userAgentData?.platform || nav.platform || "").trim();
-}
-
-function legacyCopy(text: string): boolean {
-  try {
-    const area = document.createElement("textarea");
-    area.value = text;
-    area.setAttribute("readonly", "");
-    area.style.position = "fixed";
-    area.style.opacity = "0";
-    document.body.appendChild(area);
-    area.select();
-    const copied = typeof document.execCommand === "function" && document.execCommand("copy");
-    document.body.removeChild(area);
-    return copied;
-  } catch {
-    return false;
-  }
 }

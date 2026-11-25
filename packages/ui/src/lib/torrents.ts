@@ -8,6 +8,9 @@
 /** Progress at or above this is treated as complete everywhere. */
 export const COMPLETE_PROGRESS = 0.999_999;
 
+/** Smallest torrent count that earns a count badge instead of a plain number. */
+export const COUNT_BADGE_MIN = 2;
+
 /**
  * A normalized lifecycle state.
  *
@@ -50,4 +53,19 @@ export interface TorrentSummary {
   tags: string[];
   seeds: number;
   peers: number;
+}
+
+/**
+ * Whether a torrent can be treated as finished.
+ *
+ * A torrent at full progress can still be unusable: the client may have lost
+ * its files, or the torrent may have failed. Those states stay incomplete so
+ * the Download action never offers a broken archive.
+ */
+export function isTorrentComplete(torrent: Pick<TorrentSummary, "progress" | "state">): boolean {
+  return (
+    torrent.progress >= COMPLETE_PROGRESS &&
+    torrent.state !== "error" &&
+    torrent.state !== "missingFiles"
+  );
 }

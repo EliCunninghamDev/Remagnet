@@ -6,8 +6,9 @@
  * plain JSON-serializable data using the 2025.10 DTCG schema:
  * https://www.designtokens.org/tr/2025.10/format/
  *
- * The browser extension's CSS variables in `extension/assets/app.css` mirror
- * these values. Keep the two in sync when changing the visual system.
+ * The light and dark CSS variables in `packages/ui/src/styles/base.css` and the
+ * popup overrides in `extension/assets/app.css` mirror these values. Keep them
+ * in sync when changing the visual system.
  */
 
 /** sRGB color token helper. `hex` must be a six-digit CSS hex color. */

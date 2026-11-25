@@ -1,4 +1,5 @@
 import { createSignal, onMount, Show } from "solid-js";
+import { MAX_TORRENT_FILE_BYTES } from "../lib/torrent-file";
 import type { FlowStatus } from "./flow-status";
 
 export interface TorrentFileUploadProps {
@@ -70,7 +71,7 @@ export default function TorrentFileUpload(props: TorrentFileUploadProps) {
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
-            stroke-width="1.75"
+            stroke-width="1.6"
             stroke-linecap="round"
             stroke-linejoin="round"
             aria-hidden="true"
@@ -84,7 +85,9 @@ export default function TorrentFileUpload(props: TorrentFileUploadProps) {
         <span class="upload-title">
           {dragging() ? "Drop .torrent file to upload" : "Drag and drop a file to upload or click"}
         </span>
-        <span class="upload-hint">.torrent files up to 10 MiB</span>
+        <span class="upload-hint">
+          .torrent files up to {MAX_TORRENT_FILE_BYTES / (1024 * 1024)} MiB
+        </span>
       </button>
 
       <input
