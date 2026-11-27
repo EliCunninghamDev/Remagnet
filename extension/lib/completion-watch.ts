@@ -2,8 +2,9 @@ import { isTorrentComplete } from "@remagnet/ui/lib/torrents";
 import { browser } from "wxt/browser";
 import { storage } from "wxt/utils/storage";
 import { openToolbarPopup } from "./action-popup";
+import { applyToolbarBadge, computeToolbarBadge } from "./badge";
 import { completionTransitions, type WatchState } from "./completion";
-import { getSettings, isProxyConfigured } from "./settings";
+import { getSettings, isProxyConfigured, watchSettings } from "./settings";
 import { getTorrent, listTorrents } from "./torrent-service";
 import type { TorrentSummary } from "./torrents";
 
@@ -39,7 +40,23 @@ export function startCompletionWatch(): void {
     void browser.notifications.clear(notificationId);
   });
 
+  watchSettings(() => void checkCompletions());
+
   void checkCompletions();
+}
+
+/**
+ * Refresh the toolbar badge without touching completion-watch state.
+ *
+ * `torrents:list` already has a fresh list, so it can skip a second request.
+ */
+export async function syncToolbarBadge(torrents: readonly TorrentSummary[]): Promise<void> {
+  const settings = await getSettings();
+  if (!isProxyConfigured(settings) || !settings.toolbarBadge) {
+    await applyToolbarBadge(null);
+    return;
+  }
+  await applyToolbarBadge(computeToolbarBadge(torrents));
 }
 
 export async function checkCompletions(): Promise<void> {
@@ -49,9 +66,24 @@ export async function checkCompletions(): Promise<void> {
   try {
     // Polling without a configured proxy is expected; stay quiet until setup.
     const settings = await getSettings();
-    if (!isProxyConfigured(settings) || !settings.downloadNotifications) return;
+    if (!isProxyConfigured(settings)) {
+      await applyToolbarBadge(null);
+      return;
+    }
+    if (!settings.downloadNotifications && !settings.toolbarBadge) {
+      await applyToolbarBadge(null);
+      return;
+    }
 
     const torrents = await listTorrents();
+    if (settings.toolbarBadge) {
+      await applyToolbarBadge(computeToolbarBadge(torrents));
+    } else {
+      await applyToolbarBadge(null);
+    }
+
+    if (!settings.downloadNotifications) return;
+
     const previous = await watchItem.getValue();
     const { next, completed } = completionTransitions(previous, torrents);
     await watchItem.setValue(next);

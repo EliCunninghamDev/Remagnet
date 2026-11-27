@@ -5,6 +5,8 @@ export {
   createPublicProxyClient,
   describeNetworkError,
   errorMessage,
+  fileArchiveDownloadUrl,
+  fileArchiveUrl,
   isLoopbackHost,
   normalizeBaseUrl,
   type ProxyClient,

@@ -1,5 +1,14 @@
-import { COUNT_BADGE_MIN } from "@remagnet/ui";
-import { Index, Show } from "solid-js";
+import {
+  COUNT_BADGE_MIN,
+  countTorrentFilters,
+  filterAndSortTorrents,
+  isTorrentPaused,
+  type TorrentFile,
+  type TorrentFilter,
+  TorrentListControls,
+  type TorrentSort,
+} from "@remagnet/ui";
+import { createMemo, createSignal, Index, Show } from "solid-js";
 import type { TorrentSummary } from "../lib/torrents";
 import TorrentCard from "./TorrentCard";
 import Wordmark from "./Wordmark";
@@ -16,6 +25,20 @@ export interface PopupListProps {
   downloadingHash?: string;
   removingHash?: string;
   confirmingHash?: string;
+  /** Hash of the torrent whose pause/resume request is in flight. */
+  togglingHash?: string;
+  /** A bulk pause or resume is in flight; row controls stay disabled. */
+  bulkAction?: "pause" | "resume";
+  /** Hash of the torrent whose file browser is expanded. */
+  expandedHash?: string;
+  /** Files already fetched, keyed by torrent hash. */
+  filesByHash?: Record<string, TorrentFile[]>;
+  /** Hash of the torrent whose file list is being fetched. */
+  filesLoadingHash?: string;
+  /** Error shown inside the expanded file browser. */
+  filesError?: string;
+  /** File whose download is in flight. */
+  downloadingFile?: { hash: string; index: number };
   onRetry: () => void;
   onOpenSettings: () => void;
   onDismissActionError: () => void;
@@ -25,6 +48,11 @@ export interface PopupListProps {
   onReportActionError?: () => void;
   onAdd: () => void;
   onZip: (torrent: TorrentSummary) => void;
+  onToggleFiles?: (torrent: TorrentSummary) => void;
+  onDownloadFile?: (torrent: TorrentSummary, file: TorrentFile) => void;
+  onTogglePause?: (torrent: TorrentSummary) => void;
+  onPauseAll?: () => void;
+  onResumeAll?: () => void;
   onRemoveToggle: (torrent: TorrentSummary) => void;
   onRemove: (torrent: TorrentSummary, deleteFiles: boolean) => void;
   onCancelRemove: () => void;
@@ -41,6 +69,25 @@ export default function PopupList(props: PopupListProps) {
   const wordmarkTitle = () =>
     props.serverLabel ? `Remagnet Proxy · ${props.serverLabel}` : "Remagnet Proxy";
 
+  const [query, setQuery] = createSignal("");
+  const [filter, setFilter] = createSignal<TorrentFilter>("all");
+  const [sort, setSort] = createSignal<TorrentSort>("added");
+
+  const filterCounts = createMemo(() => countTorrentFilters(props.torrents));
+  const visibleTorrents = createMemo(() =>
+    filterAndSortTorrents(props.torrents, { query: query(), filter: filter(), sort: sort() }),
+  );
+  const showControls = () =>
+    props.torrents.length >= COUNT_BADGE_MIN || query().trim().length > 0 || filter() !== "all";
+
+  const hasActive = () => props.torrents.some((torrent) => !isTorrentPaused(torrent));
+  const hasPaused = () => props.torrents.some((torrent) => isTorrentPaused(torrent));
+
+  function resetFilters() {
+    setQuery("");
+    setFilter("all");
+  }
+
   return (
     <>
       <header class="popup-header">
@@ -53,6 +100,34 @@ export default function PopupList(props: PopupListProps) {
           </div>
         </div>
         <div class="header-actions">
+          <Show when={props.configured && props.onPauseAll && hasActive()}>
+            <button
+              class="ghost icon-button"
+              type="button"
+              title="Pause all torrents"
+              aria-label="Pause all torrents"
+              disabled={Boolean(props.bulkAction)}
+              onClick={() => props.onPauseAll?.()}
+            >
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M5.5 3.5v9M10.5 3.5v9" />
+              </svg>
+            </button>
+          </Show>
+          <Show when={props.configured && props.onResumeAll && hasPaused()}>
+            <button
+              class="ghost icon-button"
+              type="button"
+              title="Resume all torrents"
+              aria-label="Resume all torrents"
+              disabled={Boolean(props.bulkAction)}
+              onClick={() => props.onResumeAll?.()}
+            >
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M5.25 3.5 12 8l-6.75 4.5z" stroke-linejoin="round" />
+              </svg>
+            </button>
+          </Show>
           <button
             class="add-button"
             type="button"
@@ -154,27 +229,76 @@ export default function PopupList(props: PopupListProps) {
                 </p>
               }
             >
-              <ul class="torrent-list">
-                {/*
-                  Index (not For) keeps each row's DOM and canvas alive while the
-                  polled list replaces its objects. For would remount every bar on
-                  every refresh and replay the fill and sweep.
-                */}
-                <Index each={props.torrents}>
-                  {(torrent) => (
-                    <TorrentCard
-                      torrent={torrent()}
-                      zipping={props.downloadingHash === torrent().hash}
-                      removing={props.removingHash === torrent().hash}
-                      confirming={props.confirmingHash === torrent().hash}
-                      onZip={() => props.onZip(torrent())}
-                      onRemoveToggle={() => props.onRemoveToggle(torrent())}
-                      onRemove={(deleteFiles) => props.onRemove(torrent(), deleteFiles)}
-                      onCancelRemove={() => props.onCancelRemove()}
-                    />
-                  )}
-                </Index>
-              </ul>
+              <Show when={showControls()}>
+                <TorrentListControls
+                  query={query()}
+                  filter={filter()}
+                  sort={sort()}
+                  counts={filterCounts()}
+                  onQueryChange={setQuery}
+                  onFilterChange={setFilter}
+                  onSortChange={setSort}
+                />
+              </Show>
+
+              <Show
+                when={visibleTorrents().length > 0}
+                fallback={
+                  <div class="list-empty-filter">
+                    <p class="muted">No torrents match your filter.</p>
+                    <button type="button" class="ghost" onClick={resetFilters}>
+                      Reset filters
+                    </button>
+                  </div>
+                }
+              >
+                <ul class="torrent-list">
+                  {/*
+                    Index (not For) keeps each row's DOM and canvas alive while the
+                    polled list replaces its objects. For would remount every bar on
+                    every refresh and replay the fill and sweep.
+                  */}
+                  <Index each={visibleTorrents()}>
+                    {(torrent) => (
+                      <TorrentCard
+                        torrent={torrent()}
+                        zipping={props.downloadingHash === torrent().hash}
+                        removing={props.removingHash === torrent().hash}
+                        confirming={props.confirmingHash === torrent().hash}
+                        togglingPause={
+                          props.togglingHash === torrent().hash || Boolean(props.bulkAction)
+                        }
+                        filesOpen={props.expandedHash === torrent().hash}
+                        files={props.filesByHash?.[torrent().hash]}
+                        filesLoading={props.filesLoadingHash === torrent().hash}
+                        filesError={
+                          props.expandedHash === torrent().hash ? props.filesError : undefined
+                        }
+                        downloadingFileIndex={
+                          props.downloadingFile?.hash === torrent().hash
+                            ? props.downloadingFile.index
+                            : undefined
+                        }
+                        onToggleFiles={
+                          props.onToggleFiles ? () => props.onToggleFiles?.(torrent()) : undefined
+                        }
+                        onDownloadFile={
+                          props.onDownloadFile
+                            ? (file) => props.onDownloadFile?.(torrent(), file)
+                            : undefined
+                        }
+                        onZip={() => props.onZip(torrent())}
+                        onTogglePause={
+                          props.onTogglePause ? () => props.onTogglePause?.(torrent()) : undefined
+                        }
+                        onRemoveToggle={() => props.onRemoveToggle(torrent())}
+                        onRemove={(deleteFiles) => props.onRemove(torrent(), deleteFiles)}
+                        onCancelRemove={() => props.onCancelRemove()}
+                      />
+                    )}
+                  </Index>
+                </ul>
+              </Show>
             </Show>
           </Show>
         </Show>

@@ -133,7 +133,7 @@ class ArchiveDownloadService : Service() {
             val opened = ArchiveDownloader(
                 baseUrl = settings.proxyBaseUrl,
                 token = settings.proxyToken,
-            ).open(request.hash)
+            ).open(request.hash, request.fileIndex)
             if (opened is ArchiveOpenResult.Failed) throw ArchiveFailure(opened.message)
             opened as ArchiveOpenResult.Ready
             activeStream = opened.stream
@@ -148,9 +148,12 @@ class ArchiveDownloadService : Service() {
             }
 
             val directory = archiveDirectory(this)
-            val target = uniqueArchiveFile(
+            val target = uniqueDownloadFile(
                 directory,
-                safeArchiveName(opened.suggestedName ?: request.name),
+                safeDownloadName(
+                    opened.suggestedName ?: request.name,
+                    fallbackIsZip = opened.suggestedName == null && request.fileIndex == null,
+                ),
             )
             part = File(directory, "${target.name}.part")
 
@@ -299,7 +302,7 @@ class ArchiveDownloadService : Service() {
             .setSmallIcon(R.drawable.ic_notification_download)
             .setContentTitle(request.name)
             .setContentText(transferred)
-            .setSubText("Archive download")
+            .setSubText("Downloading")
             .setContentIntent(openAppIntent())
             .setOngoing(true)
             .setOnlyAlertOnce(true)
@@ -313,7 +316,7 @@ class ArchiveDownloadService : Service() {
     private fun completeNotification(fileName: String, path: String): Notification =
         NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification_download)
-            .setContentTitle("Archive ready")
+            .setContentTitle("Download ready")
             .setContentText(fileName)
             .setContentIntent(openArchiveIntent(path))
             .setAutoCancel(true)
@@ -324,7 +327,7 @@ class ArchiveDownloadService : Service() {
     private fun failedNotification(request: ArchiveRequest, message: String): Notification =
         NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification_download)
-            .setContentTitle("Archive download failed")
+            .setContentTitle("Download failed")
             .setContentText(message)
             .setStyle(NotificationCompat.BigTextStyle().bigText(message))
             .setContentIntent(openAppIntent())
@@ -337,7 +340,7 @@ class ArchiveDownloadService : Service() {
     private fun cancelledNotification(request: ArchiveRequest): Notification =
         NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification_download)
-            .setContentTitle("Archive download cancelled")
+            .setContentTitle("Download cancelled")
             .setContentText(request.name)
             .setContentIntent(openAppIntent())
             .setAutoCancel(true)
@@ -390,7 +393,8 @@ class ArchiveDownloadService : Service() {
                 .setAction(ACTION_START)
                 .putExtra(EXTRA_HASH, request.hash)
                 .putExtra(EXTRA_NAME, request.name)
-                .putExtra(EXTRA_SIZE, request.size),
+                .putExtra(EXTRA_SIZE, request.size)
+                .putExtra(EXTRA_FILE_INDEX, request.fileIndex ?: -1L),
             pendingFlags(),
         )
 
@@ -425,6 +429,7 @@ class ArchiveDownloadService : Service() {
             hash = hash,
             name = getStringExtra(EXTRA_NAME) ?: "Archive",
             size = getLongExtra(EXTRA_SIZE, 0),
+            fileIndex = getLongExtra(EXTRA_FILE_INDEX, -1L).takeIf { it >= 0 },
         )
     }
 
@@ -437,6 +442,7 @@ class ArchiveDownloadService : Service() {
         const val EXTRA_HASH = "archive-hash"
         const val EXTRA_NAME = "archive-name"
         const val EXTRA_SIZE = "archive-size"
+        const val EXTRA_FILE_INDEX = "archive-file-index"
 
         const val NOTIFICATION_ID = 4101
 
@@ -459,7 +465,8 @@ class ArchiveDownloadService : Service() {
                     .setAction(ACTION_START)
                     .putExtra(EXTRA_HASH, request.hash)
                     .putExtra(EXTRA_NAME, request.name)
-                    .putExtra(EXTRA_SIZE, request.size),
+                    .putExtra(EXTRA_SIZE, request.size)
+                    .putExtra(EXTRA_FILE_INDEX, request.fileIndex ?: -1L),
             )
         }
 

@@ -604,6 +604,20 @@ export default function App() {
             <small>Show a browser notification when a Remagnet torrent finishes downloading.</small>
           </div>
 
+          <div class="field">
+            <label class="check">
+              <input
+                type="checkbox"
+                checked={settings().toolbarBadge}
+                onChange={(event) =>
+                  void savePreference({ toolbarBadge: event.currentTarget.checked })
+                }
+              />
+              Show toolbar badge
+            </label>
+            <small>Display active or completed torrent counts on the Remagnet toolbar icon.</small>
+          </div>
+
           <Show when={preferenceStatus()}>
             {(message) => <p class="status error">Could not save preference: {message()}</p>}
           </Show>
@@ -696,6 +710,7 @@ function normalize(values: Settings): Settings {
     proxyToken: values.proxyToken.trim(),
     torrentFileSurface: values.torrentFileSurface,
     downloadNotifications: values.downloadNotifications,
+    toolbarBadge: values.toolbarBadge,
   };
 }
 

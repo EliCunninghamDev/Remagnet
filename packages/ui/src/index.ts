@@ -14,6 +14,10 @@ export {
   default as TorrentFileUpload,
   type TorrentFileUploadProps,
 } from "./components/TorrentFileUpload";
+export {
+  default as TorrentListControls,
+  type TorrentListControlsProps,
+} from "./components/TorrentListControls";
 export { default as Wordmark, type WordmarkProps, type WordmarkSize } from "./components/Wordmark";
 export * from "./lib/clipboard";
 export * from "./lib/format";

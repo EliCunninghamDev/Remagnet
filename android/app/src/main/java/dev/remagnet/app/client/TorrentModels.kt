@@ -73,6 +73,24 @@ data class TorrentSummary(
         get() = progress >= COMPLETE_PROGRESS || state == TorrentState.Seeding
 }
 
+/** One wanted file inside a torrent. */
+data class TorrentFile(
+    /** The client-assigned file index, also used by the single-file download route. */
+    val index: Long,
+    /** File path relative to the torrent root. */
+    val name: String,
+    val size: Long,
+    /** Fraction complete, 0..1. */
+    val progress: Double,
+) {
+    val isComplete: Boolean
+        get() = progress >= COMPLETE_PROGRESS
+
+    /** The basename, without the torrent's directory components. */
+    val displayName: String
+        get() = name.trim().replace('\\', '/').split('/').lastOrNull { it.isNotEmpty() } ?: name.trim()
+}
+
 /** Versions and defaults returned by a successful connection test. */
 data class ConnectionDetails(
     val clientLabel: String,

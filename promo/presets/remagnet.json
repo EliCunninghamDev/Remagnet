@@ -1,0 +1,67 @@
+{
+  "id": "remagnet",
+  "name": "Remagnet · GitHub Hero (Duo)",
+  "output": "github/hero-duo-1200x630.png",
+  "sizeId": "og",
+  "device": "duo",
+  "finish": "titanium",
+  "cameraPreset": "split",
+  "yaw": -0.241,
+  "pitch": 0.167,
+  "roll": -0.015,
+  "zoom": 1.429,
+  "offsetX": 0.476,
+  "offsetY": 0.171,
+  "lidAngle": 108,
+  "deviceScale": 1.06,
+  "glassSheen": 0.75,
+  "shadowOpacity": 0.45,
+  "aoStrength": 0.72,
+  "floatAnim": true,
+  "shaderSpeed": 0.75,
+  "shaderMode": 5,
+  "palette": "remagnet",
+  "background": {
+    "mode": 5,
+    "base": "#111317",
+    "colorA": "#ae514c",
+    "colorB": "#70a3d2",
+    "colorC": "#ecebe6",
+    "distort": 0.55,
+    "glow": 0.6,
+    "grain": 0.18,
+    "chroma": 0.18
+  },
+  "screenTemplate": "remagnet-popup",
+  "screenTemplate2": "remagnet-android",
+  "animateDemo": false,
+  "copyLayout": "split-left",
+  "copyTheme": "light",
+  "eyebrow": "",
+  "headline": "Remagnet",
+  "subheadline": "A painless torrent remote.",
+  "badges": "Firefox, Chrome, Android, Zero Telemetry",
+  "brandIconUrl": "/project-assets/icon/remagnet-small.svg",
+  "fonts": [
+    {
+      "family": "Departure Mono",
+      "weight": 400,
+      "url": "/project-assets/fonts/departure-mono-regular.woff2"
+    },
+    {
+      "family": "Geist Mono",
+      "weight": 400,
+      "url": "/project-assets/fonts/geist-mono-latin-400-normal.woff2"
+    },
+    {
+      "family": "Geist Mono",
+      "weight": 500,
+      "url": "/project-assets/fonts/geist-mono-latin-500-normal.woff2"
+    },
+    {
+      "family": "Geist Mono",
+      "weight": 600,
+      "url": "/project-assets/fonts/geist-mono-latin-600-normal.woff2"
+    }
+  ]
+}

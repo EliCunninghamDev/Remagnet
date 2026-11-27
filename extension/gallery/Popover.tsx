@@ -28,6 +28,9 @@ export default function Popover() {
                 onDismissActionError={() => undefined}
                 onAdd={() => undefined}
                 onZip={() => undefined}
+                onTogglePause={() => undefined}
+                onPauseAll={() => undefined}
+                onResumeAll={() => undefined}
                 onRemoveToggle={(torrent) =>
                   setConfirming(confirming() === torrent.hash ? undefined : torrent.hash)
                 }

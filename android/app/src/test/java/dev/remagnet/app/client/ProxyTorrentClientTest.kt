@@ -9,6 +9,7 @@ import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -18,8 +19,18 @@ class ProxyTorrentClientTest {
     private lateinit var server: HttpServer
     private val authorization = AtomicReference<String?>(null)
     private val addBody = AtomicReference<String?>(null)
+    private val requestPath = AtomicReference<String?>(null)
     private var listCode = 200
+    private var filesCode = 200
     private var addCode = 200
+    private var pauseCode = 204
+    private var pauseBody = ""
+    private var resumeCode = 204
+    private var resumeBody = ""
+    private var pauseAllCode = 204
+    private var pauseAllBody = ""
+    private var resumeAllCode = 204
+    private var resumeAllBody = ""
     private var addResponse =
         """{"added":1,"hashes":["abc123"],""" +
             """"category":"remagnet","tags":["linux"]}"""
@@ -44,13 +55,45 @@ class ProxyTorrentClientTest {
           ]
         }
     """.trimIndent()
+    private var filesBody = """
+        {
+          "files": [
+            {
+              "index": 0,
+              "name": "Show/Season 1/Episode.mkv",
+              "size": 1048576,
+              "progress": 1.0
+            },
+            {
+              "index": 1,
+              "name": "Show/Season 1/Extra.iso",
+              "size": 2048,
+              "progress": 0.5
+            }
+          ]
+        }
+    """.trimIndent()
 
     @Before
     fun setUp() {
         server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         server.createContext("/api/torrents") { exchange ->
             authorization.set(exchange.requestHeaders.getFirst("Authorization"))
+            requestPath.set(exchange.requestURI.path)
+            val path = exchange.requestURI.path
             when {
+                exchange.requestMethod == "POST" && path == "/api/torrents/pause" ->
+                    respond(exchange, pauseAllCode, pauseAllBody)
+
+                exchange.requestMethod == "POST" && path == "/api/torrents/resume" ->
+                    respond(exchange, resumeAllCode, resumeAllBody)
+
+                exchange.requestMethod == "POST" && path.endsWith("/pause") ->
+                    respond(exchange, pauseCode, pauseBody)
+
+                exchange.requestMethod == "POST" && path.endsWith("/resume") ->
+                    respond(exchange, resumeCode, resumeBody)
+
                 exchange.requestMethod == "POST" -> {
                     addBody.set(exchange.requestBody.readBytes().decodeToString())
                     respond(exchange, addCode, addResponse)
@@ -58,6 +101,9 @@ class ProxyTorrentClientTest {
 
                 exchange.requestMethod == "GET" && exchange.requestURI.path.endsWith("/missing") ->
                     respond(exchange, 404, """{"error":"Not found."}""")
+
+                exchange.requestMethod == "GET" && exchange.requestURI.path.endsWith("/files") ->
+                    respond(exchange, filesCode, filesBody)
 
                 exchange.requestMethod == "GET" -> respond(exchange, listCode, listBody)
                 else -> respond(exchange, 204, "")
@@ -100,6 +146,46 @@ class ProxyTorrentClientTest {
         val result = client().listTorrents() as QbitResult.Success
 
         assertEquals(0, result.value.single().seeds)
+    }
+
+    @Test
+    fun listsAndMapsTheFilesInATorrent() = runBlocking {
+        val result = client().listTorrentFiles("  abc123  ")
+
+        assertTrue(result.toString(), result is QbitResult.Success)
+        val files = (result as QbitResult.Success).value
+        assertEquals(2, files.size)
+
+        val first = files[0]
+        assertEquals(0L, first.index)
+        assertEquals("Show/Season 1/Episode.mkv", first.name)
+        assertEquals("Episode.mkv", first.displayName)
+        assertEquals(1048576L, first.size)
+        assertEquals(1.0, first.progress, 0.0001)
+        assertTrue(first.isComplete)
+
+        val second = files[1]
+        assertEquals(1L, second.index)
+        assertEquals("Extra.iso", second.displayName)
+        assertEquals(2048L, second.size)
+        assertFalse(second.isComplete)
+
+        assertEquals("/api/torrents/abc123/files", requestPath.get())
+        assertEquals("Bearer 0123456789abcdef", authorization.get())
+    }
+
+    @Test
+    fun aMissingTorrentHasNoFileList() = runBlocking {
+        filesCode = 404
+        filesBody = """{"error":"Torrent not found."}"""
+
+        val result = client().listTorrentFiles("deadbeef")
+
+        assertTrue(result is QbitResult.Failure)
+        val error = (result as QbitResult.Failure).error
+        assertTrue(error is QbitError.Http)
+        assertEquals(404, (error as QbitError.Http).status)
+        assertEquals("Torrent not found.", error.message)
     }
 
     @Test
@@ -251,10 +337,114 @@ class ProxyTorrentClientTest {
         assertTrue((result as QbitResult.Failure).error is QbitError.Unreachable)
     }
 
+    @Test
+    fun pauseTorrentPostsTheTrimmedHash() = runBlocking {
+        val result = client().pauseTorrent("  abc123  ")
+
+        assertTrue(result.toString(), result is QbitResult.Success)
+        assertEquals("/api/torrents/abc123/pause", requestPath.get())
+    }
+
+    @Test
+    fun resumeTorrentPostsTheTrimmedHash() = runBlocking {
+        val result = client().resumeTorrent("  abc123  ")
+
+        assertTrue(result.toString(), result is QbitResult.Success)
+        assertEquals("/api/torrents/abc123/resume", requestPath.get())
+    }
+
+    @Test
+    fun pauseAllTorrentsPostsTheBulkPausePath() = runBlocking {
+        val result = client().pauseAllTorrents()
+
+        assertTrue(result.toString(), result is QbitResult.Success)
+        assertEquals("/api/torrents/pause", requestPath.get())
+    }
+
+    @Test
+    fun resumeAllTorrentsPostsTheBulkResumePath() = runBlocking {
+        val result = client().resumeAllTorrents()
+
+        assertTrue(result.toString(), result is QbitResult.Success)
+        assertEquals("/api/torrents/resume", requestPath.get())
+    }
+
+    @Test
+    fun pausingAMissingTorrentIsReportedAsNotFound() = runBlocking {
+        pauseCode = 404
+        pauseBody = """{"error":"That torrent is not owned by Remagnet."}"""
+
+        val result = client().pauseTorrent("abc123")
+
+        assertTrue(result is QbitResult.Failure)
+        val error = (result as QbitResult.Failure).error
+        assertTrue(error is QbitError.Http)
+        assertEquals(404, (error as QbitError.Http).status)
+        assertEquals("That torrent is not owned by Remagnet.", error.message)
+    }
+
+    @Test
+    fun resumingAMissingTorrentIsReportedAsNotFound() = runBlocking {
+        resumeCode = 404
+        resumeBody = """{"error":"That torrent is not owned by Remagnet."}"""
+
+        val result = client().resumeTorrent("abc123")
+
+        assertTrue(result is QbitResult.Failure)
+        val error = (result as QbitResult.Failure).error
+        assertTrue(error is QbitError.Http)
+        assertEquals(404, (error as QbitError.Http).status)
+        assertEquals("That torrent is not owned by Remagnet.", error.message)
+    }
+
+    @Test
+    fun bulkPauseKeepsTheProxyFailure() = runBlocking {
+        pauseAllCode = 503
+        pauseAllBody = """{"error":"No torrent client is configured.","code":"not_configured"}"""
+
+        val result = client().pauseAllTorrents()
+
+        assertTrue(result is QbitResult.Failure)
+        val error = (result as QbitResult.Failure).error
+        assertTrue(error is QbitError.Http)
+        assertEquals(503, (error as QbitError.Http).status)
+        assertEquals("not_configured", error.code)
+    }
+
+    @Test
+    fun bulkResumeKeepsTheProxyFailure() = runBlocking {
+        resumeAllCode = 503
+        resumeAllBody = """{"error":"No torrent client is configured.","code":"not_configured"}"""
+
+        val result = client().resumeAllTorrents()
+
+        assertTrue(result is QbitResult.Failure)
+        val error = (result as QbitResult.Failure).error
+        assertTrue(error is QbitError.Http)
+        assertEquals(503, (error as QbitError.Http).status)
+        assertEquals("not_configured", error.code)
+    }
+
+    @Test
+    fun blankHashesDoNotCallTheNetwork() = runBlocking {
+        val blankPause = client().pauseTorrent("   ")
+        val blankResume = client().resumeTorrent("")
+
+        assertTrue(blankPause is QbitResult.Success)
+        assertTrue(blankResume is QbitResult.Success)
+        assertNull(requestPath.get())
+        assertNull(authorization.get())
+    }
+
     private fun respond(exchange: HttpExchange, code: Int, body: String) {
         val bytes = body.toByteArray()
         exchange.responseHeaders.add("Content-Type", "application/json")
-        exchange.sendResponseHeaders(code, bytes.size.toLong())
-        exchange.responseBody.use { it.write(bytes) }
+        if (code == 204) {
+            exchange.sendResponseHeaders(code, -1)
+            exchange.close()
+        } else {
+            exchange.sendResponseHeaders(code, bytes.size.toLong())
+            exchange.responseBody.use { it.write(bytes) }
+        }
     }
 }

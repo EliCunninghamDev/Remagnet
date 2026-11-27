@@ -14,10 +14,20 @@ interface TorrentClient {
 
     suspend fun getTorrent(hash: String): QbitResult<TorrentSummary?>
 
+    suspend fun listTorrentFiles(hash: String): QbitResult<List<TorrentFile>>
+
     suspend fun addTorrent(request: AddTorrentRequest): QbitResult<AddTorrentResult>
 
     suspend fun removeTorrent(
         hashes: List<String>,
         deleteFiles: Boolean = false,
     ): QbitResult<Unit>
+
+    suspend fun pauseTorrent(hash: String): QbitResult<Unit>
+
+    suspend fun resumeTorrent(hash: String): QbitResult<Unit>
+
+    suspend fun pauseAllTorrents(): QbitResult<Unit>
+
+    suspend fun resumeAllTorrents(): QbitResult<Unit>
 }

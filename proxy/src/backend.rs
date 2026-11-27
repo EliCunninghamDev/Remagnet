@@ -725,6 +725,34 @@ impl TorrentBackend {
         }
     }
 
+    /// Pause the given torrents, doing nothing for an empty list.
+    pub async fn pause_torrents(&self, hashes: &[String]) -> Result<(), AppError> {
+        if hashes.is_empty() {
+            return Ok(());
+        }
+
+        match self {
+            Self::Qbittorrent(client) => client.pause_torrents(hashes).await,
+            Self::Transmission(client) => client.pause_torrents(hashes).await,
+            Self::Deluge(client) => client.pause_torrents(hashes).await,
+            Self::Rtorrent(client) => client.pause_torrents(hashes).await,
+        }
+    }
+
+    /// Resume the given torrents, doing nothing for an empty list.
+    pub async fn resume_torrents(&self, hashes: &[String]) -> Result<(), AppError> {
+        if hashes.is_empty() {
+            return Ok(());
+        }
+
+        match self {
+            Self::Qbittorrent(client) => client.resume_torrents(hashes).await,
+            Self::Transmission(client) => client.resume_torrents(hashes).await,
+            Self::Deluge(client) => client.resume_torrents(hashes).await,
+            Self::Rtorrent(client) => client.resume_torrents(hashes).await,
+        }
+    }
+
     pub async fn archive_torrent(&self, hash: &str) -> Result<ArchiveTorrent, AppError> {
         match self {
             Self::Qbittorrent(client) => client.archive_torrent(hash).await,

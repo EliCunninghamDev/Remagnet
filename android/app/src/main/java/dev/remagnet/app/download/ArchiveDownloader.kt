@@ -35,16 +35,26 @@ class ArchiveDownloader(
 ) {
     private val baseUrl = normalizeBaseUrl(baseUrl)
 
-    fun open(hash: String): ArchiveOpenResult {
+    fun open(hash: String, fileIndex: Long? = null): ArchiveOpenResult {
+        if (fileIndex != null && fileIndex < 0) {
+            return ArchiveOpenResult.Failed("The file index is not valid.")
+        }
+
         val clean = hash.trim()
         if (!ARCHIVE_HASH.matches(clean)) {
             return ArchiveOpenResult.Failed("The torrent info hash is not valid.")
         }
 
+        val url = if (fileIndex != null) {
+            "$baseUrl/archive/$clean/files/$fileIndex"
+        } else {
+            "$baseUrl/archive/$clean"
+        }
+
         val request = Request.Builder()
-            .url("$baseUrl/archive/$clean")
+            .url(url)
             .header("Authorization", "Bearer ${token.trim()}")
-            .header("Accept", "application/zip")
+            .header("Accept", "*/*")
             .get()
             .build()
 

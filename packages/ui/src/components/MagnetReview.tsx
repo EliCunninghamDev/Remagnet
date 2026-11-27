@@ -131,7 +131,7 @@ export default function MagnetReview(props: MagnetReviewProps) {
             <button type="submit" disabled={props.busy || Boolean(props.existing)}>
               {props.busy ? "Sending…" : "Send to Remagnet Proxy"}
             </button>
-            <label class="check compact" title="Add stopped, and start it manually in your client">
+            <label class="check compact" title="Add stopped so you can start it later">
               <input
                 type="checkbox"
                 checked={props.paused}

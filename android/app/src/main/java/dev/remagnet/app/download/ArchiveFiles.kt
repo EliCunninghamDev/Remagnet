@@ -8,6 +8,7 @@ import java.io.File
 private val ILLEGAL_FILE_CHARACTERS = Regex("""[/\\:*?"<>|\u0000-\u001f]""")
 private val WHITESPACE = Regex("\\s+")
 private const val MAX_NAME_CODE_POINTS = 100
+private const val MAX_EXTENSION_LENGTH = 16
 
 /**
  * Turn a torrent or Content-Disposition name into a safe `.zip` file name.
@@ -30,6 +31,61 @@ fun safeArchiveName(raw: String): String {
     }
     if (name.isBlank()) return "archive.zip"
     return "$name.zip"
+}
+
+/**
+ * Turn a torrent or Content-Disposition name into a safe download file name.
+ *
+ * Unlike [safeArchiveName], a raw single-file download keeps its own extension
+ * so the system can hand it to the right viewer. Passing [fallbackIsZip] adds a
+ * `.zip` suffix when the name does not already carry one.
+ */
+fun safeDownloadName(raw: String, fallbackIsZip: Boolean = false): String {
+    var name = raw.trim().substringAfterLast('/').substringAfterLast('\\')
+    name = ILLEGAL_FILE_CHARACTERS.replace(name, "_")
+    name = WHITESPACE.replace(name, " ").trim(' ', '.', '_')
+
+    val fallback = if (fallbackIsZip) "archive.zip" else "download"
+    if (name.isBlank()) return fallback
+
+    val points = name.codePoints().toArray()
+    if (points.size > MAX_NAME_CODE_POINTS) {
+        val dot = name.lastIndexOf('.')
+        val extension = if (dot > 0 && dot < name.length - 1) name.substring(dot) else null
+        name = if (extension != null && extension.length <= MAX_EXTENSION_LENGTH) {
+            // Keep the extension and truncate only the stem, so `.mkv` and
+            // `.iso` files still open with the right app.
+            val stemPoints = name.substring(0, dot).codePoints().toArray()
+            val keep = (MAX_NAME_CODE_POINTS - extension.length).coerceAtLeast(0)
+            val stem = String(stemPoints, 0, minOf(stemPoints.size, keep)).trimEnd(' ', '.', '_')
+            "$stem$extension"
+        } else {
+            String(points, 0, MAX_NAME_CODE_POINTS).trimEnd(' ', '.', '_')
+        }
+        if (name.isBlank()) return fallback
+    }
+
+    if (fallbackIsZip && !name.endsWith(".zip", ignoreCase = true)) {
+        name = "$name.zip"
+    }
+    return name
+}
+
+/** Pick a name that does not overwrite an earlier download in the folder. */
+fun uniqueDownloadFile(directory: File, fileName: String): File {
+    val first = File(directory, fileName)
+    if (!first.exists()) return first
+
+    val dot = fileName.lastIndexOf('.')
+    val hasExtension = dot > 0 && dot < fileName.length - 1
+    val stem = if (hasExtension) fileName.substring(0, dot) else fileName
+    val extension = if (hasExtension) fileName.substring(dot) else ""
+
+    for (number in 2..999) {
+        val candidate = File(directory, "$stem ($number)$extension")
+        if (!candidate.exists()) return candidate
+    }
+    return File(directory, "$stem-${System.currentTimeMillis()}$extension")
 }
 
 /** Pick a name that does not overwrite an earlier archive in the folder. */

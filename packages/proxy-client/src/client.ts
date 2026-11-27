@@ -200,6 +200,31 @@ export function archiveDownloadUrl(baseUrl: string, hash: string, ticket?: strin
   return url.toString();
 }
 
+/** Proxy URL for one file inside an archive, without credentials. */
+export function fileArchiveUrl(baseUrl: string, hash: string, index: number): string {
+  const base = normalizeBaseUrl(baseUrl);
+  return `${base}/archive/${encodeURIComponent(hash)}/files/${encodeURIComponent(String(index))}`;
+}
+
+/**
+ * Download URL for a single file inside an archive.
+ *
+ * Mirrors `archiveDownloadUrl`: a non-blank `ticket` is sent as `?ticket=…`,
+ * otherwise the URL stays bare for callers that attach an `Authorization`
+ * header instead.
+ */
+export function fileArchiveDownloadUrl(
+  baseUrl: string,
+  hash: string,
+  index: number,
+  ticket?: string,
+): string {
+  const url = new URL(fileArchiveUrl(baseUrl, hash, index));
+  const trimmed = ticket?.trim();
+  if (trimmed) url.searchParams.set("ticket", trimmed);
+  return url.toString();
+}
+
 /** Trim surrounding whitespace and trailing slashes from a proxy origin. */
 export function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.trim().replace(/\/+$/, "");

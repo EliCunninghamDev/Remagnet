@@ -276,6 +276,62 @@ impl RtorrentClient {
         }
     }
 
+    /// Pause the given torrents, doing nothing for an empty list.
+    ///
+    /// rTorrent stops a torrent and closes it so it is no longer loaded.
+    pub async fn pause_torrents(&self, hashes: &[String]) -> Result<(), AppError> {
+        if hashes.is_empty() {
+            return Ok(());
+        }
+
+        for hash in hashes {
+            let target = hash.to_ascii_uppercase();
+            match self
+                .rpc_raw("d.stop", &[XmlValue::String(target.clone())])
+                .await
+            {
+                Ok(_) => {}
+                Err(RpcFailure::Fault { code, message }) if is_not_found_fault(code, &message) => {
+                    return Err(AppError::NotFound(
+                        "Torrent not found in rTorrent.".to_string(),
+                    ));
+                }
+                Err(other) => return Err(other.into_app_error("d.stop")),
+            }
+            self.rpc("d.close", &[XmlValue::String(target)]).await?;
+        }
+
+        Ok(())
+    }
+
+    /// Resume the given torrents, doing nothing for an empty list.
+    ///
+    /// rTorrent opens a closed torrent before starting it again.
+    pub async fn resume_torrents(&self, hashes: &[String]) -> Result<(), AppError> {
+        if hashes.is_empty() {
+            return Ok(());
+        }
+
+        for hash in hashes {
+            let target = hash.to_ascii_uppercase();
+            match self
+                .rpc_raw("d.open", &[XmlValue::String(target.clone())])
+                .await
+            {
+                Ok(_) => {}
+                Err(RpcFailure::Fault { code, message }) if is_not_found_fault(code, &message) => {
+                    return Err(AppError::NotFound(
+                        "Torrent not found in rTorrent.".to_string(),
+                    ));
+                }
+                Err(other) => return Err(other.into_app_error("d.open")),
+            }
+            self.rpc("d.start", &[XmlValue::String(target)]).await?;
+        }
+
+        Ok(())
+    }
+
     pub async fn archive_torrent(&self, hash: &str) -> Result<ArchiveTorrent, AppError> {
         let torrent = self
             .fetch_single_torrent(hash)
@@ -1172,7 +1228,8 @@ mod tests {
             "load.normal" | "load.start" | "load.raw" | "load.raw_start" => {
                 xml_response(&XmlValue::Int(0))
             }
-            "d.custom5.set" | "d.delete_tied" | "d.erase" => {
+            "d.custom5.set" | "d.delete_tied" | "d.erase" | "d.stop" | "d.close" | "d.open"
+            | "d.start" => {
                 let hash = params
                     .first()
                     .and_then(XmlValue::as_str)
@@ -1450,6 +1507,61 @@ mod tests {
             content.extend_from_slice(&chunk.unwrap());
         }
         assert_eq!(content, b"rtorrent bytes");
+    }
+
+    #[tokio::test]
+    async fn pauses_and_resumes_torrents_in_order() {
+        let fake = FakeRtorrent::new(vec![FakeTorrent::sample(HASH, "Done", true, "1000")]);
+        let base_url = start_fake(fake.clone()).await;
+        let client = RtorrentClient::new(&config(&base_url, "")).unwrap();
+
+        client.pause_torrents(&[]).await.unwrap();
+        client.resume_torrents(&[]).await.unwrap();
+        assert!(fake.requests().is_empty());
+
+        client.pause_torrents(&[HASH.to_string()]).await.unwrap();
+        client
+            .resume_torrents(&[HASH.to_ascii_uppercase()])
+            .await
+            .unwrap();
+
+        let calls: Vec<(String, Vec<XmlValue>)> = fake
+            .requests()
+            .into_iter()
+            .map(|(_, body)| parse_call(&body).unwrap())
+            .collect();
+        let methods: Vec<&str> = calls.iter().map(|(method, _)| method.as_str()).collect();
+        assert_eq!(methods, vec!["d.stop", "d.close", "d.open", "d.start"]);
+
+        let target = HASH.to_ascii_uppercase();
+        assert!(calls.iter().all(|(_, params)| {
+            params.first().and_then(XmlValue::as_str) == Some(target.as_str())
+        }));
+    }
+
+    #[tokio::test]
+    async fn maps_a_missing_hash_to_not_found_when_pausing_and_resuming() {
+        let fake = FakeRtorrent::new(Vec::new());
+        let base_url = start_fake(fake).await;
+        let client = RtorrentClient::new(&config(&base_url, "")).unwrap();
+
+        for error in [
+            client
+                .pause_torrents(&[HASH.to_string()])
+                .await
+                .unwrap_err(),
+            client
+                .resume_torrents(&[HASH.to_string()])
+                .await
+                .unwrap_err(),
+        ] {
+            match error {
+                AppError::NotFound(message) => {
+                    assert_eq!(message, "Torrent not found in rTorrent.")
+                }
+                other => panic!("expected NotFound, got {other:?}"),
+            }
+        }
     }
 
     #[tokio::test]

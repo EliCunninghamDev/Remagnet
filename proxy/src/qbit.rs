@@ -283,6 +283,44 @@ impl QbitClient {
         Ok(())
     }
 
+    /// Pause the given torrents, doing nothing for an empty list.
+    ///
+    /// qBittorrent 5 renamed pause/resume to stop/start; older releases keep the
+    /// original endpoints.
+    pub async fn pause_torrents(&self, hashes: &[String]) -> Result<(), AppError> {
+        if hashes.is_empty() {
+            return Ok(());
+        }
+
+        let hashes = hashes
+            .iter()
+            .map(|hash| hash.to_ascii_lowercase())
+            .collect::<Vec<_>>()
+            .join("|");
+        let form = [("hashes".to_string(), hashes)];
+        self.post_form_with_fallback("api/v2/torrents/stop", "api/v2/torrents/pause", &form)
+            .await
+    }
+
+    /// Resume the given torrents, doing nothing for an empty list.
+    ///
+    /// qBittorrent 5 renamed pause/resume to stop/start; older releases keep the
+    /// original endpoints.
+    pub async fn resume_torrents(&self, hashes: &[String]) -> Result<(), AppError> {
+        if hashes.is_empty() {
+            return Ok(());
+        }
+
+        let hashes = hashes
+            .iter()
+            .map(|hash| hash.to_ascii_lowercase())
+            .collect::<Vec<_>>()
+            .join("|");
+        let form = [("hashes".to_string(), hashes)];
+        self.post_form_with_fallback("api/v2/torrents/start", "api/v2/torrents/resume", &form)
+            .await
+    }
+
     /// List the files in a torrent, excluding files the user does not want.
     ///
     /// qBittorrent reports unwatched files with priority `0`; including them in
@@ -451,6 +489,32 @@ impl QbitClient {
             tracing::warn!(error = %error, path, "could not read qBittorrent response");
             AppError::upstream_unreadable("qBittorrent")
         })
+    }
+
+    /// POST a form, retrying an older API path when the server returns 404.
+    async fn post_form_with_fallback(
+        &self,
+        primary_path: &str,
+        fallback_path: &str,
+        form: &[(String, String)],
+    ) -> Result<(), AppError> {
+        self.ensure_login().await?;
+        let response = self
+            .request(Method::POST, primary_path, &[], Some(form))
+            .await?;
+
+        let (response, path) = if response.status() == StatusCode::NOT_FOUND {
+            (
+                self.request(Method::POST, fallback_path, &[], Some(form))
+                    .await?,
+                fallback_path,
+            )
+        } else {
+            (response, primary_path)
+        };
+
+        ensure_success(response, path).await?;
+        Ok(())
     }
 
     /// POST a `multipart/form-data` add request.
@@ -691,9 +755,11 @@ mod tests {
         reject: bool,
         fail_add_once: bool,
         conflict_add: bool,
+        legacy_actions: bool,
         logins: Arc<Mutex<Vec<String>>>,
         add_requests: Arc<Mutex<Vec<CapturedAdd>>>,
         add_attempts: Arc<Mutex<usize>>,
+        action_requests: Arc<Mutex<Vec<(String, String)>>>,
     }
 
     async fn fake_qbit(State(fake): State<FakeQbit>, request: Request<Body>) -> Response {
@@ -766,6 +832,28 @@ mod tests {
                     .unwrap()
                     .push(CapturedAdd { content_type, body });
                 "Ok.".into_response()
+            }
+            "/api/v2/torrents/stop"
+            | "/api/v2/torrents/start"
+            | "/api/v2/torrents/pause"
+            | "/api/v2/torrents/resume" => {
+                let body = request
+                    .into_body()
+                    .collect()
+                    .await
+                    .unwrap()
+                    .to_bytes()
+                    .to_vec();
+                fake.action_requests
+                    .lock()
+                    .unwrap()
+                    .push((path.clone(), String::from_utf8_lossy(&body).to_string()));
+
+                let renamed = path.ends_with("/stop") || path.ends_with("/start");
+                if fake.legacy_actions && renamed {
+                    return StatusCode::NOT_FOUND.into_response();
+                }
+                "".into_response()
             }
             _ => StatusCode::NOT_FOUND.into_response(),
         }
@@ -932,6 +1020,50 @@ mod tests {
 
         assert!(matches!(error, AppError::BadRequest(_)), "{error:?}");
         assert!(error.to_string().contains("may already exist"));
+    }
+
+    #[tokio::test]
+    async fn pauses_and_resumes_with_the_qbittorrent_5_endpoints() {
+        let fake = FakeQbit::default();
+        let base_url = start_fake(fake.clone()).await;
+        let client = QbitClient::new(&config(&base_url)).unwrap();
+        let hashes = vec!["ABCDEF".to_string(), "123456".to_string()];
+
+        client.pause_torrents(&[]).await.unwrap();
+        client.resume_torrents(&[]).await.unwrap();
+        assert!(fake.action_requests.lock().unwrap().is_empty());
+
+        client.pause_torrents(&hashes).await.unwrap();
+        client.resume_torrents(&hashes).await.unwrap();
+
+        let requests = fake.action_requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert_eq!(requests[0].0, "/api/v2/torrents/stop");
+        assert_eq!(requests[0].1, "hashes=abcdef%7C123456");
+        assert_eq!(requests[1].0, "/api/v2/torrents/start");
+        assert_eq!(requests[1].1, "hashes=abcdef%7C123456");
+    }
+
+    #[tokio::test]
+    async fn falls_back_to_pause_and_resume_on_qbittorrent_4() {
+        let fake = FakeQbit {
+            legacy_actions: true,
+            ..FakeQbit::default()
+        };
+        let base_url = start_fake(fake.clone()).await;
+        let client = QbitClient::new(&config(&base_url)).unwrap();
+        let hashes = vec!["ABCDEF".to_string()];
+
+        client.pause_torrents(&hashes).await.unwrap();
+        client.resume_torrents(&hashes).await.unwrap();
+
+        let requests = fake.action_requests.lock().unwrap();
+        assert_eq!(requests.len(), 4);
+        assert_eq!(requests[0].0, "/api/v2/torrents/stop");
+        assert_eq!(requests[1].0, "/api/v2/torrents/pause");
+        assert_eq!(requests[2].0, "/api/v2/torrents/start");
+        assert_eq!(requests[3].0, "/api/v2/torrents/resume");
+        assert!(requests.iter().all(|(_, body)| body == "hashes=abcdef"));
     }
 
     #[tokio::test]

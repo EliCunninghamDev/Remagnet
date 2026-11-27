@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/testing-library";
 import type { Component } from "solid-js";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
@@ -200,7 +200,7 @@ test("configured dashboard defaults to Torrents and switches between every tab",
   expect(torrentsTab.getAttribute("aria-selected")).toBe("true");
 
   await waitFor(() => expect(screen.getByTitle("Ubuntu 24.04.iso")).toBeTruthy());
-  expect(screen.getByTitle("Download this completed torrent as a ZIP")).toBeTruthy();
+  expect(screen.getByTitle("Download this completed torrent")).toBeTruthy();
   expect(screen.getByRole("button", { name: "Download" })).toBeTruthy();
 
   fireEvent.click(screen.getByRole("button", { name: "Remove torrent" }));
@@ -559,6 +559,389 @@ test("refreshing torrents keeps the Refresh label stable and does not flash a st
   resolveRefresh?.({ body: { torrents: [torrent] } });
   await waitFor(() => expect(refresh.disabled).toBe(false));
   expect(refresh.getAttribute("aria-busy")).toBe("false");
+});
+
+test("pausing a torrent posts to the pause endpoint and refreshes the list", async () => {
+  let torrentRequests = 0;
+
+  handler = (url, init) => {
+    if (url === "/healthz") return { body: liveness };
+    if (url === "/api/auth/status") return { body: authStatus({ authenticated: true }) };
+    if (url === "/api/config") return { body: config };
+    if (url === "/api/torrents") {
+      torrentRequests += 1;
+      return { body: { torrents: [torrent] } };
+    }
+    if (url === `/api/torrents/${torrent.hash}/pause` && init.method === "POST") {
+      return { status: 204 };
+    }
+    if (url === "/api/devices") return { body: { devices: [] } };
+    return { body: {} };
+  };
+
+  render(() => <App />);
+
+  await waitFor(() => expect(screen.getByTitle("Ubuntu 24.04.iso")).toBeTruthy());
+  const before = torrentRequests;
+
+  fireEvent.click(screen.getByRole("button", { name: "Pause torrent" }));
+
+  await waitFor(() =>
+    expect(
+      calls.some(
+        (call) => call.url === `/api/torrents/${torrent.hash}/pause` && call.init.method === "POST",
+      ),
+    ).toBe(true),
+  );
+  await waitFor(() => expect(torrentRequests).toBeGreaterThan(before));
+  expect(await screen.findByText("Paused Ubuntu 24.04.iso.")).toBeTruthy();
+});
+
+test("resuming a torrent posts to the resume endpoint and refreshes the list", async () => {
+  const stopped = { ...torrent, state: "stopped" };
+  let torrentRequests = 0;
+
+  handler = (url, init) => {
+    if (url === "/healthz") return { body: liveness };
+    if (url === "/api/auth/status") return { body: authStatus({ authenticated: true }) };
+    if (url === "/api/config") return { body: config };
+    if (url === "/api/torrents") {
+      torrentRequests += 1;
+      return { body: { torrents: [stopped] } };
+    }
+    if (url === `/api/torrents/${stopped.hash}/resume` && init.method === "POST") {
+      return { status: 204 };
+    }
+    if (url === "/api/devices") return { body: { devices: [] } };
+    return { body: {} };
+  };
+
+  render(() => <App />);
+
+  await waitFor(() => expect(screen.getByTitle("Ubuntu 24.04.iso")).toBeTruthy());
+  const before = torrentRequests;
+
+  fireEvent.click(screen.getByRole("button", { name: "Resume torrent" }));
+
+  await waitFor(() =>
+    expect(
+      calls.some(
+        (call) =>
+          call.url === `/api/torrents/${stopped.hash}/resume` && call.init.method === "POST",
+      ),
+    ).toBe(true),
+  );
+  await waitFor(() => expect(torrentRequests).toBeGreaterThan(before));
+  expect(await screen.findByText("Resumed Ubuntu 24.04.iso.")).toBeTruthy();
+});
+
+test("bulk pause and resume post to the bulk endpoints", async () => {
+  const stopped = {
+    ...torrent,
+    hash: "b".repeat(40),
+    name: "Ubuntu 24.04 paused.iso",
+    state: "stopped",
+  };
+  let torrentRequests = 0;
+
+  handler = (url, init) => {
+    if (url === "/healthz") return { body: liveness };
+    if (url === "/api/auth/status") return { body: authStatus({ authenticated: true }) };
+    if (url === "/api/config") return { body: config };
+    if (url === "/api/torrents") {
+      torrentRequests += 1;
+      return { body: { torrents: [torrent, stopped] } };
+    }
+    if (url === "/api/torrents/pause" && init.method === "POST") return { status: 204 };
+    if (url === "/api/torrents/resume" && init.method === "POST") return { status: 204 };
+    if (url === "/api/devices") return { body: { devices: [] } };
+    return { body: {} };
+  };
+
+  render(() => <App />);
+
+  await waitFor(() => expect(screen.getByTitle("Ubuntu 24.04.iso")).toBeTruthy());
+  expect(screen.getByRole("button", { name: "Pause all" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Resume all" })).toBeTruthy();
+
+  const beforePause = torrentRequests;
+  fireEvent.click(screen.getByRole("button", { name: "Pause all" }));
+
+  await waitFor(() =>
+    expect(
+      calls.some((call) => call.url === "/api/torrents/pause" && call.init.method === "POST"),
+    ).toBe(true),
+  );
+  expect(await screen.findByText("Paused all torrents.")).toBeTruthy();
+  await waitFor(() => expect(torrentRequests).toBeGreaterThan(beforePause));
+
+  const resumeAll = screen.getByRole("button", { name: "Resume all" }) as HTMLButtonElement;
+  await waitFor(() => expect(resumeAll.disabled).toBe(false));
+
+  const beforeResume = torrentRequests;
+  fireEvent.click(resumeAll);
+
+  await waitFor(() =>
+    expect(
+      calls.some((call) => call.url === "/api/torrents/resume" && call.init.method === "POST"),
+    ).toBe(true),
+  );
+  expect(await screen.findByText("Resumed all torrents.")).toBeTruthy();
+  await waitFor(() => expect(torrentRequests).toBeGreaterThan(beforeResume));
+});
+
+test("Pause all and Resume all only show when a matching torrent exists", async () => {
+  let list = [torrent];
+
+  handler = (url) => {
+    if (url === "/healthz") return { body: liveness };
+    if (url === "/api/auth/status") return { body: authStatus({ authenticated: true }) };
+    if (url === "/api/config") return { body: config };
+    if (url === "/api/torrents") return { body: { torrents: list } };
+    if (url === "/api/devices") return { body: { devices: [] } };
+    return { body: {} };
+  };
+
+  render(() => <App />);
+
+  await waitFor(() => expect(screen.getByTitle("Ubuntu 24.04.iso")).toBeTruthy());
+  expect(screen.getByRole("button", { name: "Pause all" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Resume all" })).toBeNull();
+
+  list = [{ ...torrent, state: "stopped" }];
+  fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Pause all" })).toBeNull());
+  expect(screen.getByRole("button", { name: "Resume all" })).toBeTruthy();
+});
+
+function listedTorrentNames(): string[] {
+  return Array.from(document.querySelectorAll(".proxy-torrent-list .torrent-name")).map(
+    (element) => element.getAttribute("title") ?? "",
+  );
+}
+
+function filterTab(label: string): HTMLElement {
+  return screen.getByRole("tab", { name: new RegExp(`^${label}`) });
+}
+
+test("torrent list search, filters, sort and reset work together", async () => {
+  const ready = { ...torrent, hash: "a".repeat(40), name: "Alpha Ready.iso" };
+  const paused = {
+    ...torrent,
+    hash: "b".repeat(40),
+    name: "Middle Paused.iso",
+    state: "stopped",
+    progress: 0.2,
+  };
+  const downloading = {
+    ...torrent,
+    hash: "c".repeat(40),
+    name: "Zulu Download.iso",
+    state: "downloading",
+    progress: 0.4,
+  };
+
+  handler = (url) => {
+    if (url === "/healthz") return { body: liveness };
+    if (url === "/api/auth/status") return { body: authStatus({ authenticated: true }) };
+    if (url === "/api/config") return { body: config };
+    if (url === "/api/torrents") return { body: { torrents: [downloading, ready, paused] } };
+    if (url === "/api/devices") return { body: { devices: [] } };
+    return { body: {} };
+  };
+
+  render(() => <App />);
+
+  await waitFor(() =>
+    expect(screen.getByRole("searchbox", { name: "Search torrents" })).toBeTruthy(),
+  );
+  expect(listedTorrentNames()).toEqual([
+    "Zulu Download.iso",
+    "Alpha Ready.iso",
+    "Middle Paused.iso",
+  ]);
+
+  const search = screen.getByRole("searchbox", { name: "Search torrents" });
+  fireEvent.input(search, { target: { value: "alpha" } });
+  await waitFor(() => expect(listedTorrentNames()).toEqual(["Alpha Ready.iso"]));
+
+  fireEvent.input(search, { target: { value: "" } });
+  await waitFor(() => expect(listedTorrentNames()).toHaveLength(3));
+
+  fireEvent.click(filterTab("Active"));
+  await waitFor(() => expect(listedTorrentNames()).toEqual(["Zulu Download.iso"]));
+  expect(filterTab("Active").getAttribute("aria-selected")).toBe("true");
+
+  fireEvent.click(filterTab("Ready"));
+  await waitFor(() => expect(listedTorrentNames()).toEqual(["Alpha Ready.iso"]));
+
+  fireEvent.click(filterTab("Paused"));
+  await waitFor(() => expect(listedTorrentNames()).toEqual(["Middle Paused.iso"]));
+
+  fireEvent.click(filterTab("All"));
+  await waitFor(() => expect(listedTorrentNames()).toHaveLength(3));
+
+  fireEvent.change(screen.getByLabelText("Sort torrents"), { target: { value: "name" } });
+  await waitFor(() =>
+    expect(listedTorrentNames()).toEqual([
+      "Alpha Ready.iso",
+      "Middle Paused.iso",
+      "Zulu Download.iso",
+    ]),
+  );
+
+  fireEvent.input(search, { target: { value: "no-such-torrent" } });
+  await waitFor(() => expect(screen.getByText("No torrents match your filter.")).toBeTruthy());
+
+  fireEvent.click(screen.getByRole("button", { name: "Reset filters" }));
+  await waitFor(() => expect(listedTorrentNames()).toHaveLength(3));
+  expect(filterTab("All").getAttribute("aria-selected")).toBe("true");
+  expect(
+    (screen.getByRole("searchbox", { name: "Search torrents" }) as HTMLInputElement).value,
+  ).toBe("");
+});
+
+test("the search and filter bar hides for a single torrent", async () => {
+  handler = (url) => {
+    if (url === "/healthz") return { body: liveness };
+    if (url === "/api/auth/status") return { body: authStatus({ authenticated: true }) };
+    if (url === "/api/config") return { body: config };
+    if (url === "/api/torrents") return { body: { torrents: [torrent] } };
+    if (url === "/api/devices") return { body: { devices: [] } };
+    return { body: {} };
+  };
+
+  render(() => <App />);
+
+  await waitFor(() => expect(screen.getByTitle("Ubuntu 24.04.iso")).toBeTruthy());
+  expect(screen.queryByRole("searchbox", { name: "Search torrents" })).toBeNull();
+  expect(screen.queryByLabelText("Sort torrents")).toBeNull();
+  expect(screen.queryByRole("tab", { name: /^All/ })).toBeNull();
+});
+
+function fileRow(name: string): HTMLElement {
+  const label = Array.from(document.querySelectorAll(".torrent-file-list .torrent-file-name")).find(
+    (element) => element.textContent === name,
+  );
+  const row = label?.closest(".torrent-file-row");
+  if (!(row instanceof HTMLElement)) throw new Error(`No file row for ${name}`);
+  return row;
+}
+
+test("showing torrent files fetches the file list and marks completion", async () => {
+  const files = [
+    { index: 0, name: "Ubuntu 24.04.iso", size: 2_048, progress: 1 },
+    { index: 1, name: "docs/readme.txt", size: 512, progress: 0.5 },
+  ];
+
+  handler = (url) => {
+    if (url === "/healthz") return { body: liveness };
+    if (url === "/api/auth/status") return { body: authStatus({ authenticated: true }) };
+    if (url === "/api/config") return { body: config };
+    if (url === "/api/torrents") return { body: { torrents: [torrent] } };
+    if (url === `/api/torrents/${torrent.hash}/files`) return { body: { files } };
+    if (url === "/api/devices") return { body: { devices: [] } };
+    return { body: {} };
+  };
+
+  render(() => <App />);
+
+  await waitFor(() => expect(screen.getByTitle("Ubuntu 24.04.iso")).toBeTruthy());
+  fireEvent.click(screen.getByRole("button", { name: "Show files" }));
+
+  await waitFor(() =>
+    expect(
+      calls.some(
+        (call) => call.url === `/api/torrents/${torrent.hash}/files` && call.init.method === "GET",
+      ),
+    ).toBe(true),
+  );
+  expect(await screen.findByText("docs/readme.txt")).toBeTruthy();
+
+  const completeRow = fileRow("Ubuntu 24.04.iso");
+  expect(completeRow.textContent).toContain("2 KB");
+  expect(completeRow.textContent).not.toContain("%");
+  expect(within(completeRow).getByRole("button", { name: "Download" })).toBeTruthy();
+
+  const partialRow = fileRow("docs/readme.txt");
+  expect(partialRow.textContent).toContain("50%");
+  expect(within(partialRow).queryByRole("button", { name: "Download" })).toBeNull();
+});
+
+test("downloading one completed file mints a ticket and opens its href", async () => {
+  const files = [
+    { index: 0, name: "Ubuntu 24.04.iso", size: 2_048, progress: 1 },
+    { index: 1, name: "docs/readme.txt", size: 512, progress: 0.5 },
+  ];
+  const clickedHrefs: string[] = [];
+  vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
+    this: HTMLAnchorElement,
+  ) {
+    clickedHrefs.push(this.href);
+  });
+
+  handler = (url, init) => {
+    if (url === "/healthz") return { body: liveness };
+    if (url === "/api/auth/status") return { body: authStatus({ authenticated: true }) };
+    if (url === "/api/config") return { body: config };
+    if (url === "/api/torrents") return { body: { torrents: [torrent] } };
+    if (url === `/api/torrents/${torrent.hash}/files`) return { body: { files } };
+    if (url === `/api/archive/${torrent.hash}/files/0/ticket` && init.method === "POST") {
+      return { body: { ticket: "file-ticket-1", expiresIn: 60 } };
+    }
+    if (url === "/api/devices") return { body: { devices: [] } };
+    return { body: {} };
+  };
+
+  render(() => <App />);
+
+  await waitFor(() => expect(screen.getByTitle("Ubuntu 24.04.iso")).toBeTruthy());
+  fireEvent.click(screen.getByRole("button", { name: "Show files" }));
+  await screen.findByText("docs/readme.txt");
+
+  fireEvent.click(within(fileRow("Ubuntu 24.04.iso")).getByRole("button", { name: "Download" }));
+
+  await waitFor(() =>
+    expect(
+      calls.some(
+        (call) =>
+          call.url === `/api/archive/${torrent.hash}/files/0/ticket` && call.init.method === "POST",
+      ),
+    ).toBe(true),
+  );
+  await waitFor(() =>
+    expect(
+      clickedHrefs.some((href) =>
+        href.endsWith(`/archive/${torrent.hash}/files/0?ticket=file-ticket-1`),
+      ),
+    ).toBe(true),
+  );
+  expect(calls.some((call) => call.url === `/api/archive/${torrent.hash}/ticket`)).toBe(false);
+});
+
+test("incomplete files do not offer a Download action", async () => {
+  const files = [{ index: 3, name: "still-downloading.mkv", size: 1_024, progress: 0.25 }];
+
+  handler = (url) => {
+    if (url === "/healthz") return { body: liveness };
+    if (url === "/api/auth/status") return { body: authStatus({ authenticated: true }) };
+    if (url === "/api/config") return { body: config };
+    if (url === "/api/torrents") return { body: { torrents: [torrent] } };
+    if (url === `/api/torrents/${torrent.hash}/files`) return { body: { files } };
+    if (url === "/api/devices") return { body: { devices: [] } };
+    return { body: {} };
+  };
+
+  render(() => <App />);
+
+  await waitFor(() => expect(screen.getByTitle("Ubuntu 24.04.iso")).toBeTruthy());
+  fireEvent.click(screen.getByRole("button", { name: "Show files" }));
+
+  await waitFor(() => expect(screen.getByText("still-downloading.mkv")).toBeTruthy());
+  const row = fileRow("still-downloading.mkv");
+  expect(row.textContent).toContain("25%");
+  expect(within(row).queryByRole("button", { name: "Download" })).toBeNull();
 });
 
 test("the footer opens the shared issue report dialog", async () => {

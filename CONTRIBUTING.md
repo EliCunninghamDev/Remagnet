@@ -14,9 +14,11 @@ packages/
   ui/                 Shared SolidJS components, styles and helpers
   proxy-ui/           SolidJS administrator dashboard bundled into proxy/src/ui.html
 site/                 Lightweight static landing, privacy, and API reference pages
+tests/integration/    Containerized end-to-end test suite (all 4 torrent clients)
 demo/                 Scripted demo recording and mock proxy server
-docs/                 Generated README banner and demo media
-scripts/              API client, banner, site, and version tooling
+promo/                Reproducible store screenshot and promo renders
+docs/                 Generated README banner, demo media, and store submission notes
+scripts/              API client, banner, dev stack, site, and version tooling
 tokens.js             Design tokens (DTCG 2025.10)
 ```
 
@@ -34,7 +36,10 @@ code and avoids duplication:
 | [`android/README.md`](android/README.md)                             | Kotlin/Compose architecture, keystore storage, emulator workflow, Gradle tasks                   |
 | [`android/PLAN.md`](android/PLAN.md)                                 | Android buildout phases and release keystore signing setup                                       |
 | [`packages/proxy-client/README.md`](packages/proxy-client/README.md) | Generated TypeScript client usage                                                                |
+| [`tests/integration/README.md`](tests/integration/README.md)         | Containerized end-to-end suite against qBittorrent, Transmission, Deluge, and rTorrent           |
 | [`demo/README.md`](demo/README.md)                                   | Automated demo recording against `demo/mock-proxy.ts`                                            |
+| [`promo/README.md`](promo/README.md)                                 | Reproducible store screenshot and promotional asset renders                                      |
+| [`docs/store-listing.md`](docs/store-listing.md)                     | Chrome Web Store and Firefox AMO listing copy, permission justifications, and reviewer notes     |
 | [`PRIVACY.md`](PRIVACY.md)                                           | Data storage and browser/Android permission justifications                                       |
 | [`SECURITY.md`](SECURITY.md)                                         | Security model and vulnerability reporting policy                                                |
 
@@ -53,36 +58,39 @@ bun install
 
 ## Commands
 
-| Command                        | Description                                                             |
-| ------------------------------ | ----------------------------------------------------------------------- |
-| `bun run dev`                  | Start WXT in dev mode (Chrome MV3)                                      |
-| `bun run dev:firefox`          | Start WXT in dev mode (Firefox MV2 — primary target)                    |
-| `bun run dev:client`           | Start the Transmission dev container (qBittorrent with `--client`)      |
-| `bun run dev:client:ephemeral` | Run an auto-cleaning dev stack in the foreground and seed fixtures      |
-| `bun run dev:proxy`            | Run the Rust proxy locally against the dev client                       |
-| `bun run dev:seed`             | Write deterministic `.torrent` fixtures into `.dev/dev-stack/fixtures`  |
-| `bun run dev:down`             | Stop dev containers, keeping volumes and `.dev/dev-stack`               |
-| `bun run dev:clean`            | Stop dev containers, delete volumes, and remove `.dev/dev-stack`        |
-| `bun run urls:firefox`         | Print dev extension popup, add, options, and gallery URLs               |
-| `bun run build`                | Production Chrome build                                                 |
-| `bun run build:firefox`        | Production Firefox build                                                |
-| `bun run proxy:ui:build`       | Build the SolidJS proxy dashboard into `proxy/src/ui.html`              |
-| `bun run proxy:ui:dev`         | Run the proxy dashboard with Vite against a local proxy                 |
-| `bun run zip`                  | Package Chrome extension ZIP                                            |
-| `bun run zip:firefox`          | Package Firefox extension ZIP and AMO source ZIP                        |
-| `bun run test`                 | Run Bun unit tests and Vitest UI component tests                        |
-| `bun run test:unit`            | Run Bun unit tests (`tokens`, `extension/lib`, `packages/proxy-client`) |
-| `bun run test:ui`              | Run Vitest + happy-dom extension and proxy dashboard component tests    |
-| `bun run typecheck`            | Type-check all TypeScript workspaces                                    |
-| `bun run check`                | Lint and format check with Biome                                        |
-| `bun run check:write`          | Apply Biome fixes and formatting                                        |
-| `bun run api:generate`         | Regenerate TypeScript and Kotlin clients from `proxy/openapi.yaml`      |
-| `bun run banner:generate`      | Regenerate `docs/remagnet-banner.svg` from `tokens.js`                  |
-| `bun run site:build`           | Build static landing site into `site/dist/`                             |
-| `bun run version:check`        | Verify all component versions match                                     |
-| `bun run version:set`          | Bump version across all manifests and lockfiles                         |
-| `bun run android:build`        | Build the debug Android APK                                             |
-| `bun run android:test`         | Run Android JVM unit tests                                              |
+| Command                        | Description                                                                                       |
+| ------------------------------ | ------------------------------------------------------------------------------------------------- |
+| `bun run dev`                  | Start WXT in dev mode (Chrome MV3)                                                                |
+| `bun run dev:firefox`          | Start WXT in dev mode (Firefox MV2 — primary target)                                              |
+| `bun run dev:client`           | Start a dev torrent container (Transmission by default; `--client qbittorrent\|deluge\|rtorrent`) |
+| `bun run dev:client:ephemeral` | Run an auto-cleaning dev stack in the foreground and seed fixtures                                |
+| `bun run dev:proxy`            | Run the Rust proxy locally against the dev client                                                 |
+| `bun run dev:seed`             | Write deterministic `.torrent` fixtures into `.dev/dev-stack/fixtures`                            |
+| `bun run dev:down`             | Stop dev containers, keeping volumes and `.dev/dev-stack`                                         |
+| `bun run dev:clean`            | Stop dev containers, delete volumes, and remove `.dev/dev-stack`                                  |
+| `bun run urls:firefox`         | Print dev extension popup, add, options, and gallery URLs                                         |
+| `bun run build`                | Production Chrome build                                                                           |
+| `bun run build:firefox`        | Production Firefox build                                                                          |
+| `bun run proxy:ui:build`       | Build the SolidJS proxy dashboard into `proxy/src/ui.html`                                        |
+| `bun run proxy:ui:dev`         | Run the proxy dashboard with Vite against a local proxy                                           |
+| `bun run zip`                  | Package Chrome extension ZIP                                                                      |
+| `bun run zip:firefox`          | Package Firefox extension ZIP and AMO source ZIP                                                  |
+| `bun run lint:firefox`         | Validate the built Firefox add-on with `web-ext lint`                                             |
+| `bun run test`                 | Run Bun unit tests and Vitest UI component tests                                                  |
+| `bun run test:unit`            | Run Bun unit tests (`tokens`, `extension/lib`, `packages/proxy-client`)                           |
+| `bun run test:ui`              | Run Vitest + happy-dom extension and proxy dashboard component tests                              |
+| `bun run typecheck`            | Type-check all TypeScript workspaces                                                              |
+| `bun run check`                | Lint and format check with Biome                                                                  |
+| `bun run check:write`          | Apply Biome fixes and formatting                                                                  |
+| `bun run api:generate`         | Regenerate TypeScript and Kotlin clients from `proxy/openapi.yaml`                                |
+| `bun run banner:generate`      | Regenerate `docs/remagnet-banner.svg` from `tokens.js`                                            |
+| `bun run promo`                | Build promo screen bundle and launch interactive Promo Studio                                     |
+| `bun run promo:render`         | Bulk-render all store screenshots and promo tiles into `promo/out/`                               |
+| `bun run site:build`           | Build static landing site into `site/dist/`                                                       |
+| `bun run version:check`        | Verify all component versions match                                                               |
+| `bun run version:set`          | Bump version across all manifests and lockfiles                                                   |
+| `bun run android:build`        | Build the debug Android APK                                                                       |
+| `bun run android:test`         | Run Android JVM unit tests                                                                        |
 
 ### Proxy commands
 
@@ -197,8 +205,9 @@ dark, and popup color schemes, typography, spacing, dimensions, and motion).
 
 ## Architecture notes
 
-- **Proxy as sole backend:** `proxy/` is the only component that speaks
-  qBittorrent Web API v2. It owns qBittorrent credentials (`config.json`, mode
+- **Proxy as sole backend:** `proxy/` is the only component that talks to the
+  torrent client (qBittorrent Web API v2, Transmission RPC, Deluge Web API, or
+  rTorrent / ruTorrent XML-RPC). It owns client credentials (`config.json`, mode
   `0600`), authentication/2FA/device-token hashes (`auth.json`, mode `0600`),
   and the category/tag scope (`REMAGNET_CATEGORY` / `REMAGNET_TAGS`).
 - **Least-privilege clients:** The extension and Android app store only the
@@ -208,28 +217,31 @@ dark, and popup color schemes, typography, spacing, dimensions, and motion).
 - **Extension background boundary:** In `extension/`, only the background worker
   talks to the proxy; popup, add, and options pages communicate with it via
   typed messages (`extension/lib/messages.ts`).
-- **qBittorrent compatibility:** Targets Web API v2 (qBittorrent 4.1+; API key
-  auth requires 5.2+). Adding paused torrents sends both `paused` and `stopped`
-  for 4.x and 5.x compatibility.
+- **Client compatibility:** qBittorrent targets Web API v2 (4.1+; API key auth
+  and direct Web API ZIP streaming require 5.2+), sending both `paused` and
+  `stopped` when adding paused torrents for 4.x and 5.x compatibility.
+  Transmission, Deluge, and rTorrent stream completed ZIPs from a read-only
+  `DOWNLOADS_DIR` mount.
 
 ## Releases
 
 Every component shares one semantic version. Bump, check, commit, and tag:
 
 ```bash
-bun run version:set 0.2.0
-bun run version:check v0.2.0
+bun run version:set 0.6.0
+bun run version:check v0.6.0
 git add -A
-git commit -m "Release 0.2.0"
-git tag v0.2.0
+git commit -m "Release 0.6.0"
+git tag v0.6.0
 git push origin main --tags
 ```
 
 Pushing a `vMAJOR.MINOR.PATCH` tag triggers
 [`.github/workflows/release.yml`](.github/workflows/release.yml), which verifies
 all versions and runs extension, proxy, Android, and containerized integration
-checks (against real qBittorrent and Transmission). The image is only pushed and
-the GitHub release only created once every check passes. It publishes:
+checks (against real qBittorrent, Transmission, Deluge, and rTorrent
+containers). The image is only pushed and the GitHub release only created once
+every check passes. It publishes:
 
 - `remagnet-<version>-chrome.zip`, `remagnet-<version>-firefox.zip`, and
   `remagnet-<version>-firefox-sources.zip` (for addons.mozilla.org review)

@@ -10,6 +10,8 @@ data class ArchiveRequest(
     val name: String,
     /** Torrent size when known, used as the progress denominator. */
     val size: Long,
+    /** A single file to download, or null for the whole archive. */
+    val fileIndex: Long? = null,
 )
 
 /** The single archive download the app is allowed to run. */

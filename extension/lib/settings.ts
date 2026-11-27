@@ -13,6 +13,8 @@ export interface Settings {
   torrentFileSurface: TorrentFileSurface;
   /** Whether a browser notification is shown when a download completes. */
   downloadNotifications: boolean;
+  /** Whether the toolbar icon shows active or completed torrent counts. */
+  toolbarBadge: boolean;
 }
 
 /** Settings that are safe to keep readable on disk. */
@@ -29,6 +31,7 @@ const PUBLIC_DEFAULTS: PublicSettings = {
   proxyBaseUrl: "",
   torrentFileSurface: "popup-window",
   downloadNotifications: true,
+  toolbarBadge: true,
 };
 
 const PUBLIC_KEYS = new Set(Object.keys(PUBLIC_DEFAULTS));
@@ -135,9 +138,26 @@ export async function savePublicSettings(partial: Partial<PublicSettings>): Prom
     proxyBaseUrl: partial.proxyBaseUrl ?? current.proxyBaseUrl,
     torrentFileSurface: partial.torrentFileSurface ?? current.torrentFileSurface,
     downloadNotifications: partial.downloadNotifications ?? current.downloadNotifications,
+    toolbarBadge: partial.toolbarBadge ?? current.toolbarBadge,
   });
   await settingsItem.setValue(merged);
   return { ...current, ...merged };
+}
+
+/**
+ * React to preference or credential changes.
+ *
+ * The background worker owns the toolbar badge and completion notifications,
+ * so it watches both storage items and updates immediately when Options saves a
+ * preference, signs in, or disconnects.
+ */
+export function watchSettings(callback: () => void): () => void {
+  const unwatchSettings = settingsItem.watch(() => callback());
+  const unwatchSecrets = secretsItem.watch(() => callback());
+  return () => {
+    unwatchSettings();
+    unwatchSecrets();
+  };
 }
 
 /** Both the proxy URL and token must be present before any request is made. */
@@ -217,6 +237,8 @@ function toPublicSettings(values: StoredSettings): PublicSettings {
       typeof values.downloadNotifications === "boolean"
         ? values.downloadNotifications
         : PUBLIC_DEFAULTS.downloadNotifications,
+    toolbarBadge:
+      typeof values.toolbarBadge === "boolean" ? values.toolbarBadge : PUBLIC_DEFAULTS.toolbarBadge,
   };
 }
 

@@ -2,8 +2,9 @@
 
 The Remagnet proxy is the required adapter between the browser extension or
 Android client and your torrent client. It supports qBittorrent, Transmission,
-Deluge, and rTorrent / ruTorrent. It adds, lists, filters and removes torrents
-through the client's API and turns completed torrents into ZIP streams.
+Deluge, and rTorrent / ruTorrent. It adds, lists, filters, pauses and removes
+torrents through the client's API and streams completed files directly or as
+ZIP archives.
 qBittorrent files are streamed from its Web API; Transmission, Deluge, and
 rTorrent read from a read-only downloads mount. Archives are never stored.
 Clients only ever hold a per-device proxy token; torrent-client credentials and
@@ -39,54 +40,69 @@ The proxy has one administrator account and any number of device tokens.
   logs are not enough to recover it. Torrent-client credentials are never part
   of the payload.
 - **Archive tickets.** `POST /api/archive/{hash}/ticket` issues a 60-second,
-  single-use ticket bound to one info hash. Browsers that cannot attach an
-  `Authorization` header use `GET /archive/{hash}?ticket=…`; the ticket is
-  consumed by the download, so the long-lived device token never appears in a
-  URL, history entry or download log.
+  single-use ticket bound to one info hash; `POST
+  /api/archive/{hash}/files/{index}/ticket` issues one bound to a single file.
+  Browsers that cannot attach an `Authorization` header use
+  `GET /archive/{hash}?ticket=…` or `GET
+  /archive/{hash}/files/{index}?ticket=…`; the ticket is consumed by the
+  download, so the long-lived device token never appears in a URL, history
+  entry or download log.
 
 ## Endpoints
 
-| Endpoint                           | Auth             | Purpose                                                       |
-| ---------------------------------- | ---------------- | ------------------------------------------------------------- |
-| `GET /`                            | none             | Proxy page: setup, sign-in, settings, pairing and devices     |
-| `GET /assets/departure-mono.woff2` | none             | Wordmark font used by the proxy page                          |
-| `GET /healthz`                     | none             | Liveness probe                                                |
-| `GET /api/auth/status`             | none             | Setup and sign-in state                                       |
-| `POST /api/auth/setup`             | none             | Create the administrator account                              |
-| `POST /api/auth/login`             | none             | Sign in (password plus optional TOTP/recovery code)           |
-| `POST /api/auth/logout`            | session          | Revoke the current administrator session                      |
-| `POST /api/auth/password`          | session          | Change the administrator password                             |
-| `POST /api/auth/2fa/setup`         | session          | Start TOTP enrolment                                          |
-| `POST /api/auth/2fa/enable`        | session          | Confirm TOTP and return recovery codes                        |
-| `POST /api/auth/2fa/disable`       | session          | Disable TOTP                                                  |
-| `POST /api/auth/device`            | none             | Exchange credentials for a per-device token                   |
-| `GET /api/devices`                 | session          | List device records                                           |
-| `DELETE /api/devices/current`      | device           | Revoke the caller's own device token (self-service logout)    |
-| `DELETE /api/devices/:id`          | session          | Revoke any device token                                       |
-| `GET /api/health`                  | device           | API/proxy version, capabilities, defaults and client versions |
-| `GET /api/config`                  | session          | Read non-secret settings                                      |
-| `PUT /api/config`                  | session          | Update the client URL, credentials and magnet defaults        |
-| `GET /api/torrents`                | device           | List torrents owned by Remagnet                               |
-| `POST /api/torrents`               | device           | Add magnets with the configured category/tags                 |
-| `GET /api/torrents/:hash`          | device           | Read one torrent, unfiltered                                  |
-| `DELETE /api/torrents/:hash`       | device           | Remove a torrent owned by Remagnet                            |
-| `POST /api/pair`                   | session          | Mint a short-lived pairing code and QR                        |
-| `DELETE /api/pair/:id`             | session          | Revoke a pairing code                                         |
-| `POST /api/pair/claim`             | none             | Claim a code; returns an encrypted device token               |
-| `POST /api/archive/:hash/ticket`   | device           | Mint a single-use archive download ticket                     |
-| `GET /archive/:hash`               | device or ticket | Stream a completed torrent as a ZIP                           |
+| Endpoint                                      | Auth             | Purpose                                                       |
+| --------------------------------------------- | ---------------- | ------------------------------------------------------------- |
+| `GET /`                                       | none             | Proxy page: setup, sign-in, settings, pairing and devices     |
+| `GET /assets/departure-mono.woff2`            | none             | Wordmark font used by the proxy page                          |
+| `GET /healthz`                                | none             | Liveness probe                                                |
+| `GET /api/auth/status`                        | none             | Setup and sign-in state                                       |
+| `POST /api/auth/setup`                        | none             | Create the administrator account                              |
+| `POST /api/auth/login`                        | none             | Sign in (password plus optional TOTP/recovery code)           |
+| `POST /api/auth/logout`                       | session          | Revoke the current administrator session                      |
+| `POST /api/auth/password`                     | session          | Change the administrator password                             |
+| `POST /api/auth/2fa/setup`                    | session          | Start TOTP enrolment                                          |
+| `POST /api/auth/2fa/enable`                   | session          | Confirm TOTP and return recovery codes                        |
+| `POST /api/auth/2fa/disable`                  | session          | Disable TOTP                                                  |
+| `POST /api/auth/device`                       | none             | Exchange credentials for a per-device token                   |
+| `GET /api/devices`                            | session          | List device records                                           |
+| `DELETE /api/devices/current`                 | device           | Revoke the caller's own device token (self-service logout)    |
+| `DELETE /api/devices/:id`                     | session          | Revoke any device token                                       |
+| `GET /api/health`                             | device           | API/proxy version, capabilities, defaults and client versions |
+| `GET /api/config`                             | session          | Read non-secret settings                                      |
+| `PUT /api/config`                             | session          | Update the client URL, credentials and magnet defaults        |
+| `GET /api/torrents`                           | device           | List torrents owned by Remagnet                               |
+| `POST /api/torrents`                          | device           | Add magnets with the configured category/tags                 |
+| `GET /api/torrents/:hash`                     | device           | Read one torrent, unfiltered                                  |
+| `GET /api/torrents/:hash/files`               | device           | List wanted files in a torrent, sorted by index               |
+| `DELETE /api/torrents/:hash`                  | device           | Remove a torrent owned by Remagnet                            |
+| `POST /api/torrents/pause`                    | device           | Pause every running torrent owned by Remagnet                 |
+| `POST /api/torrents/resume`                   | device           | Resume every stopped torrent owned by Remagnet                |
+| `POST /api/torrents/:hash/pause`              | device           | Pause a torrent owned by Remagnet                             |
+| `POST /api/torrents/:hash/resume`             | device           | Resume a torrent owned by Remagnet                            |
+| `POST /api/pair`                              | session          | Mint a short-lived pairing code and QR                        |
+| `DELETE /api/pair/:id`                        | session          | Revoke a pairing code                                         |
+| `POST /api/pair/claim`                        | none             | Claim a code; returns an encrypted device token               |
+| `POST /api/archive/:hash/ticket`              | device           | Mint a single-use archive download ticket                     |
+| `POST /api/archive/:hash/files/:index/ticket` | device           | Mint a single-use ticket for one torrent file                 |
+| `GET /archive/:hash`                          | device or ticket | Stream a completed torrent as a ZIP or a raw file             |
+| `GET /archive/:hash/files/:index`             | device or ticket | Stream one completed torrent file without a ZIP wrapper       |
 
 `Authorization: Bearer rmg_…` is the normal device credential. The archive
-route additionally accepts `?ticket=…`, and an administrator session cookie is
-accepted anywhere a device token is, including the archive download.
+routes additionally accept `?ticket=…`, and an administrator session cookie is
+accepted anywhere a device token is, including the archive downloads.
 
 The proxy is the only component that talks to the torrent client. It owns the
 client credentials and the category/labels applied to Remagnet magnets, exposes
 neutral torrent endpoints, and keeps those credentials off the extension and
 Android client. `GET /api/torrents` filters by the configured category/tags;
 `POST /api/torrents` always applies them and ignores any client-supplied values;
-`DELETE /api/torrents/:hash`, `POST /api/archive/:hash/ticket` and `GET
-/archive/:hash` refuse torrents outside that filter with `404`. All `/api/*`
+`DELETE /api/torrents/:hash`, `GET /api/torrents/:hash/files`, `POST
+/api/torrents/:hash/pause`, `POST /api/torrents/:hash/resume`, `POST
+/api/archive/:hash/ticket`, `POST /api/archive/:hash/files/:index/ticket`, `GET
+/archive/:hash` and `GET /archive/:hash/files/:index` refuse torrents outside
+that filter with `404`. The
+pause-all and resume-all routes only send hashes of owned torrents, so torrents
+outside the filter are never paused, resumed or otherwise touched. All `/api/*`
 responses include `Cache-Control: no-store`.
 
 The proxy page's **Pair a device** panel mints and rotates the code, renders the
@@ -224,14 +240,21 @@ two-factor authentication is enabled.
 
 ## How archiving works
 
-1. Look up the torrent by info hash and require `progress == 1`.
-2. List its files through the client API.
-3. For qBittorrent 5.2+, fetch each file with `torrents/downloadFile`. For
+1. Look up the torrent by info hash. `GET /archive/{hash}` requires a complete
+   torrent (`progress == 1`); the single-file route only requires the requested
+   file to be complete.
+2. List its files through the client API, omit unwanted entries and
+   directories, and sort by the client's file index.
+3. A torrent with one file is streamed directly as
+   `application/octet-stream` with the file's exact `Content-Length`; a torrent
+   with several files is streamed as a stored (uncompressed) ZIP archive.
+4. `GET /archive/{hash}/files/{index}` always streams one file raw, so it can
+   download a finished file while other files in the torrent are still
+   downloading. `GET /archive/{hash}` returns `409` for any incomplete file.
+5. For qBittorrent 5.2+, fetch each file with `torrents/downloadFile`. For
    Transmission, Deluge, and rTorrent, resolve each file inside the read-only
-   `DOWNLOADS_DIR` mount. Copy the bytes into a stored (uncompressed) ZIP entry
-   with a data descriptor.
-4. Stream the ZIP body back to the browser without buffering the archive.
-5. If an upstream file stream fails mid-way, the HTTP body is aborted rather
+   `DOWNLOADS_DIR` mount.
+6. If an upstream file stream fails mid-way, the HTTP body is aborted rather
    than ending cleanly. Without that, browsers save a truncated ZIP as a
    completed download because the response has no `Content-Length`.
 

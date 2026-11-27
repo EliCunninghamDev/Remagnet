@@ -1,5 +1,10 @@
 import type { components, ProxyError, ProxyPaths } from "@remagnet/proxy-client";
-import { archiveUrl, proxyErrorMessage, toProxyError } from "@remagnet/proxy-client";
+import {
+  archiveUrl,
+  fileArchiveUrl,
+  proxyErrorMessage,
+  toProxyError,
+} from "@remagnet/proxy-client";
 import createClient from "openapi-fetch";
 
 type Schemas = components["schemas"];
@@ -19,6 +24,7 @@ export type PublicDevice = Schemas["PublicDevice"];
 export type ConnectionHealth = Schemas["ConnectionHealth"];
 export type Liveness = Schemas["Liveness"];
 export type ArchiveTicket = Schemas["ArchiveTicket"];
+export type TorrentFile = Schemas["TorrentFile"];
 
 /** `openapi-fetch` response with the parts this module reads. */
 interface ApiResponse<T> {
@@ -206,6 +212,12 @@ export function fetchTorrent(hash: string): Promise<TorrentSummary> {
   return run(() => apiClient.GET("/api/torrents/{hash}", { params: { path: { hash } } }));
 }
 
+export function fetchTorrentFiles(hash: string): Promise<TorrentFile[]> {
+  return run(() =>
+    apiClient.GET("/api/torrents/{hash}/files", { params: { path: { hash } } }),
+  ).then((result) => (Array.isArray(result.files) ? result.files : []));
+}
+
 export function addTorrents(body: AddTorrentRequest): Promise<AddTorrentResult> {
   return run(() => apiClient.POST("/api/torrents", { body }));
 }
@@ -220,15 +232,50 @@ export function removeTorrent(hash: string, deleteFiles = false): Promise<void> 
   );
 }
 
+export function pauseTorrent(hash: string): Promise<void> {
+  return run<void>(
+    () => apiClient.POST("/api/torrents/{hash}/pause", { params: { path: { hash } } }),
+    { empty: true },
+  );
+}
+
+export function resumeTorrent(hash: string): Promise<void> {
+  return run<void>(
+    () => apiClient.POST("/api/torrents/{hash}/resume", { params: { path: { hash } } }),
+    { empty: true },
+  );
+}
+
+export function pauseAllTorrents(): Promise<void> {
+  return run<void>(() => apiClient.POST("/api/torrents/pause"), { empty: true });
+}
+
+export function resumeAllTorrents(): Promise<void> {
+  return run<void>(() => apiClient.POST("/api/torrents/resume"), { empty: true });
+}
+
 // ---- Archive downloads ----------------------------------------------------
 
 export function createArchiveTicket(hash: string): Promise<ArchiveTicket> {
   return run(() => apiClient.POST("/api/archive/{hash}/ticket", { params: { path: { hash } } }));
 }
 
+export function createFileArchiveTicket(hash: string, index: number): Promise<ArchiveTicket> {
+  return run(() =>
+    apiClient.POST("/api/archive/{hash}/files/{index}/ticket", {
+      params: { path: { hash, index } },
+    }),
+  );
+}
+
 /** Same-origin ZIP URL for a single-use ticket. */
 export function archiveDownloadHref(hash: string, ticket: string): string {
   return `${archiveHref(hash)}?${new URLSearchParams({ ticket }).toString()}`;
+}
+
+/** Same-origin URL for one file behind a single-use ticket. */
+export function fileArchiveDownloadHref(hash: string, index: number, ticket: string): string {
+  return `${fileArchiveUrl("", hash, index)}?${new URLSearchParams({ ticket }).toString()}`;
 }
 
 /** Same-origin ZIP URL for headers or cookie-authorized downloads. */

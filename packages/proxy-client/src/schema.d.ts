@@ -184,6 +184,56 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/torrents/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Pause every torrent owned by Remagnet
+         * @description Lists the torrent client's torrents and pauses only those that match the
+         *     proxy's configured category/tags filter and are not already stopped.
+         *     Torrents outside the filter are never touched: the proxy sends the
+         *     individual hashes, never a global wildcard, so unrelated torrents in a
+         *     shared client keep running. Returns `204` even when there is nothing to
+         *     pause.
+         */
+        post: operations["pauseAllTorrents"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/torrents/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resume every stopped torrent owned by Remagnet
+         * @description Lists the torrent client's torrents and resumes only those that match
+         *     the proxy's configured category/tags filter and are stopped. Torrents
+         *     outside the filter are never touched: the proxy sends the individual
+         *     hashes, never a global wildcard, so unrelated torrents in a shared
+         *     client remain untouched. Returns `204` even when there is nothing to
+         *     resume.
+         */
+        post: operations["resumeAllTorrents"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/torrents/{hash}": {
         parameters: {
             query?: never;
@@ -208,6 +258,79 @@ export interface paths {
          *     unrelated torrents from a shared qBittorrent instance.
          */
         delete: operations["removeTorrent"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/torrents/{hash}/files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the wanted files in a torrent owned by Remagnet
+         * @description Lists the files in one torrent, sorted by the client's file index and
+         *     omitting directory entries. Files the user marked as unwanted are not
+         *     returned: qBittorrent priority `0`, Deluge and rTorrent priority `0`, and
+         *     Transmission's unwatched files are filtered out.
+         *
+         *     The torrent must match the proxy's configured category/tags filter, the
+         *     same ownership check used by `DELETE /api/torrents/{hash}`. Unrelated and
+         *     unknown hashes return `404`.
+         */
+        get: operations["listTorrentFiles"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/torrents/{hash}/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Pause a torrent owned by Remagnet
+         * @description Pauses one torrent only when it matches the proxy's configured
+         *     category/tags filter. A torrent that does not exist, or that exists but
+         *     is not owned by Remagnet, returns `404` so clients cannot pause
+         *     unrelated torrents in a shared torrent client instance.
+         */
+        post: operations["pauseTorrent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/torrents/{hash}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resume a torrent owned by Remagnet
+         * @description Resumes one torrent only when it matches the proxy's configured
+         *     category/tags filter. A torrent that does not exist, or that exists but
+         *     is not owned by Remagnet, returns `404` so clients cannot resume
+         *     unrelated torrents in a shared torrent client instance.
+         */
+        post: operations["resumeTorrent"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -603,6 +726,36 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/archive/{hash}/files/{index}/ticket": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mint a single-use ticket for one torrent file
+         * @description Issues a 60-second, single-use ticket bound to this info hash and file
+         *     index. Use it with `GET /archive/{hash}/files/{index}?ticket=…` so a
+         *     browser or download manager never carries a long-lived device token in a
+         *     URL.
+         *
+         *     The ticket scope includes both the hash and the index: it cannot be
+         *     replayed against another file or against the whole-archive download.
+         *     The torrent must exist and match the proxy's configured category/tags
+         *     filter, the same ownership check used by `DELETE /api/torrents/{hash}`.
+         *     Unrelated or unknown hashes return `404` and never receive a ticket.
+         *     Negative file indexes return `400`.
+         */
+        post: operations["createFileArchiveTicket"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/archive/{hash}": {
         parameters: {
             query?: never;
@@ -611,19 +764,26 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Stream a completed torrent as a ZIP
+         * Stream a completed torrent as a ZIP or a single raw file
          * @description Looks up the torrent by info hash, requires that it is complete (progress
-         *     1, no bytes left, and not in `missingFiles` or `error`), lists its files
-         *     and streams each one from qBittorrent into a stored ZIP entry. Nothing is
-         *     buffered or written to disk.
+         *     1, no bytes left, and not in `missingFiles` or `error`), and lists its
+         *     files. Nothing is buffered or written to disk.
+         *
+         *     A torrent with one file is returned directly as
+         *     `application/octet-stream`, with the sanitized file basename in
+         *     `Content-Disposition` and the file size in `Content-Length`. A torrent
+         *     with multiple files is streamed as a stored ZIP: each file becomes an
+         *     entry, so `Content-Type` is `application/zip` and the suggested filename
+         *     is the sanitized torrent name with a `.zip` suffix. Directory entries are
+         *     omitted in both cases.
          *
          *     The torrent must also match the proxy's configured category/tags filter,
          *     the same ownership check used by `DELETE /api/torrents/{hash}`.
          *     Unrelated and unknown hashes return `404`, whether the caller uses a
          *     token, a session or a ticket.
          *
-         *     The response carries an exact `Content-Length`, computed from the stored
-         *     ZIP layout (entry names, headers, data descriptors and the central
+         *     The ZIP response carries an exact `Content-Length`, computed from the
+         *     stored layout (entry names, headers, data descriptors and the central
          *     directory) before the first upstream byte is read, including ZIP64
          *     records when sizes or offsets exceed 4 GiB. If an upstream file stream
          *     fails after the response has started, the connection is aborted instead
@@ -631,6 +791,40 @@ export interface paths {
          *     completed download.
          */
         get: operations["downloadArchive"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/archive/{hash}/files/{index}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Stream one completed torrent file
+         * @description Streams a single file directly as `application/octet-stream`, without a
+         *     ZIP wrapper. This lets a client download one finished file from a torrent
+         *     that still has other incomplete files. The file must be wanted and fully
+         *     downloaded (`progress == 1`); an incomplete file returns `409`.
+         *
+         *     The torrent must match the proxy's configured category/tags filter, the
+         *     same ownership check used by `DELETE /api/torrents/{hash}`. Unrelated and
+         *     unknown hashes return `404`. A `missingFiles` or `error` torrent also
+         *     returns `409`, because its bytes cannot be read.
+         *
+         *     Authentication is checked before the hash and index are validated, so an
+         *     unauthenticated request gets `401` regardless of URL shape. A ticket
+         *     minted by `POST /api/archive/{hash}/files/{index}/ticket` is bound to both
+         *     the info hash and the file index; a mismatched file ticket or a
+         *     whole-archive ticket is rejected with `401`.
+         */
+        get: operations["downloadTorrentFile"];
         put?: never;
         post?: never;
         delete?: never;
@@ -864,6 +1058,36 @@ export interface components {
         TorrentList: {
             /** @description Torrents matching the configured category/tags filter. */
             torrents: components["schemas"]["TorrentSummary"][];
+        };
+        /**
+         * @description One wanted file inside a torrent. `index` is the client's file index,
+         *     which is also used by the single-file download route.
+         */
+        TorrentFile: {
+            /**
+             * Format: int64
+             * @description Client-assigned file index.
+             */
+            index: number;
+            /**
+             * @description File path relative to the torrent root.
+             * @example Example/Episode.mkv
+             */
+            name: string;
+            /**
+             * Format: int64
+             * @description File size in bytes.
+             */
+            size: number;
+            /**
+             * Format: double
+             * @description Completion from 0 to 1.
+             */
+            progress: number;
+        };
+        TorrentFileList: {
+            /** @description Wanted files, sorted by file index, without directories. */
+            files: components["schemas"]["TorrentFile"][];
         };
         /**
          * @description One raw `.torrent` metainfo file. `data` is standard base64 with padding,
@@ -1258,7 +1482,10 @@ export interface components {
             device: components["schemas"]["PublicDevice"];
         };
         ArchiveTicket: {
-            /** @description Single-use ticket for `GET /archive/{hash}?ticket=…`. */
+            /**
+             * @description Single-use ticket for `GET /archive/{hash}?ticket=…` or
+             *     `GET /archive/{hash}/files/{index}?ticket=…`.
+             */
             ticket: string;
             /**
              * @description Seconds until the ticket expires.
@@ -1418,9 +1645,11 @@ export interface components {
     };
     parameters: {
         /**
-         * @description Single-use download ticket from `POST /api/archive/{hash}/ticket`.
-         *     Alternative to a device token or administrator session; the ticket is
-         *     consumed by the download and expires after 60 seconds.
+         * @description Single-use download ticket from `POST /api/archive/{hash}/ticket` or
+         *     `POST /api/archive/{hash}/files/{index}/ticket`. Alternative to a device
+         *     token or administrator session; the ticket is consumed by the download
+         *     and expires after 60 seconds. A file ticket only authorizes the file it
+         *     was minted for.
          */
         TicketQuery: string;
         /**
@@ -1429,6 +1658,11 @@ export interface components {
          * @example dc555f7a26f1acae38a18edc04e53588ade33051
          */
         Hash: string;
+        /**
+         * @description Torrent file index as reported by the client. Must be non-negative.
+         * @example 0
+         */
+        FileIndex: number;
     };
     requestBodies: never;
     headers: never;
@@ -1662,6 +1896,48 @@ export interface operations {
             503: components["responses"]["ServiceUnavailable"];
         };
     };
+    pauseAllTorrents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The owned torrents were paused. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            502: components["responses"]["BadGateway"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    resumeAllTorrents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The owned stopped torrents were resumed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            502: components["responses"]["BadGateway"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
     getTorrent: {
         parameters: {
             query?: never;
@@ -1714,6 +1990,98 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description The torrent was deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            502: components["responses"]["BadGateway"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    listTorrentFiles: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description Torrent info hash. Accepts a 40-character BitTorrent v1 hash or a
+                 *     64-character v2 hash, case-insensitively.
+                 * @example dc555f7a26f1acae38a18edc04e53588ade33051
+                 */
+                hash: components["parameters"]["Hash"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The wanted files in file-index order. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TorrentFileList"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            502: components["responses"]["BadGateway"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    pauseTorrent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description Torrent info hash. Accepts a 40-character BitTorrent v1 hash or a
+                 *     64-character v2 hash, case-insensitively.
+                 * @example dc555f7a26f1acae38a18edc04e53588ade33051
+                 */
+                hash: components["parameters"]["Hash"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The torrent was paused. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            502: components["responses"]["BadGateway"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    resumeTorrent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description Torrent info hash. Accepts a 40-character BitTorrent v1 hash or a
+                 *     64-character v2 hash, case-insensitively.
+                 * @example dc555f7a26f1acae38a18edc04e53588ade33051
+                 */
+                hash: components["parameters"]["Hash"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The torrent was resumed. */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -2264,13 +2632,53 @@ export interface operations {
             503: components["responses"]["ServiceUnavailable"];
         };
     };
+    createFileArchiveTicket: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description Torrent info hash. Accepts a 40-character BitTorrent v1 hash or a
+                 *     64-character v2 hash, case-insensitively.
+                 * @example dc555f7a26f1acae38a18edc04e53588ade33051
+                 */
+                hash: components["parameters"]["Hash"];
+                /**
+                 * @description Torrent file index as reported by the client. Must be non-negative.
+                 * @example 0
+                 */
+                index: components["parameters"]["FileIndex"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A ticket for one file download. */
+            200: {
+                headers: {
+                    "Cache-Control"?: "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArchiveTicket"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            502: components["responses"]["BadGateway"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
     downloadArchive: {
         parameters: {
             query?: {
                 /**
-                 * @description Single-use download ticket from `POST /api/archive/{hash}/ticket`.
-                 *     Alternative to a device token or administrator session; the ticket is
-                 *     consumed by the download and expires after 60 seconds.
+                 * @description Single-use download ticket from `POST /api/archive/{hash}/ticket` or
+                 *     `POST /api/archive/{hash}/files/{index}/ticket`. Alternative to a device
+                 *     token or administrator session; the ticket is consumed by the download
+                 *     and expires after 60 seconds. A file ticket only authorizes the file it
+                 *     was minted for.
                  */
                 ticket?: components["parameters"]["TicketQuery"];
             };
@@ -2288,14 +2696,17 @@ export interface operations {
         requestBody?: never;
         responses: {
             /**
-             * @description ZIP archive streamed as `application/zip`. Entry names are sanitized
-             *     relative paths inside the torrent; directories are omitted. The
-             *     suggested filename is the sanitized torrent name with a `.zip`
-             *     suffix.
+             * @description A raw single file (`application/octet-stream`) when the torrent has
+             *     exactly one file, or a ZIP archive (`application/zip`) when it has
+             *     several. ZIP entry names are sanitized relative paths inside the
+             *     torrent; directories are omitted.
              */
             200: {
                 headers: {
-                    /** @description Exact size in bytes of the stored ZIP archive. */
+                    /**
+                     * @description Exact size in bytes of the stored ZIP archive, or of the raw
+                     *     file for a single-file torrent.
+                     */
                     "Content-Length"?: number;
                     /**
                      * @description Attachment filename with an ASCII fallback and RFC 5987 form.
@@ -2308,6 +2719,7 @@ export interface operations {
                 };
                 content: {
                     "application/zip": string;
+                    "application/octet-stream": string;
                 };
             };
             /** @description The info hash is not 40 or 64 hexadecimal characters. */
@@ -2354,6 +2766,109 @@ export interface operations {
                     /**
                      * @example {
                      *       "error": "Example Torrent is not complete yet (42%)."
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["InternalError"];
+            502: components["responses"]["BadGateway"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    downloadTorrentFile: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Single-use download ticket from `POST /api/archive/{hash}/ticket` or
+                 *     `POST /api/archive/{hash}/files/{index}/ticket`. Alternative to a device
+                 *     token or administrator session; the ticket is consumed by the download
+                 *     and expires after 60 seconds. A file ticket only authorizes the file it
+                 *     was minted for.
+                 */
+                ticket?: components["parameters"]["TicketQuery"];
+            };
+            header?: never;
+            path: {
+                /**
+                 * @description Torrent info hash. Accepts a 40-character BitTorrent v1 hash or a
+                 *     64-character v2 hash, case-insensitively.
+                 * @example dc555f7a26f1acae38a18edc04e53588ade33051
+                 */
+                hash: components["parameters"]["Hash"];
+                /**
+                 * @description Torrent file index as reported by the client. Must be non-negative.
+                 * @example 0
+                 */
+                index: components["parameters"]["FileIndex"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /**
+             * @description The raw file bytes. The suggested filename is the sanitized basename
+             *     of the file inside the torrent.
+             */
+            200: {
+                headers: {
+                    /** @description Exact size in bytes of the file. */
+                    "Content-Length"?: number;
+                    /**
+                     * @description Attachment filename with an ASCII fallback and RFC 5987 form.
+                     * @example attachment; filename="Episode.mkv"; filename*=UTF-8''Episode.mkv
+                     */
+                    "Content-Disposition"?: string;
+                    "Cache-Control"?: "no-store";
+                    "X-Content-Type-Options"?: "nosniff";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            /**
+             * @description The info hash is not 40 or 64 hexadecimal characters, or the file
+             *     index is negative.
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /**
+             * @description The torrent does not exist, does not match the proxy's configured
+             *     category/tags filter, or has no wanted file at this index.
+             */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "File not found in this torrent."
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /**
+             * @description The file is still downloading, or the torrent is in `missingFiles` or
+             *     `error` state.
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "Example/file.mkv is not fully downloaded yet."
                      *     }
                      */
                     "application/json": components["schemas"]["Error"];

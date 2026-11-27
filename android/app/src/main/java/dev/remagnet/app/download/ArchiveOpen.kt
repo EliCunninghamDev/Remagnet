@@ -3,6 +3,7 @@ package dev.remagnet.app.download
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.webkit.MimeTypeMap
 import android.widget.Toast
 import androidx.core.content.FileProvider
 import java.io.File
@@ -28,8 +29,15 @@ fun openArchive(context: Context, path: String): Boolean {
         return false
     }
 
+    val extension = file.extension.lowercase()
+    val mimeType = when {
+        extension == "zip" -> "application/zip"
+        else -> MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension)
+            ?: "application/octet-stream"
+    }
+
     val view = Intent(Intent.ACTION_VIEW)
-        .setDataAndType(uri, "application/zip")
+        .setDataAndType(uri, mimeType)
         .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
 
     return try {
@@ -37,7 +45,7 @@ fun openArchive(context: Context, path: String): Boolean {
         true
     } catch (_: ActivityNotFoundException) {
         val share = Intent(Intent.ACTION_SEND)
-            .setType("application/zip")
+            .setType(mimeType)
             .putExtra(Intent.EXTRA_STREAM, uri)
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         try {

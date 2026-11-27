@@ -19,6 +19,7 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.remagnet.app.client.ProxyStatus
+import dev.remagnet.app.client.TorrentFile
 import dev.remagnet.app.client.TorrentSummary
 import dev.remagnet.app.download.openArchive
 import dev.remagnet.app.util.IssueReportContext
@@ -34,6 +35,9 @@ fun RemagnetApp(viewModel: RemagnetViewModel = viewModel()) {
     var scanResult by rememberSaveable { mutableStateOf<String?>(null) }
     var openPaste by remember { mutableStateOf(false) }
     var pendingDownload by remember { mutableStateOf<TorrentSummary?>(null) }
+    var pendingFileDownload by remember {
+        mutableStateOf<Pair<TorrentSummary, TorrentFile>?>(null)
+    }
     var reportContext by remember { mutableStateOf<IssueReportContext?>(null) }
     var reportOpen by remember { mutableStateOf(false) }
     val reportBackend = (state.proxyStatus as? ProxyStatus.Online)?.let { status ->
@@ -87,6 +91,10 @@ fun RemagnetApp(viewModel: RemagnetViewModel = viewModel()) {
     ) {
         pendingDownload?.let(viewModel::downloadTorrent)
         pendingDownload = null
+        pendingFileDownload?.let { (torrent, file) ->
+            viewModel.downloadTorrentFile(torrent, file)
+        }
+        pendingFileDownload = null
     }
 
     fun openReport(context: IssueReportContext) {
@@ -94,17 +102,28 @@ fun RemagnetApp(viewModel: RemagnetViewModel = viewModel()) {
         reportOpen = true
     }
 
-    fun startDownload(torrent: TorrentSummary) {
-        val needsPermission = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+    fun needsNotificationPermission(): Boolean =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(
                 context,
                 Manifest.permission.POST_NOTIFICATIONS,
             ) != PackageManager.PERMISSION_GRANTED
-        if (needsPermission) {
+
+    fun startDownload(torrent: TorrentSummary) {
+        if (needsNotificationPermission()) {
             pendingDownload = torrent
             notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         } else {
             viewModel.downloadTorrent(torrent)
+        }
+    }
+
+    fun startFileDownload(torrent: TorrentSummary, file: TorrentFile) {
+        if (needsNotificationPermission()) {
+            pendingFileDownload = torrent to file
+            notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            viewModel.downloadTorrentFile(torrent, file)
         }
     }
 
@@ -133,6 +152,11 @@ fun RemagnetApp(viewModel: RemagnetViewModel = viewModel()) {
             onCancelRemove = viewModel::cancelRemove,
             onOpenArchive = { path -> openArchive(context, path) },
             onDismissActionError = viewModel::dismissActionError,
+            onTogglePause = viewModel::togglePause,
+            onPauseAll = viewModel::pauseAllTorrents,
+            onResumeAll = viewModel::resumeAllTorrents,
+            onToggleFiles = viewModel::toggleFiles,
+            onDownloadFile = ::startFileDownload,
             onReportIssue = ::openReport,
         )
 

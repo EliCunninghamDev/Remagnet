@@ -16,6 +16,8 @@ import dev.remagnet.app.client.ProxyTorrentClient
 import dev.remagnet.app.client.QbitError
 import dev.remagnet.app.client.QbitResult
 import dev.remagnet.app.client.TorrentClient
+import dev.remagnet.app.client.TorrentFile
+import dev.remagnet.app.client.TorrentState
 import dev.remagnet.app.client.TorrentSummary
 import dev.remagnet.app.data.PairingLink
 import dev.remagnet.app.data.RemagnetSettings
@@ -59,8 +61,14 @@ data class RemagnetUiState(
     val torrents: List<TorrentSummary> = emptyList(),
     val torrentsLoading: Boolean = false,
     val torrentsError: String? = null,
+    val expandedHash: String? = null,
+    val filesByHash: Map<String, List<TorrentFile>> = emptyMap(),
+    val filesLoadingHash: String? = null,
+    val filesError: String? = null,
     val confirmingHash: String? = null,
     val removingHash: String? = null,
+    val togglingHash: String? = null,
+    val bulkPauseBusy: Boolean = false,
     val actionError: String? = null,
     val download: ArchiveDownloadState = ArchiveDownloadState.Idle,
     val addSheet: AddSheetState = AddSheetState.Closed,
@@ -134,6 +142,7 @@ class RemagnetViewModel(
     private var addLookupId = 0
     private var addSubmitId = 0
     private var listRequestId = 0
+    private var filesRequestId = 0
     private var pollJob: Job? = null
     private var lastDownloadPath: String? = null
 
@@ -390,8 +399,14 @@ class RemagnetViewModel(
                 torrents = emptyList(),
                 torrentsLoading = false,
                 torrentsError = null,
+                expandedHash = null,
+                filesByHash = emptyMap(),
+                filesLoadingHash = null,
+                filesError = null,
                 confirmingHash = null,
                 removingHash = null,
+                togglingHash = null,
+                bulkPauseBusy = false,
                 actionError = null,
                 pairing = PairingState.Idle,
                 signIn = SignInState.Idle,
@@ -555,6 +570,155 @@ class RemagnetViewModel(
         }
     }
 
+    fun togglePause(torrent: TorrentSummary) {
+        val current = _state.value
+        if (current.togglingHash != null || current.bulkPauseBusy) return
+        if (current.removingHash == torrent.hash) return
+        if (!current.settings.proxyConfigured) {
+            _state.update {
+                it.copy(actionError = "The Remagnet Proxy is not configured.")
+            }
+            return
+        }
+
+        val resume = torrent.state == TorrentState.Stopped
+        _state.update { it.copy(togglingHash = torrent.hash, actionError = null) }
+        viewModelScope.launch {
+            val result = if (resume) {
+                clientFactory(current.settings).resumeTorrent(torrent.hash)
+            } else {
+                clientFactory(current.settings).pauseTorrent(torrent.hash)
+            }
+
+            when (result) {
+                is QbitResult.Success -> {
+                    _state.update {
+                        it.copy(
+                            togglingHash = null,
+                            notice = if (resume) {
+                                "Resumed \"${torrent.name}\"."
+                            } else {
+                                "Paused \"${torrent.name}\"."
+                            },
+                        )
+                    }
+                    loadTorrents(showLoading = false)
+                }
+
+                is QbitResult.Failure -> _state.update {
+                    it.copy(togglingHash = null, actionError = result.error.message)
+                }
+            }
+        }
+    }
+
+    fun pauseAllTorrents() {
+        val current = _state.value
+        if (current.bulkPauseBusy || current.togglingHash != null) return
+        if (!current.settings.proxyConfigured) {
+            _state.update {
+                it.copy(actionError = "The Remagnet Proxy is not configured.")
+            }
+            return
+        }
+
+        _state.update { it.copy(bulkPauseBusy = true, actionError = null) }
+        viewModelScope.launch {
+            when (val result = clientFactory(current.settings).pauseAllTorrents()) {
+                is QbitResult.Success -> {
+                    _state.update {
+                        it.copy(bulkPauseBusy = false, notice = "Paused all torrents.")
+                    }
+                    loadTorrents(showLoading = false)
+                }
+
+                is QbitResult.Failure -> _state.update {
+                    it.copy(bulkPauseBusy = false, actionError = result.error.message)
+                }
+            }
+        }
+    }
+
+    fun resumeAllTorrents() {
+        val current = _state.value
+        if (current.bulkPauseBusy || current.togglingHash != null) return
+        if (!current.settings.proxyConfigured) {
+            _state.update {
+                it.copy(actionError = "The Remagnet Proxy is not configured.")
+            }
+            return
+        }
+
+        _state.update { it.copy(bulkPauseBusy = true, actionError = null) }
+        viewModelScope.launch {
+            when (val result = clientFactory(current.settings).resumeAllTorrents()) {
+                is QbitResult.Success -> {
+                    _state.update {
+                        it.copy(bulkPauseBusy = false, notice = "Resumed all torrents.")
+                    }
+                    loadTorrents(showLoading = false)
+                }
+
+                is QbitResult.Failure -> _state.update {
+                    it.copy(bulkPauseBusy = false, actionError = result.error.message)
+                }
+            }
+        }
+    }
+
+    /**
+     * Expand or collapse the file browser for one torrent.
+     *
+     * A request counter keeps a slow response for a previously expanded torrent
+     * from overwriting the files of a torrent the user has since opened.
+     */
+    fun toggleFiles(torrent: TorrentSummary) {
+        if (_state.value.expandedHash == torrent.hash) {
+            filesRequestId += 1
+            _state.update {
+                it.copy(expandedHash = null, filesLoadingHash = null, filesError = null)
+            }
+            return
+        }
+
+        val current = _state.value
+        if (!current.settings.proxyConfigured) {
+            _state.update {
+                it.copy(actionError = "The Remagnet Proxy is not configured.")
+            }
+            return
+        }
+
+        val settings = current.settings
+        val requestId = ++filesRequestId
+        _state.update {
+            it.copy(
+                expandedHash = torrent.hash,
+                filesLoadingHash = torrent.hash,
+                filesError = null,
+            )
+        }
+
+        viewModelScope.launch {
+            val result = clientFactory(settings).listTorrentFiles(torrent.hash)
+            if (requestId != filesRequestId) return@launch
+
+            when (result) {
+                is QbitResult.Success -> _state.update {
+                    it.copy(
+                        filesByHash = it.filesByHash + (torrent.hash to result.value),
+                        filesLoadingHash = null,
+                        filesError = null,
+                    )
+                }
+
+                is QbitResult.Failure -> _state.update {
+                    it.copy(filesLoadingHash = null, filesError = result.error.message)
+                }
+            }
+        }
+    }
+
     fun dismissActionError() {
         _state.update { it.copy(actionError = null) }
     }
@@ -604,6 +768,58 @@ class RemagnetViewModel(
             ArchiveDownloads.fail(
                 torrent.hash,
                 torrent.name,
+                "The download could not start on this device.",
+            )
+            _state.update {
+                it.copy(actionError = error.message ?: "The download could not start.")
+            }
+        }
+    }
+
+    fun downloadTorrentFile(torrent: TorrentSummary, file: TorrentFile) {
+        val current = _state.value
+        if (!current.settings.archiveReady) {
+            _state.update {
+                it.copy(actionError = "Add the Remagnet Proxy URL and token in Settings to download archives.")
+            }
+            return
+        }
+        if (!file.isComplete) {
+            _state.update { it.copy(actionError = "That torrent is not complete yet.") }
+            return
+        }
+        if (torrent.hash.isBlank()) {
+            _state.update { it.copy(actionError = "That torrent has no info hash.") }
+            return
+        }
+        if (ArchiveDownloads.isActive()) {
+            _state.update {
+                it.copy(
+                    actionError = "An archive download is already running. " +
+                        "Wait for it to finish or cancel it first.",
+                )
+            }
+            return
+        }
+        if (!ArchiveDownloads.claim(torrent.hash, file.displayName, file.size)) {
+            _state.update { it.copy(actionError = "An archive download is already running.") }
+            return
+        }
+
+        try {
+            ArchiveDownloadService.start(
+                getApplication(),
+                ArchiveRequest(
+                    hash = torrent.hash,
+                    name = file.displayName,
+                    size = file.size,
+                    fileIndex = file.index,
+                ),
+            )
+        } catch (error: Exception) {
+            ArchiveDownloads.fail(
+                torrent.hash,
+                file.displayName,
                 "The download could not start on this device.",
             )
             _state.update {

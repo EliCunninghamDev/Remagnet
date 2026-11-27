@@ -628,6 +628,86 @@ fieldset.field {
   font-size: 12px;
 }
 
+.list-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.list-controls-row {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+}
+
+.list-search {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 4px 8px;
+  font-size: 11px;
+}
+
+.list-sort {
+  width: auto;
+  flex: none;
+  height: 28px;
+  padding: 4px 8px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.list-sort:hover,
+.list-sort:focus {
+  color: var(--text);
+}
+
+.filter-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.filter-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 7px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.filter-tab:hover:not(:disabled) {
+  filter: none;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.filter-tab.is-active {
+  border-color: var(--accent);
+  color: var(--text);
+  background: var(--surface);
+  font-weight: 600;
+}
+
+.filter-count {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.list-empty-filter {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 20px 8px;
+  text-align: center;
+}
+
 .torrent-list {
   display: flex;
   flex-direction: column;
@@ -847,6 +927,37 @@ button.client-link:hover:not(:disabled) {
   opacity: 0.5;
 }
 
+.row-icon.pause-action {
+  opacity: 0.5;
+}
+
+/* A paused torrent makes Resume the useful action, so it keeps full emphasis. */
+.row-icon.pause-action.is-paused {
+  opacity: 1;
+  color: var(--accent);
+}
+
+.row-icon.pause-action svg {
+  width: 11px;
+  height: 11px;
+  fill: currentColor;
+}
+
+.row-icon.files-action {
+  opacity: 0.5;
+}
+
+.row-icon.files-action.is-open {
+  opacity: 1;
+  color: var(--accent);
+}
+
+.row-icon.files-action svg {
+  width: 11px;
+  height: 11px;
+  fill: currentColor;
+}
+
 .torrent:hover .row-icon,
 .torrent:focus-within .row-icon,
 .row-icon:focus-visible {
@@ -920,6 +1031,61 @@ button.client-link:hover:not(:disabled) {
 .torrent-stats b {
   color: var(--text);
   font-weight: 500;
+}
+
+.torrent-files {
+  margin-top: 4px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.torrent-files-note {
+  margin: 0;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.torrent-files-error {
+  color: var(--error-text);
+  font-family: var(--font-prose);
+  font-size: 11px;
+}
+
+.torrent-file-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 180px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.torrent-file-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 20px;
+}
+
+.torrent-file-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10.5px;
+  color: var(--text);
+}
+
+.torrent-file-meta {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--muted);
+  white-space: nowrap;
 }
 
 /* Confirmations replace the stats row rather than stacking under it, so the

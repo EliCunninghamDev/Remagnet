@@ -5,6 +5,8 @@ import {
   createProxyClient,
   createPublicProxyClient,
   describeNetworkError,
+  fileArchiveDownloadUrl,
+  fileArchiveUrl,
   type ProxyErrorCode,
   ProxyHttpError,
   proxyError,
@@ -322,6 +324,32 @@ describe("archive URLs", () => {
   test("treats a blank ticket as no ticket", () => {
     expect(archiveDownloadUrl("https://proxy.example", "abc", "  ")).toBe(
       "https://proxy.example/archive/abc",
+    );
+  });
+});
+
+describe("file archive URLs", () => {
+  test("encodes the hash and index and strips trailing slashes", () => {
+    expect(fileArchiveUrl("https://proxy.example/", "a b", 2)).toBe(
+      "https://proxy.example/archive/a%20b/files/2",
+    );
+  });
+
+  test("omits credentials when no ticket is supplied", () => {
+    expect(fileArchiveDownloadUrl("https://proxy.example/", "abc", 3)).toBe(
+      "https://proxy.example/archive/abc/files/3",
+    );
+  });
+
+  test("appends an encoded single-use ticket", () => {
+    expect(fileArchiveDownloadUrl("https://proxy.example", "a b", 0, "ticket+/=")).toBe(
+      "https://proxy.example/archive/a%20b/files/0?ticket=ticket%2B%2F%3D",
+    );
+  });
+
+  test("treats a blank ticket as no ticket", () => {
+    expect(fileArchiveDownloadUrl("https://proxy.example", "abc", 3, "  ")).toBe(
+      "https://proxy.example/archive/abc/files/3",
     );
   });
 });

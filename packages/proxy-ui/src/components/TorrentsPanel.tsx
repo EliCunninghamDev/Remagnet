@@ -1,11 +1,15 @@
 import {
   type TorrentSummary as CardTorrent,
   COUNT_BADGE_MIN,
+  countTorrentFilters,
   errorMessage,
+  fileBasename,
+  filterAndSortTorrents,
   type IssueReportContext,
   isMagnetLink,
   issueContextFromError,
   isTorrentComplete,
+  isTorrentPaused,
   MagnetForm,
   type MagnetLink,
   MagnetReview,
@@ -14,21 +18,32 @@ import {
   parseMagnet,
   parseTorrentFile,
   TorrentCard,
+  type TorrentFile,
+  type TorrentFilter,
+  TorrentListControls,
+  type TorrentSort,
   torrentFileLabel,
 } from "@remagnet/ui";
-import { createEffect, createSignal, Index, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, Index, onCleanup, onMount, Show } from "solid-js";
 import {
   type AddTorrentRequest,
   addTorrents,
   archiveDownloadHref,
   type ConnectionHealth,
   createArchiveTicket,
+  createFileArchiveTicket,
   fetchTorrent,
+  fetchTorrentFiles,
   fetchTorrents,
+  fileArchiveDownloadHref,
   isSessionExpired,
   ProxyApiError,
   type TorrentSummary as ProxyTorrent,
+  pauseAllTorrents,
+  pauseTorrent,
   removeTorrent,
+  resumeAllTorrents,
+  resumeTorrent,
 } from "../api";
 import StatusLine, { type StatusMessage } from "./StatusLine";
 
@@ -58,6 +73,17 @@ export default function TorrentsPanel(props: TorrentsPanelProps) {
   const [listStatus, setListStatus] = createSignal<StatusMessage>();
   const [listContext, setListContext] = createSignal<IssueReportContext>();
 
+  const [query, setQuery] = createSignal("");
+  const [filter, setFilter] = createSignal<TorrentFilter>("all");
+  const [sort, setSort] = createSignal<TorrentSort>("added");
+
+  const filterCounts = createMemo(() => countTorrentFilters(torrents()));
+  const visibleTorrents = createMemo(() =>
+    filterAndSortTorrents(torrents(), { query: query(), filter: filter(), sort: sort() }),
+  );
+  const showControls = () =>
+    torrents().length >= COUNT_BADGE_MIN || query().trim().length > 0 || filter() !== "all";
+
   const [addOpen, setAddOpen] = createSignal(false);
   const [editing, setEditing] = createSignal(true);
   const [draft, setDraft] = createSignal("");
@@ -72,6 +98,13 @@ export default function TorrentsPanel(props: TorrentsPanelProps) {
   const [confirmingHash, setConfirmingHash] = createSignal<string>();
   const [removingHash, setRemovingHash] = createSignal<string>();
   const [downloadingHash, setDownloadingHash] = createSignal<string>();
+  const [expandedHash, setExpandedHash] = createSignal<string>();
+  const [filesByHash, setFilesByHash] = createSignal<Record<string, TorrentFile[]>>({});
+  const [filesLoadingHash, setFilesLoadingHash] = createSignal<string>();
+  const [filesError, setFilesError] = createSignal<string>();
+  const [downloadingFile, setDownloadingFile] = createSignal<{ hash: string; index: number }>();
+  const [togglingHash, setTogglingHash] = createSignal<string>();
+  const [bulkAction, setBulkAction] = createSignal<"pause" | "resume">();
 
   let pollTimer: number | undefined;
   let generation = 0;
@@ -356,7 +389,7 @@ export default function TorrentsPanel(props: TorrentsPanelProps) {
     if (downloadingHash()) return;
 
     setDownloadingHash(torrent.hash);
-    setListStatus({ tone: "muted", message: "Preparing ZIP download…" });
+    setListStatus({ tone: "muted", message: "Preparing download…" });
     setListContext(undefined);
 
     try {
@@ -373,13 +406,69 @@ export default function TorrentsPanel(props: TorrentsPanelProps) {
       anchor.click();
       anchor.remove();
 
-      setListStatus({ tone: "ok", message: "Preparing ZIP download…" });
+      setListStatus({ tone: "ok", message: "Preparing download…" });
     } catch (error) {
       if (isSessionExpired(error)) return;
       setListStatus({ tone: "error", message: errorMessage(error) });
-      setListContext(issueContextFromError(error, "Preparing ZIP download"));
+      setListContext(issueContextFromError(error, "Preparing download"));
     } finally {
       setDownloadingHash(undefined);
+    }
+  }
+
+  async function toggleFiles(torrent: CardTorrent) {
+    if (expandedHash() === torrent.hash) {
+      setExpandedHash(undefined);
+      setFilesError(undefined);
+      return;
+    }
+
+    const hash = torrent.hash;
+    setExpandedHash(hash);
+    setFilesError(undefined);
+    setFilesLoadingHash(hash);
+    try {
+      const files = await fetchTorrentFiles(hash);
+      setFilesByHash((current) => ({ ...current, [hash]: files }));
+    } catch (error) {
+      if (isSessionExpired(error)) return;
+      setFilesError(errorMessage(error));
+    } finally {
+      setFilesLoadingHash((current) => (current === hash ? undefined : current));
+    }
+  }
+
+  async function downloadFile(torrent: CardTorrent, file: TorrentFile) {
+    if (downloadingHash() || downloadingFile()) return;
+
+    setDownloadingFile({ hash: torrent.hash, index: file.index });
+    setListStatus({
+      tone: "muted",
+      message: `Preparing download for ${fileBasename(file.name)}…`,
+    });
+    setListContext(undefined);
+
+    try {
+      const { ticket } = await createFileArchiveTicket(torrent.hash, file.index);
+
+      // Same anchor pattern as the ZIP download: the browser handles the file
+      // while the page keeps polling.
+      const anchor = document.createElement("a");
+      anchor.href = fileArchiveDownloadHref(torrent.hash, file.index, ticket);
+      anchor.download = "";
+      anchor.rel = "noreferrer";
+      anchor.hidden = true;
+      document.body.append(anchor);
+      anchor.click();
+      anchor.remove();
+
+      setListStatus({ tone: "ok", message: `Downloading ${fileBasename(file.name)}…` });
+    } catch (error) {
+      if (isSessionExpired(error)) return;
+      setListStatus({ tone: "error", message: errorMessage(error) });
+      setListContext(issueContextFromError(error, "Downloading file"));
+    } finally {
+      setDownloadingFile(undefined);
     }
   }
 
@@ -419,6 +508,70 @@ export default function TorrentsPanel(props: TorrentsPanelProps) {
     setConfirmingHash(undefined);
   }
 
+  async function togglePause(torrent: CardTorrent) {
+    if (togglingHash() || bulkAction()) return;
+
+    const paused = isTorrentPaused(torrent);
+    setTogglingHash(torrent.hash);
+    setListContext(undefined);
+    setListStatus({ tone: "muted", message: paused ? "Resuming torrent…" : "Pausing torrent…" });
+
+    try {
+      await (paused ? resumeTorrent(torrent.hash) : pauseTorrent(torrent.hash));
+      setListStatus({
+        tone: "ok",
+        message: paused ? `Resumed ${torrent.name}.` : `Paused ${torrent.name}.`,
+      });
+      await loadTorrents({ quiet: true });
+    } catch (error) {
+      if (isSessionExpired(error)) return;
+      setListStatus({ tone: "error", message: errorMessage(error) });
+      setListContext(issueContextFromError(error, paused ? "Resuming torrent" : "Pausing torrent"));
+    } finally {
+      setTogglingHash(undefined);
+    }
+  }
+
+  async function pauseAll() {
+    if (bulkAction() || togglingHash()) return;
+
+    setBulkAction("pause");
+    setListContext(undefined);
+    setListStatus({ tone: "muted", message: "Pausing all torrents…" });
+
+    try {
+      await pauseAllTorrents();
+      setListStatus({ tone: "ok", message: "Paused all torrents." });
+      await loadTorrents({ quiet: true });
+    } catch (error) {
+      if (isSessionExpired(error)) return;
+      setListStatus({ tone: "error", message: errorMessage(error) });
+      setListContext(issueContextFromError(error, "Pausing all torrents"));
+    } finally {
+      setBulkAction(undefined);
+    }
+  }
+
+  async function resumeAll() {
+    if (bulkAction() || togglingHash()) return;
+
+    setBulkAction("resume");
+    setListContext(undefined);
+    setListStatus({ tone: "muted", message: "Resuming all torrents…" });
+
+    try {
+      await resumeAllTorrents();
+      setListStatus({ tone: "ok", message: "Resumed all torrents." });
+      await loadTorrents({ quiet: true });
+    } catch (error) {
+      if (isSessionExpired(error)) return;
+      setListStatus({ tone: "error", message: errorMessage(error) });
+      setListContext(issueContextFromError(error, "Resuming all torrents"));
+    } finally {
+      setBulkAction(undefined);
+    }
+  }
+
   function reportListIssue() {
     const context = listContext();
     if (context) props.onReportIssue?.(context);
@@ -429,7 +582,14 @@ export default function TorrentsPanel(props: TorrentsPanelProps) {
     if (context) props.onReportIssue?.(context);
   }
 
+  function resetFilters() {
+    setQuery("");
+    setFilter("all");
+  }
+
   const canAdd = () => configured() !== false;
+  const hasActive = () => torrents().some((torrent) => !isTorrentPaused(torrent));
+  const hasPaused = () => torrents().some((torrent) => isTorrentPaused(torrent));
   const showEmpty = () => loaded() && torrents().length === 0 && !listStatus();
   const showReview = () => !editing() && Boolean(magnet() ?? file());
 
@@ -445,6 +605,26 @@ export default function TorrentsPanel(props: TorrentsPanelProps) {
           </Show>
         </div>
         <div class="actions">
+          <Show when={hasActive()}>
+            <button
+              type="button"
+              class="ghost"
+              disabled={Boolean(bulkAction()) || Boolean(togglingHash())}
+              onClick={() => void pauseAll()}
+            >
+              Pause all
+            </button>
+          </Show>
+          <Show when={hasPaused()}>
+            <button
+              type="button"
+              class="ghost"
+              disabled={Boolean(bulkAction()) || Boolean(togglingHash())}
+              onClick={() => void resumeAll()}
+            >
+              Resume all
+            </button>
+          </Show>
           <button
             type="button"
             aria-expanded={addOpen()}
@@ -529,30 +709,67 @@ export default function TorrentsPanel(props: TorrentsPanelProps) {
         </Show>
 
         <Show when={torrents().length > 0}>
-          <ul class="torrent-list proxy-torrent-list">
-            {/* Index keeps each row's bar alive while polled data replaces the
-                objects, so the fill animation does not replay on every refresh. */}
-            <Index each={torrents()}>
-              {(torrent) => (
-                <TorrentCard
-                  torrent={torrent()}
-                  zipping={downloadingHash() === torrent().hash}
-                  removing={removingHash() === torrent().hash}
-                  confirming={confirmingHash() === torrent().hash}
-                  zipDisabled={props.health?.capabilities?.archiveDownload === false}
-                  zipTitle={
-                    props.health?.capabilities?.archiveDownload === false
-                      ? "Configure a downloads directory in the proxy settings to enable ZIP archives"
-                      : "Download this completed torrent as a ZIP"
-                  }
-                  onZip={() => void download(torrent())}
-                  onRemoveToggle={() => toggleRemove(torrent())}
-                  onRemove={(deleteFiles) => void remove(torrent(), deleteFiles)}
-                  onCancelRemove={cancelRemove}
-                />
-              )}
-            </Index>
-          </ul>
+          <Show when={showControls()}>
+            <TorrentListControls
+              query={query()}
+              filter={filter()}
+              sort={sort()}
+              counts={filterCounts()}
+              onQueryChange={setQuery}
+              onFilterChange={setFilter}
+              onSortChange={setSort}
+            />
+          </Show>
+
+          <Show
+            when={visibleTorrents().length > 0}
+            fallback={
+              <div class="list-empty-filter">
+                <p class="muted">No torrents match your filter.</p>
+                <button type="button" class="ghost" onClick={resetFilters}>
+                  Reset filters
+                </button>
+              </div>
+            }
+          >
+            <ul class="torrent-list proxy-torrent-list">
+              {/* Index keeps each row's bar alive while polled data replaces the
+                  objects, so the fill animation does not replay on every refresh. */}
+              <Index each={visibleTorrents()}>
+                {(torrent) => (
+                  <TorrentCard
+                    torrent={torrent()}
+                    zipping={downloadingHash() === torrent().hash}
+                    removing={removingHash() === torrent().hash}
+                    confirming={confirmingHash() === torrent().hash}
+                    togglingPause={togglingHash() === torrent().hash || Boolean(bulkAction())}
+                    onTogglePause={() => void togglePause(torrent())}
+                    zipDisabled={props.health?.capabilities?.archiveDownload === false}
+                    zipTitle={
+                      props.health?.capabilities?.archiveDownload === false
+                        ? "Configure a downloads directory in the proxy settings to enable ZIP archives"
+                        : "Download this completed torrent"
+                    }
+                    filesOpen={expandedHash() === torrent().hash}
+                    files={filesByHash()[torrent().hash]}
+                    filesLoading={filesLoadingHash() === torrent().hash}
+                    filesError={expandedHash() === torrent().hash ? filesError() : undefined}
+                    downloadingFileIndex={
+                      downloadingFile()?.hash === torrent().hash
+                        ? downloadingFile()?.index
+                        : undefined
+                    }
+                    onToggleFiles={() => void toggleFiles(torrent())}
+                    onDownloadFile={(selected) => void downloadFile(torrent(), selected)}
+                    onZip={() => void download(torrent())}
+                    onRemoveToggle={() => toggleRemove(torrent())}
+                    onRemove={(deleteFiles) => void remove(torrent(), deleteFiles)}
+                    onCancelRemove={cancelRemove}
+                  />
+                )}
+              </Index>
+            </ul>
+          </Show>
         </Show>
       </Show>
     </section>

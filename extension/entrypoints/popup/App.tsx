@@ -3,6 +3,8 @@ import {
   type IssueReportContext,
   issueContextFromError,
   isTorrentComplete,
+  isTorrentPaused,
+  type TorrentFile,
 } from "@remagnet/ui";
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { browser } from "wxt/browser";
@@ -13,8 +15,12 @@ import Wordmark from "../../components/Wordmark";
 import { parseMagnet } from "../../lib/magnet";
 import {
   type ArchiveDownloadResult,
+  type BulkTorrentActionResult,
+  type PauseTorrentsResult,
   type RemoveTorrentsResult,
+  type ResumeTorrentsResult,
   sendBackgroundMessage,
+  type TorrentFilesResult,
   type TorrentListResult,
   type TorrentLookupResult,
 } from "../../lib/messages";
@@ -38,6 +44,13 @@ export default function App() {
   const [downloading, setDownloading] = createSignal<string>();
   const [removing, setRemoving] = createSignal<string>();
   const [confirmingRemove, setConfirmingRemove] = createSignal<string>();
+  const [togglingHash, setTogglingHash] = createSignal<string>();
+  const [bulkAction, setBulkAction] = createSignal<"pause" | "resume">();
+  const [expandedHash, setExpandedHash] = createSignal<string>();
+  const [filesByHash, setFilesByHash] = createSignal<Record<string, TorrentFile[]>>({});
+  const [filesLoadingHash, setFilesLoadingHash] = createSignal<string>();
+  const [filesError, setFilesError] = createSignal<string>();
+  const [downloadingFile, setDownloadingFile] = createSignal<{ hash: string; index: number }>();
   const [error, setError] = createSignal<string>();
   const [actionError, setActionError] = createSignal<string>();
   const [errorContext, setErrorContext] = createSignal<IssueReportContext>();
@@ -204,6 +217,49 @@ export default function App() {
     }
   }
 
+  async function toggleFiles(torrent: TorrentSummary) {
+    if (expandedHash() === torrent.hash) {
+      setExpandedHash(undefined);
+      setFilesError(undefined);
+      return;
+    }
+
+    const hash = torrent.hash;
+    setExpandedHash(hash);
+    setFilesError(undefined);
+    setFilesLoadingHash(hash);
+    try {
+      const result = await sendBackgroundMessage<TorrentFilesResult>({
+        type: "torrents:files",
+        hash,
+      });
+      setFilesByHash((current) => ({ ...current, [hash]: result.files }));
+    } catch (cause) {
+      if (expandedHash() === hash) setFilesError(errorMessage(cause));
+    } finally {
+      setFilesLoadingHash((current) => (current === hash ? undefined : current));
+    }
+  }
+
+  async function downloadFile(torrent: TorrentSummary, file: TorrentFile) {
+    setDownloadingFile({ hash: torrent.hash, index: file.index });
+    setActionError();
+    setErrorContext();
+    try {
+      await sendBackgroundMessage<ArchiveDownloadResult>({
+        type: "archive:downloadFile",
+        hash: torrent.hash,
+        index: file.index,
+        name: file.name,
+      });
+    } catch (cause) {
+      setActionError(errorMessage(cause));
+      setErrorContext(issueContextFromError(cause, "Downloading file"));
+    } finally {
+      setDownloadingFile();
+    }
+  }
+
   async function removeTorrent(torrent: TorrentSummary, deleteFiles: boolean) {
     setRemoving(torrent.hash);
     setActionError();
@@ -221,6 +277,70 @@ export default function App() {
       setErrorContext(issueContextFromError(cause, "Removing torrent"));
     } finally {
       setRemoving();
+    }
+  }
+
+  async function togglePause(torrent: TorrentSummary) {
+    if (bulkAction() || togglingHash()) return;
+
+    const resuming = isTorrentPaused(torrent);
+    setTogglingHash(torrent.hash);
+    setActionError();
+    setErrorContext();
+    try {
+      if (resuming) {
+        await sendBackgroundMessage<ResumeTorrentsResult>({
+          type: "torrents:resume",
+          hashes: [torrent.hash],
+        });
+      } else {
+        await sendBackgroundMessage<PauseTorrentsResult>({
+          type: "torrents:pause",
+          hashes: [torrent.hash],
+        });
+      }
+      await refresh(true);
+    } catch (cause) {
+      setActionError(errorMessage(cause));
+      setErrorContext(
+        issueContextFromError(cause, resuming ? "Resuming torrent" : "Pausing torrent"),
+      );
+    } finally {
+      setTogglingHash();
+    }
+  }
+
+  async function pauseAll() {
+    if (bulkAction() || togglingHash()) return;
+
+    setBulkAction("pause");
+    setActionError();
+    setErrorContext();
+    try {
+      await sendBackgroundMessage<BulkTorrentActionResult>({ type: "torrents:pauseAll" });
+      await refresh(true);
+    } catch (cause) {
+      setActionError(errorMessage(cause));
+      setErrorContext(issueContextFromError(cause, "Pausing all torrents"));
+    } finally {
+      setBulkAction();
+    }
+  }
+
+  async function resumeAll() {
+    if (bulkAction() || togglingHash()) return;
+
+    setBulkAction("resume");
+    setActionError();
+    setErrorContext();
+    try {
+      await sendBackgroundMessage<BulkTorrentActionResult>({ type: "torrents:resumeAll" });
+      await refresh(true);
+    } catch (cause) {
+      setActionError(errorMessage(cause));
+      setErrorContext(issueContextFromError(cause, "Resuming all torrents"));
+    } finally {
+      setBulkAction();
     }
   }
 
@@ -247,6 +367,13 @@ export default function App() {
             downloadingHash={downloading()}
             removingHash={removing()}
             confirmingHash={confirmingRemove()}
+            togglingHash={togglingHash()}
+            bulkAction={bulkAction()}
+            expandedHash={expandedHash()}
+            filesByHash={filesByHash()}
+            filesLoadingHash={filesLoadingHash()}
+            filesError={filesError()}
+            downloadingFile={downloadingFile()}
             onRetry={() => void refresh()}
             onOpenSettings={() => void browser.runtime.openOptionsPage()}
             onDismissActionError={() => setActionError()}
@@ -254,6 +381,11 @@ export default function App() {
             onReportActionError={openIssueReport}
             onAdd={startAdd}
             onZip={(torrent) => void downloadZip(torrent)}
+            onToggleFiles={(torrent) => void toggleFiles(torrent)}
+            onDownloadFile={(torrent, file) => void downloadFile(torrent, file)}
+            onTogglePause={(torrent) => void togglePause(torrent)}
+            onPauseAll={() => void pauseAll()}
+            onResumeAll={() => void resumeAll()}
             onRemoveToggle={(torrent) =>
               setConfirmingRemove(confirmingRemove() === torrent.hash ? undefined : torrent.hash)
             }

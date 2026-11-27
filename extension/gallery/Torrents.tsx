@@ -25,6 +25,7 @@ export default function Torrents() {
                     removing={Boolean(item.removing)}
                     confirming={Boolean(item.confirming) || confirming() === item.torrent.hash}
                     onZip={() => undefined}
+                    onTogglePause={() => undefined}
                     onRemoveToggle={() =>
                       setConfirming(
                         confirming() === item.torrent.hash ? undefined : item.torrent.hash,

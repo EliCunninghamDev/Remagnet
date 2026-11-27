@@ -1,0 +1,65 @@
+{
+  "id": "remagnet-play-feature",
+  "name": "Google Play · Feature Graphic (1024×500)",
+  "output": "google-play/feature-graphic-1024x500.png",
+  "sizeId": "play-feature",
+  "device": "none",
+  "finish": "titanium",
+  "cameraPreset": "hero",
+  "yaw": 0.175,
+  "pitch": -0.18,
+  "roll": -0.02,
+  "zoom": 1.522,
+  "offsetX": 0.15,
+  "offsetY": 0.704,
+  "deviceScale": 1,
+  "glassSheen": 0.75,
+  "shadowOpacity": 0.45,
+  "aoStrength": 0.72,
+  "floatAnim": true,
+  "shaderSpeed": 0.75,
+  "shaderMode": 5,
+  "palette": "remagnet",
+  "background": {
+    "mode": 5,
+    "base": "#111317",
+    "colorA": "#d9625c",
+    "colorB": "#70a3d2",
+    "colorC": "#ecebe6",
+    "distort": 0.52,
+    "glow": 0.64,
+    "grain": 0.18,
+    "chroma": 0.18
+  },
+  "screenTemplate": "remagnet-android",
+  "animateDemo": false,
+  "copyLayout": "center",
+  "copyTheme": "light",
+  "eyebrow": "",
+  "headline": "Remagnet",
+  "subheadline": "A painless torrent remote.",
+  "badges": "Self-Hosted, ZIP Streaming, Zero Telemetry",
+  "brandIconUrl": "/project-assets/icon/remagnet-small.svg",
+  "fonts": [
+    {
+      "family": "Departure Mono",
+      "weight": 400,
+      "url": "/project-assets/fonts/departure-mono-regular.woff2"
+    },
+    {
+      "family": "Geist Mono",
+      "weight": 400,
+      "url": "/project-assets/fonts/geist-mono-latin-400-normal.woff2"
+    },
+    {
+      "family": "Geist Mono",
+      "weight": 500,
+      "url": "/project-assets/fonts/geist-mono-latin-500-normal.woff2"
+    },
+    {
+      "family": "Geist Mono",
+      "weight": 600,
+      "url": "/project-assets/fonts/geist-mono-latin-600-normal.woff2"
+    }
+  ]
+}

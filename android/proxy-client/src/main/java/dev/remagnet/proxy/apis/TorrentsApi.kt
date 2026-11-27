@@ -10,6 +10,7 @@ import dev.remagnet.proxy.models.AddTorrentRequest
 import dev.remagnet.proxy.models.AddTorrentResult
 import dev.remagnet.proxy.models.Error
 import dev.remagnet.proxy.models.ServiceUnavailable
+import dev.remagnet.proxy.models.TorrentFileList
 import dev.remagnet.proxy.models.TorrentList
 import dev.remagnet.proxy.models.TorrentSummary
 
@@ -51,6 +52,24 @@ interface TorrentsApi {
     suspend fun getTorrent(@Path("hash") hash: kotlin.String): Response<TorrentSummary>
 
     /**
+     * GET api/torrents/{hash}/files
+     * List the wanted files in a torrent owned by Remagnet
+     * Lists the files in one torrent, sorted by the client&#39;s file index and omitting directory entries. Files the user marked as unwanted are not returned: qBittorrent priority &#x60;0&#x60;, Deluge and rTorrent priority &#x60;0&#x60;, and Transmission&#39;s unwatched files are filtered out.  The torrent must match the proxy&#39;s configured category/tags filter, the same ownership check used by &#x60;DELETE /api/torrents/{hash}&#x60;. Unrelated and unknown hashes return &#x60;404&#x60;.
+     * Responses:
+     *  - 200: The wanted files in file-index order.
+     *  - 400: The request was rejected, for example an invalid URL, hash or field.
+     *  - 401: Missing or invalid credentials.
+     *  - 404: The torrent does not exist or does not match the proxy's filter.
+     *  - 502: The configured torrent client could not be reached or returned an error. `code` distinguishes `upstream_unreachable`, `upstream_auth` and `upstream_error`.
+     *  - 503: No torrent client has been configured on the proxy yet. The body carries `code: not_configured` so clients can distinguish this from other server failures.
+     *
+     * @param hash Torrent info hash. Accepts a 40-character BitTorrent v1 hash or a 64-character v2 hash, case-insensitively.
+     * @return [TorrentFileList]
+     */
+    @GET("api/torrents/{hash}/files")
+    suspend fun listTorrentFiles(@Path("hash") hash: kotlin.String): Response<TorrentFileList>
+
+    /**
      * GET api/torrents
      * List the torrents owned by Remagnet
      * Lists qBittorrent torrents sorted by added time (newest first) and filters them server-side with the configured category and tags. A torrent matches when its category equals the configured category (case-insensitively) or any of its tags equals a configured tag. When both defaults are empty, every torrent matches.
@@ -64,6 +83,39 @@ interface TorrentsApi {
      */
     @GET("api/torrents")
     suspend fun listTorrents(): Response<TorrentList>
+
+    /**
+     * POST api/torrents/pause
+     * Pause every torrent owned by Remagnet
+     * Lists the torrent client&#39;s torrents and pauses only those that match the proxy&#39;s configured category/tags filter and are not already stopped. Torrents outside the filter are never touched: the proxy sends the individual hashes, never a global wildcard, so unrelated torrents in a shared client keep running. Returns &#x60;204&#x60; even when there is nothing to pause.
+     * Responses:
+     *  - 204: The owned torrents were paused.
+     *  - 401: Missing or invalid credentials.
+     *  - 502: The configured torrent client could not be reached or returned an error. `code` distinguishes `upstream_unreachable`, `upstream_auth` and `upstream_error`.
+     *  - 503: No torrent client has been configured on the proxy yet. The body carries `code: not_configured` so clients can distinguish this from other server failures.
+     *
+     * @return [Unit]
+     */
+    @POST("api/torrents/pause")
+    suspend fun pauseAllTorrents(): Response<Unit>
+
+    /**
+     * POST api/torrents/{hash}/pause
+     * Pause a torrent owned by Remagnet
+     * Pauses one torrent only when it matches the proxy&#39;s configured category/tags filter. A torrent that does not exist, or that exists but is not owned by Remagnet, returns &#x60;404&#x60; so clients cannot pause unrelated torrents in a shared torrent client instance.
+     * Responses:
+     *  - 204: The torrent was paused.
+     *  - 400: The request was rejected, for example an invalid URL, hash or field.
+     *  - 401: Missing or invalid credentials.
+     *  - 404: The torrent does not exist or does not match the proxy's filter.
+     *  - 502: The configured torrent client could not be reached or returned an error. `code` distinguishes `upstream_unreachable`, `upstream_auth` and `upstream_error`.
+     *  - 503: No torrent client has been configured on the proxy yet. The body carries `code: not_configured` so clients can distinguish this from other server failures.
+     *
+     * @param hash Torrent info hash. Accepts a 40-character BitTorrent v1 hash or a 64-character v2 hash, case-insensitively.
+     * @return [Unit]
+     */
+    @POST("api/torrents/{hash}/pause")
+    suspend fun pauseTorrent(@Path("hash") hash: kotlin.String): Response<Unit>
 
     /**
      * DELETE api/torrents/{hash}
@@ -83,5 +135,38 @@ interface TorrentsApi {
      */
     @DELETE("api/torrents/{hash}")
     suspend fun removeTorrent(@Path("hash") hash: kotlin.String, @Query("deleteFiles") deleteFiles: kotlin.Boolean? = false): Response<Unit>
+
+    /**
+     * POST api/torrents/resume
+     * Resume every stopped torrent owned by Remagnet
+     * Lists the torrent client&#39;s torrents and resumes only those that match the proxy&#39;s configured category/tags filter and are stopped. Torrents outside the filter are never touched: the proxy sends the individual hashes, never a global wildcard, so unrelated torrents in a shared client remain untouched. Returns &#x60;204&#x60; even when there is nothing to resume.
+     * Responses:
+     *  - 204: The owned stopped torrents were resumed.
+     *  - 401: Missing or invalid credentials.
+     *  - 502: The configured torrent client could not be reached or returned an error. `code` distinguishes `upstream_unreachable`, `upstream_auth` and `upstream_error`.
+     *  - 503: No torrent client has been configured on the proxy yet. The body carries `code: not_configured` so clients can distinguish this from other server failures.
+     *
+     * @return [Unit]
+     */
+    @POST("api/torrents/resume")
+    suspend fun resumeAllTorrents(): Response<Unit>
+
+    /**
+     * POST api/torrents/{hash}/resume
+     * Resume a torrent owned by Remagnet
+     * Resumes one torrent only when it matches the proxy&#39;s configured category/tags filter. A torrent that does not exist, or that exists but is not owned by Remagnet, returns &#x60;404&#x60; so clients cannot resume unrelated torrents in a shared torrent client instance.
+     * Responses:
+     *  - 204: The torrent was resumed.
+     *  - 400: The request was rejected, for example an invalid URL, hash or field.
+     *  - 401: Missing or invalid credentials.
+     *  - 404: The torrent does not exist or does not match the proxy's filter.
+     *  - 502: The configured torrent client could not be reached or returned an error. `code` distinguishes `upstream_unreachable`, `upstream_auth` and `upstream_error`.
+     *  - 503: No torrent client has been configured on the proxy yet. The body carries `code: not_configured` so clients can distinguish this from other server failures.
+     *
+     * @param hash Torrent info hash. Accepts a 40-character BitTorrent v1 hash or a 64-character v2 hash, case-insensitively.
+     * @return [Unit]
+     */
+    @POST("api/torrents/{hash}/resume")
+    suspend fun resumeTorrent(@Path("hash") hash: kotlin.String): Response<Unit>
 
 }

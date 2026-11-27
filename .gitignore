@@ -11,9 +11,11 @@ target/
 .DS_Store
 *.log
 
-# Reproducible demo build and recordings
+# Reproducible demo & promo builds and recordings
 demo/.build/
 demo/out/
+promo/dist/
+promo/out/
 
 # Containerized integration test runtime data
 tests/integration/tmp/

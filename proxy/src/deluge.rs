@@ -288,6 +288,58 @@ impl DelugeClient {
         Ok(())
     }
 
+    /// Pause the given torrents, doing nothing for an empty list.
+    ///
+    /// Deluge 2 renamed the singular methods to plural ones; older releases
+    /// answer the plural names with an unknown-method error.
+    pub async fn pause_torrents(&self, hashes: &[String]) -> Result<(), AppError> {
+        if hashes.is_empty() {
+            return Ok(());
+        }
+
+        let ids = hashes
+            .iter()
+            .map(|hash| hash.to_ascii_lowercase())
+            .collect::<Vec<_>>();
+        match self
+            .rpc_raw("core.pause_torrents", json!([ids.clone()]))
+            .await
+        {
+            Ok(_) => Ok(()),
+            Err(RpcFailure::Rpc { message, .. }) if is_unknown_method(&message) => {
+                self.rpc("core.pause_torrent", json!([ids])).await?;
+                Ok(())
+            }
+            Err(failure) => Err(failure.into_app_error("core.pause_torrents")),
+        }
+    }
+
+    /// Resume the given torrents, doing nothing for an empty list.
+    ///
+    /// Deluge 2 renamed the singular methods to plural ones; older releases
+    /// answer the plural names with an unknown-method error.
+    pub async fn resume_torrents(&self, hashes: &[String]) -> Result<(), AppError> {
+        if hashes.is_empty() {
+            return Ok(());
+        }
+
+        let ids = hashes
+            .iter()
+            .map(|hash| hash.to_ascii_lowercase())
+            .collect::<Vec<_>>();
+        match self
+            .rpc_raw("core.resume_torrents", json!([ids.clone()]))
+            .await
+        {
+            Ok(_) => Ok(()),
+            Err(RpcFailure::Rpc { message, .. }) if is_unknown_method(&message) => {
+                self.rpc("core.resume_torrent", json!([ids])).await?;
+                Ok(())
+            }
+            Err(failure) => Err(failure.into_app_error("core.resume_torrents")),
+        }
+    }
+
     pub async fn archive_torrent(&self, hash: &str) -> Result<ArchiveTorrent, AppError> {
         let filter = json!({ "id": [hash.to_ascii_lowercase()] });
         let raw = self
@@ -967,6 +1019,7 @@ mod tests {
         labels: Vec<String>,
         torrents: HashMap<String, Value>,
         duplicate_hashes: Vec<String>,
+        legacy_torrent_methods: bool,
         requests: Vec<Value>,
     }
 
@@ -987,6 +1040,7 @@ mod tests {
                     labels: vec!["remagnet".to_string()],
                     torrents,
                     duplicate_hashes: Vec::new(),
+                    legacy_torrent_methods: false,
                     requests: Vec::new(),
                 })),
             }
@@ -1216,6 +1270,19 @@ mod tests {
                 }
             }
             "core.remove_torrent" => json!({ "id": id, "result": true, "error": null }),
+            "core.pause_torrents" | "core.resume_torrents" if state.legacy_torrent_methods => {
+                json!({
+                    "id": id,
+                    "result": null,
+                    "error": { "message": format!("Unknown method: {method}"), "code": 2 }
+                })
+            }
+            "core.pause_torrents"
+            | "core.resume_torrents"
+            | "core.pause_torrent"
+            | "core.resume_torrent" => {
+                json!({ "id": id, "result": null, "error": null })
+            }
             _ => json!({
                 "id": id,
                 "result": null,
@@ -1464,6 +1531,69 @@ mod tests {
             .await
             .unwrap_err();
         assert!(matches!(error, AppError::BadRequest(_)), "{error:?}");
+    }
+
+    #[tokio::test]
+    async fn pauses_and_resumes_with_deluge_2_methods() {
+        let fake = FakeDeluge::new(HashMap::new());
+        let base_url = start_fake(fake.clone()).await;
+        let client = DelugeClient::new(&config(&base_url, "")).unwrap();
+
+        client.pause_torrents(&[]).await.unwrap();
+        client.resume_torrents(&[]).await.unwrap();
+        assert!(fake.requests().is_empty());
+
+        client
+            .pause_torrents(&[HASH.to_ascii_uppercase()])
+            .await
+            .unwrap();
+        client
+            .resume_torrents(&[HASH.to_ascii_uppercase()])
+            .await
+            .unwrap();
+
+        assert_eq!(
+            fake.request("core.pause_torrents")["params"],
+            json!([[HASH]])
+        );
+        assert_eq!(
+            fake.request("core.resume_torrents")["params"],
+            json!([[HASH]])
+        );
+    }
+
+    #[tokio::test]
+    async fn falls_back_to_deluge_1_methods_on_unknown_method() {
+        let fake = FakeDeluge::new(HashMap::new());
+        fake.state.lock().unwrap().legacy_torrent_methods = true;
+        let base_url = start_fake(fake.clone()).await;
+        let client = DelugeClient::new(&config(&base_url, "")).unwrap();
+
+        client
+            .pause_torrents(&[HASH.to_ascii_uppercase()])
+            .await
+            .unwrap();
+        client
+            .resume_torrents(&[HASH.to_ascii_uppercase()])
+            .await
+            .unwrap();
+
+        assert!(fake
+            .requests()
+            .iter()
+            .any(|request| request["method"] == "core.pause_torrents"));
+        assert!(fake
+            .requests()
+            .iter()
+            .any(|request| request["method"] == "core.resume_torrents"));
+        assert_eq!(
+            fake.request("core.pause_torrent")["params"],
+            json!([[HASH]])
+        );
+        assert_eq!(
+            fake.request("core.resume_torrent")["params"],
+            json!([[HASH]])
+        );
     }
 
     #[tokio::test]

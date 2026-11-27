@@ -1,0 +1,922 @@
+/* Scoped styles for the Remagnet Promo Studio real SolidJS screen adapter. */
+
+.rmg-promo-root {
+  width: 100%;
+  height: 100%;
+  background: #141517;
+  color: #d6d8da;
+  overflow: hidden;
+  box-sizing: border-box;
+  font-family: "Inter", system-ui, -apple-system, sans-serif;
+}
+
+.rmg-promo-root *,
+.rmg-promo-root *::before,
+.rmg-promo-root *::after {
+  box-sizing: border-box;
+}
+
+/* Override popup width cleanly inside the scaled containers */
+.rmg-popup-shell {
+  width: 440px;
+  background: var(--bg, #141517);
+  border: 1px solid #2d3136;
+  box-shadow: 0 26px 64px rgba(0, 0, 0, 0.72);
+}
+
+.rmg-popup-shell .popup {
+  width: 440px;
+  max-height: none;
+  overflow: visible;
+}
+
+/* --- Standalone Popup / Android / Add views --- */
+.rmg-standalone {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #141517;
+  padding: 28px;
+}
+
+.rmg-standalone.landscape .rmg-standalone-scale {
+  transform: scale(2.15);
+  transform-origin: center center;
+}
+
+.rmg-standalone.portrait {
+  align-items: flex-start;
+  padding-top: 84px;
+}
+
+.rmg-standalone.portrait .rmg-standalone-scale {
+  transform: scale(1.48);
+  transform-origin: top center;
+}
+
+.rmg-standalone-card {
+  width: 480px;
+  transform: scale(1.7);
+  transform-origin: center center;
+}
+
+/* --- Mock Chrome / Firefox Browser Shell (designed for 1600×1000 laptop screen) --- */
+.rmg-browser {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: #13161a;
+}
+
+.rmg-tabstrip {
+  height: 52px;
+  background: #1b1d22;
+  display: flex;
+  align-items: flex-end;
+  padding: 0 22px;
+  gap: 24px;
+  flex: 0 0 auto;
+}
+
+.rmg-browser-firefox .rmg-tabstrip {
+  background: #171920;
+}
+
+.rmg-win-dots {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 100%;
+}
+
+.rmg-win-dots span {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #3a3e46;
+  display: block;
+}
+
+.rmg-tab {
+  height: 40px;
+  padding: 0 22px;
+  background: #25282e;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 16px;
+  font-weight: 500;
+  color: #dfe3e8;
+  border-radius: 8px 8px 0 0;
+}
+
+.rmg-browser-firefox .rmg-tab {
+  background: #242733;
+}
+
+.rmg-tab-dot {
+  width: 11px;
+  height: 11px;
+  background: #70a3d2;
+  display: block;
+}
+
+.rmg-navbar {
+  height: 58px;
+  background: #25282e;
+  border-bottom: 1px solid #343942;
+  display: flex;
+  align-items: center;
+  padding: 0 22px;
+  gap: 18px;
+  flex: 0 0 auto;
+}
+
+.rmg-browser-firefox .rmg-navbar {
+  background: #242733;
+}
+
+.rmg-nav-btns {
+  display: flex;
+  gap: 18px;
+  color: #828892;
+  font-size: 20px;
+}
+
+.rmg-omnibox {
+  flex: 1;
+  height: 38px;
+  background: #15171b;
+  border: 1px solid #323740;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-size: 16px;
+}
+
+.rmg-lock {
+  color: #84bc98;
+  font-size: 15px;
+}
+
+.rmg-url {
+  color: #a4acb6;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rmg-ext-btn {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+}
+
+.rmg-ext-btn.active {
+  background: rgba(112, 163, 210, 0.2);
+  border-color: rgba(112, 163, 210, 0.65);
+}
+
+.rmg-ext-btn img {
+  width: 26px;
+  height: 26px;
+  display: block;
+}
+
+.rmg-ext-badge {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  background: #70a3d2;
+  color: #0e1318;
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 15px;
+  text-align: center;
+}
+
+.rmg-nav-menu {
+  color: #828892;
+  font-size: 22px;
+  padding-left: 4px;
+}
+
+/* --- Clean Official Linux Releases Webpage --- */
+.rmg-viewport {
+  position: relative;
+  flex: 1;
+  background: #13161a;
+  overflow: hidden;
+}
+
+.rmg-site-nav {
+  height: 76px;
+  background: #171b21;
+  border-bottom: 1px solid #252b34;
+  padding: 0 88px;
+  display: flex;
+  align-items: center;
+  gap: 56px;
+}
+
+.rmg-site-brand {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #e9eff6;
+}
+
+.rmg-site-links {
+  display: flex;
+  gap: 34px;
+  font-size: 16px;
+  color: #7d8692;
+}
+
+.rmg-release-card {
+  margin: 56px 0 0 88px;
+  width: 820px;
+  background: #181c22;
+  border: 1px solid #282f39;
+  padding: 44px;
+}
+
+.rmg-release-eyebrow {
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: #70a3d2;
+  margin-bottom: 14px;
+}
+
+.rmg-release-title {
+  margin: 0;
+  font-size: 36px;
+  font-weight: 700;
+  color: #eff3f8;
+  letter-spacing: -0.02em;
+}
+
+.rmg-release-sub {
+  margin: 12px 0 32px;
+  font-size: 19px;
+  color: #8c95a2;
+}
+
+.rmg-release-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 36px;
+}
+
+.rmg-btn-mirror,
+.rmg-btn-magnet {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 50px;
+  padding: 0 24px;
+  font-size: 16px;
+  white-space: nowrap;
+}
+
+.rmg-btn-mirror {
+  background: #232933;
+  border: 1px solid #363f4d;
+  color: #cdd5df;
+  font-weight: 500;
+}
+
+.rmg-btn-magnet {
+  background: #1f2b38;
+  border: 1px solid #70a3d2;
+  color: #e1effc;
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-weight: 600;
+}
+
+.rmg-btn-magnet.active {
+  background: #2b445d;
+  border-width: 2px;
+}
+
+.rmg-release-meta {
+  display: flex;
+  flex-direction: column;
+}
+
+.rmg-release-meta > div {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  padding: 15px 0;
+  border-top: 1px solid #242a34;
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-size: 15px;
+}
+
+.rmg-release-meta span {
+  color: #7d8692;
+}
+
+.rmg-release-meta strong {
+  font-weight: 500;
+  color: #cfd6df;
+}
+
+/* --- Context Menu --- */
+.rmg-context-menu {
+  position: absolute;
+  left: 440px;
+  top: 332px;
+  width: 340px;
+  background: #1f2228;
+  border: 1px solid #3a404b;
+  padding: 8px 0;
+  box-shadow: 0 20px 54px rgba(0, 0, 0, 0.78);
+  z-index: 20;
+}
+
+.rmg-ctx-item {
+  height: 44px;
+  padding: 0 18px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 16px;
+  color: #bbc2cc;
+}
+
+.rmg-ctx-item.active {
+  margin: 0 5px;
+  padding: 0 13px;
+  background: #293e54;
+  border-left: 3px solid #70a3d2;
+  color: #f4f7fb;
+  font-weight: 600;
+}
+
+.rmg-ctx-item img {
+  width: 22px;
+  height: 22px;
+  display: block;
+}
+
+.rmg-ctx-sep {
+  height: 1px;
+  background: #333842;
+  margin: 6px 10px;
+}
+
+.rmg-cursor {
+  position: absolute;
+  left: 215px;
+  top: 132px;
+  width: 28px;
+  height: 32px;
+  filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.7));
+}
+
+/* --- Anchored Real Remagnet Extension Popover --- */
+.rmg-page-scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(8, 10, 14, 0.34);
+  z-index: 10;
+}
+
+.rmg-popover-anchor {
+  position: absolute;
+  top: 14px;
+  right: 44px;
+  z-index: 30;
+}
+
+.rmg-popover-caret {
+  position: absolute;
+  top: -10px;
+  right: 36px;
+  width: 0;
+  height: 0;
+  border-left: 10px solid transparent;
+  border-right: 10px solid transparent;
+  border-bottom: 10px solid #2d3136;
+}
+
+.rmg-popover-scale {
+  transform: scale(1.62);
+  transform-origin: top right;
+}
+
+/* --- Android shared chrome (720×1560 portrait phone canvas) --- */
+.rmg-android-statusbar {
+  height: 58px;
+  padding: 20px 38px 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-size: 22px;
+  font-weight: 600;
+  color: #dfe3e8;
+  flex: 0 0 auto;
+}
+
+.rmg-sb-icons {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.rmg-sb-signal {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 18px;
+}
+
+.rmg-sb-signal i {
+  display: block;
+  width: 4px;
+  background: #dfe3e8;
+}
+
+.rmg-sb-5g {
+  font-size: 18px;
+  letter-spacing: 0.02em;
+}
+
+.rmg-sb-battery {
+  width: 34px;
+  height: 17px;
+  border: 2px solid #dfe3e8;
+  padding: 2px;
+  display: inline-flex;
+  align-items: stretch;
+  position: relative;
+}
+
+.rmg-sb-battery::after {
+  content: "";
+  position: absolute;
+  right: -5px;
+  top: 4px;
+  width: 3px;
+  height: 7px;
+  background: #dfe3e8;
+}
+
+.rmg-sb-battery i {
+  display: block;
+  width: 82%;
+  background: #dfe3e8;
+}
+
+.rmg-android-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 64px;
+  padding: 0 26px;
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-size: 22px;
+  font-weight: 600;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+.rmg-android-btn.primary {
+  background: #70a3d2;
+  border: 1px solid #70a3d2;
+  color: #111317;
+}
+
+.rmg-android-btn.secondary {
+  background: #1b1e23;
+  border: 1px solid #343942;
+  color: #e4e7ec;
+}
+
+/* --- Android QR Scanner Screen (QrScannerScreen.kt) --- */
+.rmg-android-qr {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: #0c0e11;
+  overflow: hidden;
+  font-family: "Geist Mono", ui-monospace, monospace;
+}
+
+.rmg-qr-camera-bg {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 50% 44%, rgba(112, 163, 210, 0.16), transparent 56%),
+    radial-gradient(circle at 22% 78%, rgba(217, 98, 92, 0.11), transparent 48%),
+    linear-gradient(180deg, #13161b 0%, #0d1014 50%, #090b0e 100%);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 292px;
+}
+
+.rmg-qr-monitor {
+  width: 610px;
+  padding: 28px 30px 36px;
+  background: #171a1f;
+  border: 1px solid #2d323b;
+  box-shadow: 0 32px 90px rgba(0, 0, 0, 0.72);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+}
+
+.rmg-qr-monitor-bar {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #272c34;
+  color: #cdd3dc;
+  font-size: 20px;
+  font-weight: 600;
+  opacity: 0.72;
+}
+
+.rmg-qr-monitor-bar img {
+  width: 24px;
+  height: 24px;
+  display: block;
+}
+
+.rmg-qr-monitor-tab {
+  margin-left: auto;
+  font-size: 16px;
+  color: #70a3d2;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.rmg-qr-monitor-sub {
+  font-size: 15px;
+  letter-spacing: 0.12em;
+  color: #848b95;
+  opacity: 0.8;
+}
+
+.rmg-qr-paper {
+  width: 372px;
+  height: 372px;
+  padding: 16px;
+  background: #f2f3f5;
+  box-shadow: 0 0 36px rgba(112, 163, 210, 0.22);
+}
+
+.rmg-qr-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.rmg-qr-monitor-link {
+  margin-top: 12px;
+  font-size: 15px;
+  color: #7d8590;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.7;
+}
+
+/* Exact 62% black scrim punched out around the 488×488 scan window */
+.rmg-qr-scrim-top {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 368px;
+  background: rgba(8, 10, 12, 0.66);
+}
+
+.rmg-qr-scrim-mid {
+  position: absolute;
+  top: 368px;
+  left: 0;
+  right: 0;
+  height: 488px;
+  display: flex;
+}
+
+.rmg-qr-scrim-side {
+  flex: 1;
+  background: rgba(8, 10, 12, 0.66);
+}
+
+.rmg-qr-window {
+  position: relative;
+  width: 488px;
+  height: 488px;
+  border: 2px solid #2e333c;
+  flex: 0 0 auto;
+}
+
+.rmg-qr-bracket {
+  position: absolute;
+  width: 56px;
+  height: 56px;
+  border-color: #70a3d2;
+  border-style: solid;
+  border-width: 0;
+}
+
+.rmg-qr-bracket.tl {
+  top: -3px;
+  left: -3px;
+  border-top-width: 6px;
+  border-left-width: 6px;
+}
+
+.rmg-qr-bracket.tr {
+  top: -3px;
+  right: -3px;
+  border-top-width: 6px;
+  border-right-width: 6px;
+}
+
+.rmg-qr-bracket.bl {
+  bottom: -3px;
+  left: -3px;
+  border-bottom-width: 6px;
+  border-left-width: 6px;
+}
+
+.rmg-qr-bracket.br {
+  bottom: -3px;
+  right: -3px;
+  border-bottom-width: 6px;
+  border-right-width: 6px;
+}
+
+.rmg-qr-scrim-bottom {
+  position: absolute;
+  top: 856px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(8, 10, 12, 0.66);
+}
+
+.rmg-qr-hud {
+  position: relative;
+  z-index: 4;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.rmg-qr-topbar {
+  padding: 28px 32px 0;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.rmg-qr-title {
+  flex: 1;
+  text-align: center;
+  font-size: 28px;
+  font-weight: 600;
+  color: #eef1f5;
+}
+
+.rmg-qr-window-spacer {
+  height: 758px;
+  flex: 0 0 auto;
+}
+
+.rmg-qr-controls {
+  padding: 0 46px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 26px;
+}
+
+.rmg-qr-lock-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 20px;
+  background: rgba(24, 27, 32, 0.92);
+  border: 1px solid #354352;
+  color: #a9cceb;
+  font-size: 20px;
+  letter-spacing: 0.02em;
+}
+
+.rmg-qr-lock-dot {
+  width: 10px;
+  height: 10px;
+  background: #84bc98;
+  display: block;
+}
+
+.rmg-qr-hint {
+  margin: 0;
+  text-align: center;
+  font-size: 24px;
+  line-height: 1.5;
+  color: #dfe3e8;
+}
+
+/* --- Android Torrent Review Bottom Sheet (AddMagnetSheet.kt) --- */
+.rmg-android-review {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: #141517;
+  overflow: hidden;
+  font-family: "Geist Mono", ui-monospace, monospace;
+}
+
+.rmg-review-backdrop {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 410px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.rmg-review-bg-list {
+  margin-top: 22px;
+  display: flex;
+  justify-content: center;
+}
+
+.rmg-review-bg-list .rmg-popup-shell {
+  transform: scale(1.48);
+  transform-origin: top center;
+  box-shadow: none;
+}
+
+.rmg-review-scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(8, 10, 12, 0.56);
+}
+
+.rmg-bottom-sheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 390px;
+  bottom: 0;
+  background: #181a1c;
+  border-top: 2px solid #2e333b;
+  padding: 22px 38px 44px;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  box-shadow: 0 -24px 64px rgba(0, 0, 0, 0.72);
+}
+
+.rmg-sheet-handle {
+  width: 72px;
+  height: 6px;
+  background: #383d46;
+  align-self: center;
+  margin-bottom: 6px;
+}
+
+.rmg-sheet-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 20px;
+}
+
+.rmg-sheet-title-col {
+  flex: 1;
+  min-width: 0;
+}
+
+.rmg-sheet-kicker {
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #848b94;
+  margin-bottom: 10px;
+}
+
+.rmg-sheet-title {
+  margin: 0;
+  font-size: 31px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: #f0f2f5;
+  overflow-wrap: anywhere;
+}
+
+.rmg-sheet-meta {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px 0;
+  border-top: 1px solid #282c33;
+  border-bottom: 1px solid #282c33;
+}
+
+.rmg-sheet-meta > div {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.rmg-sheet-meta dt {
+  font-size: 19px;
+  color: #848b94;
+}
+
+.rmg-sheet-meta dd {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.4;
+  color: #dfe3e8;
+  overflow-wrap: anywhere;
+}
+
+.rmg-sheet-notice {
+  padding: 18px 22px;
+  background: #141618;
+  border: 1px solid #2b3038;
+  border-left: 4px solid #84bc98;
+  font-size: 22px;
+  color: #c8d2cc;
+}
+
+.rmg-sheet-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 20px;
+  padding: 6px 0;
+}
+
+.rmg-checkbox {
+  width: 34px;
+  height: 34px;
+  margin-top: 2px;
+  border: 2px solid #4c535f;
+  background: #141517;
+  flex: 0 0 auto;
+}
+
+.rmg-sheet-check-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rmg-sheet-check-copy strong {
+  font-size: 24px;
+  font-weight: 600;
+  color: #eef1f5;
+}
+
+.rmg-sheet-check-copy span {
+  font-size: 20px;
+  line-height: 1.42;
+  color: #878e98;
+}
+
+.rmg-sheet-actions {
+  display: grid;
+  grid-template-columns: 1.6fr 1fr;
+  gap: 18px;
+  margin-top: 6px;
+}
+
+.rmg-sheet-actions .rmg-android-btn {
+  height: 76px;
+  font-size: 24px;
+}

@@ -120,6 +120,78 @@ pub fn zip_filename(torrent_name: &str) -> String {
     format!("{base}.zip")
 }
 
+/// Suggested filename for a single torrent file download.
+///
+/// Only the basename is kept: separators are treated as path components and
+/// every remaining filesystem-illegal character is replaced. A name without
+/// any alphanumeric characters falls back to `file-<index + 1>`, mirroring the
+/// ZIP entry fallback. Overlong names lose the middle of the stem while keeping
+/// their extension.
+pub fn raw_filename(file_name: &str, index: i64) -> String {
+    let basename = file_name.rsplit(['/', '\\']).next().unwrap_or(file_name);
+    let sanitized = basename
+        .chars()
+        .map(|character| match character {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+            character if character.is_control() => '_',
+            character => character,
+        })
+        .collect::<String>();
+    let name = sanitized
+        .trim_matches(|character: char| character.is_whitespace() || character == '.')
+        .to_string();
+
+    if !name.chars().any(|character| character.is_alphanumeric()) {
+        return format!("file-{}", index.max(0) + 1);
+    }
+
+    if name.chars().count() <= MAX_ZIP_FILENAME_CHARS {
+        return name;
+    }
+
+    truncate_filename(&name)
+}
+
+fn truncate_filename(name: &str) -> String {
+    let (stem, extension) = match name.rsplit_once('.') {
+        Some((stem, extension)) if !stem.is_empty() && !extension.is_empty() => {
+            (stem, format!(".{extension}"))
+        }
+        _ => return truncate_to_limit(name),
+    };
+
+    let extension_len = extension.chars().count();
+    if extension_len >= MAX_ZIP_FILENAME_CHARS {
+        return truncate_to_limit(name);
+    }
+
+    let available = MAX_ZIP_FILENAME_CHARS - extension_len;
+    let mut stem = stem.chars().take(available).collect::<String>();
+    while stem.ends_with(' ') || stem.ends_with('.') {
+        stem.pop();
+    }
+    if stem.is_empty() {
+        return truncate_to_limit(name);
+    }
+
+    format!("{stem}{extension}")
+}
+
+fn truncate_to_limit(name: &str) -> String {
+    let mut truncated = name
+        .chars()
+        .take(MAX_ZIP_FILENAME_CHARS)
+        .collect::<String>();
+    while truncated.ends_with(' ') || truncated.ends_with('.') {
+        truncated.pop();
+    }
+    if truncated.is_empty() {
+        "file".to_string()
+    } else {
+        truncated
+    }
+}
+
 /// Turn a torrent client file path into a safe path inside the ZIP.
 pub fn zip_entry_name(file_name: &str, index: i64) -> String {
     let normalized = file_name.replace('\\', "/");
@@ -739,6 +811,49 @@ mod tests {
         );
         assert_eq!(zip_entry_name("../secret", 0), "secret");
         assert_eq!(zip_entry_name("", 4), "file-5");
+    }
+
+    #[test]
+    fn raw_filenames_keep_the_basename() {
+        assert_eq!(raw_filename("Show/Season 1/Episode.mkv", 0), "Episode.mkv");
+        assert_eq!(
+            raw_filename("Show\\Season 1\\Episode.mkv", 0),
+            "Episode.mkv"
+        );
+        assert_eq!(raw_filename("../../evil", 0), "evil");
+        assert_eq!(raw_filename("nested/dir/", 2), "file-3");
+    }
+
+    #[test]
+    fn raw_filenames_sanitize_illegal_characters() {
+        assert_eq!(
+            raw_filename("Show/bad:name*?\"<>|.mkv", 0),
+            "bad_name______.mkv"
+        );
+        assert_eq!(raw_filename("  .hidden.  ", 0), "hidden");
+        assert_eq!(raw_filename("...", 4), "file-5");
+        assert_eq!(raw_filename("!!!", 0), "file-1");
+    }
+
+    #[test]
+    fn raw_filenames_preserve_extensions_when_truncating() {
+        let stem = "a".repeat(MAX_ZIP_FILENAME_CHARS * 2);
+        let name = format!("{stem}.mkv");
+        let truncated = raw_filename(&name, 0);
+        assert_eq!(truncated.chars().count(), MAX_ZIP_FILENAME_CHARS);
+        assert!(truncated.ends_with(".mkv"));
+        assert!(truncated.starts_with(&"a".repeat(10)));
+
+        let utf8_stem = "é".repeat(MAX_ZIP_FILENAME_CHARS * 2);
+        let utf8_name = format!("{utf8_stem}.iso");
+        let truncated = raw_filename(&utf8_name, 0);
+        assert_eq!(truncated.chars().count(), MAX_ZIP_FILENAME_CHARS);
+        assert!(truncated.ends_with(".iso"));
+    }
+
+    #[test]
+    fn raw_filenames_keep_utf8_names() {
+        assert_eq!(raw_filename("Amélie/日本語.mkv", 0), "日本語.mkv");
     }
 
     #[test]

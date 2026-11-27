@@ -21,12 +21,14 @@ use crate::{
     auth_routes::{require_admin, require_archive_auth, require_device_or_admin},
     backend::{
         decode_torrent_files, matches_torrent_filter, torrent_completed, validate_hash,
-        AddTorrentRequest, AddTorrentResult, TorrentBackend, TorrentList, TorrentSummary,
-        COMPLETE_EPSILON,
+        AddTorrentRequest, AddTorrentResult, ArchiveFile, ArchiveTorrent, TorrentBackend,
+        TorrentList, TorrentSummary, COMPLETE_EPSILON,
     },
     config::{persisted_config, save, ConfigUpdate, PublicConfig},
     error::AppError,
-    zipstream::{content_disposition, write_zip, zip_filename, ArchivePlan, ZipStream},
+    zipstream::{
+        content_disposition, raw_filename, write_zip, zip_filename, ArchivePlan, ZipStream,
+    },
     AppState,
 };
 
@@ -66,8 +68,18 @@ pub fn router(state: Arc<AppState>) -> Router {
             "/api/torrents/{hash}",
             get(get_torrent).delete(delete_torrent),
         )
+        .route("/api/torrents/{hash}/files", get(list_torrent_files))
+        .route("/api/torrents/pause", post(pause_all_torrents))
+        .route("/api/torrents/resume", post(resume_all_torrents))
+        .route("/api/torrents/{hash}/pause", post(pause_torrent))
+        .route("/api/torrents/{hash}/resume", post(resume_torrent))
         .route("/api/archive/{hash}/ticket", post(create_archive_ticket))
+        .route(
+            "/api/archive/{hash}/files/{index}/ticket",
+            post(create_file_archive_ticket),
+        )
         .route("/archive/{hash}", get(archive))
+        .route("/archive/{hash}/files/{index}", get(archive_file))
         .merge(crate::auth_routes::router())
         // Authenticated API responses can carry secrets (tokens, pairings,
         // configuration), so no browser or intermediary may cache them.
@@ -386,6 +398,38 @@ async fn list_torrents(
     Ok(Json(TorrentList { torrents }))
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TorrentFileList {
+    files: Vec<ArchiveFile>,
+}
+
+/// List the wanted files in one torrent owned by Remagnet.
+async fn list_torrent_files(
+    State(state): State<Arc<AppState>>,
+    Path(hash): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<TorrentFileList>, AppError> {
+    require_device_or_admin(&state, &headers).await?;
+    let hash = validate_hash(&hash)?;
+    let (default_category, default_tags) = magnet_defaults(&state).await;
+    let backend = require_backend(&state).await?;
+
+    let allowed = backend
+        .get_torrent(&hash)
+        .await?
+        .is_some_and(|torrent| matches_torrent_filter(&torrent, &default_category, &default_tags));
+    if !allowed {
+        return Err(AppError::NotFound("Torrent not found.".to_string()));
+    }
+
+    let mut files = backend.files(&hash).await?;
+    files.sort_by_key(|file| file.index);
+    files.retain(|file| !file.name.ends_with('/'));
+
+    Ok(Json(TorrentFileList { files }))
+}
+
 async fn get_torrent(
     State(state): State<Arc<AppState>>,
     Path(hash): Path<String>,
@@ -458,6 +502,102 @@ async fn delete_torrent(
     Ok(StatusCode::NO_CONTENT)
 }
 
+async fn pause_all_torrents(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<StatusCode, AppError> {
+    require_device_or_admin(&state, &headers).await?;
+    let (default_category, default_tags) = magnet_defaults(&state).await;
+    let backend = require_backend(&state).await?;
+
+    // Pause only torrents Remagnet owns that are still running. Sending one
+    // hash per torrent (never a global wildcard) leaves unrelated torrents in a
+    // shared client untouched.
+    let hashes = backend
+        .list_torrents()
+        .await?
+        .into_iter()
+        .filter(|torrent| matches_torrent_filter(torrent, &default_category, &default_tags))
+        .filter(|torrent| torrent.state != "stopped")
+        .map(|torrent| torrent.hash)
+        .collect::<Vec<_>>();
+
+    backend.pause_torrents(&hashes).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn resume_all_torrents(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<StatusCode, AppError> {
+    require_device_or_admin(&state, &headers).await?;
+    let (default_category, default_tags) = magnet_defaults(&state).await;
+    let backend = require_backend(&state).await?;
+
+    // Resume only stopped torrents Remagnet owns. Sending one hash per torrent
+    // (never a global wildcard) leaves unrelated torrents in a shared client
+    // untouched.
+    let hashes = backend
+        .list_torrents()
+        .await?
+        .into_iter()
+        .filter(|torrent| matches_torrent_filter(torrent, &default_category, &default_tags))
+        .filter(|torrent| torrent.state == "stopped")
+        .map(|torrent| torrent.hash)
+        .collect::<Vec<_>>();
+
+    backend.resume_torrents(&hashes).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn pause_torrent(
+    State(state): State<Arc<AppState>>,
+    Path(hash): Path<String>,
+    headers: HeaderMap,
+) -> Result<StatusCode, AppError> {
+    require_device_or_admin(&state, &headers).await?;
+    let hash = validate_hash(&hash)?;
+    let (default_category, default_tags) = magnet_defaults(&state).await;
+    let backend = require_backend(&state).await?;
+
+    // Match the delete ownership check: a client may only pause torrents that
+    // belong to Remagnet on a shared torrent client instance.
+    let allowed = backend
+        .get_torrent(&hash)
+        .await?
+        .is_some_and(|torrent| matches_torrent_filter(&torrent, &default_category, &default_tags));
+    if !allowed {
+        return Err(AppError::NotFound("Torrent not found.".to_string()));
+    }
+
+    backend.pause_torrents(&[hash]).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn resume_torrent(
+    State(state): State<Arc<AppState>>,
+    Path(hash): Path<String>,
+    headers: HeaderMap,
+) -> Result<StatusCode, AppError> {
+    require_device_or_admin(&state, &headers).await?;
+    let hash = validate_hash(&hash)?;
+    let (default_category, default_tags) = magnet_defaults(&state).await;
+    let backend = require_backend(&state).await?;
+
+    // Match the delete ownership check: a client may only resume torrents that
+    // belong to Remagnet on a shared torrent client instance.
+    let allowed = backend
+        .get_torrent(&hash)
+        .await?
+        .is_some_and(|torrent| matches_torrent_filter(&torrent, &default_category, &default_tags));
+    if !allowed {
+        return Err(AppError::NotFound("Torrent not found.".to_string()));
+    }
+
+    backend.resume_torrents(&[hash]).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 fn parse_delete_files(query: &QueryMap) -> Result<bool, AppError> {
     match query
         .get("deleteFiles")
@@ -510,13 +650,136 @@ async fn create_archive_ticket(
     ))
 }
 
+/// Ticket scope for one torrent file. The `:file:` suffix keeps file tickets
+/// distinct from whole-archive tickets, so a ticket cannot be replayed against
+/// another file or against the ZIP endpoint.
+fn file_ticket_scope(hash: &str, index: i64) -> String {
+    format!("{hash}:file:{index}")
+}
+
+/// Mint a single-use ticket for one completed torrent file.
+async fn create_file_archive_ticket(
+    State(state): State<Arc<AppState>>,
+    Path((hash, index)): Path<(String, i64)>,
+    headers: HeaderMap,
+) -> Result<impl IntoResponse, AppError> {
+    require_device_or_admin(&state, &headers).await?;
+    let hash = validate_hash(&hash)?;
+    if index < 0 {
+        return Err(AppError::BadRequest(
+            "File index must be non-negative.".to_string(),
+        ));
+    }
+
+    let (default_category, default_tags) = magnet_defaults(&state).await;
+    let backend = require_backend(&state).await?;
+    let allowed = backend
+        .get_torrent(&hash)
+        .await?
+        .is_some_and(|torrent| matches_torrent_filter(&torrent, &default_category, &default_tags));
+    if !allowed {
+        return Err(AppError::NotFound("Torrent not found.".to_string()));
+    }
+
+    let (ticket, expires_in) = state
+        .archive_tickets
+        .lock()
+        .map_err(|_| AppError::internal("archive ticket state is unavailable"))?
+        .create(&file_ticket_scope(&hash, index))
+        .map_err(AppError::internal)?;
+
+    Ok((
+        [(header::CACHE_CONTROL, "no-store")],
+        Json(json!({ "ticket": ticket, "expiresIn": expires_in })),
+    ))
+}
+
+async fn stream_raw_file(
+    backend: &TorrentBackend,
+    torrent: &ArchiveTorrent,
+    file: &ArchiveFile,
+) -> Result<Response, AppError> {
+    let stream = backend.open_file(torrent, file).await?;
+
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/octet-stream")
+        .header(
+            header::CONTENT_DISPOSITION,
+            content_disposition(&raw_filename(&file.name, file.index)),
+        )
+        .header(header::CONTENT_LENGTH, file.size.to_string())
+        .header(header::CACHE_CONTROL, "no-store")
+        .header("x-content-type-options", "nosniff")
+        .body(Body::from_stream(stream))
+        .map_err(AppError::internal)
+}
+
+/// Stream one completed file without wrapping it in a ZIP.
+async fn archive_file(
+    State(state): State<Arc<AppState>>,
+    Path((hash, index)): Path<(String, i64)>,
+    headers: HeaderMap,
+    Query(query): Query<QueryMap>,
+) -> Result<Response, AppError> {
+    // Authenticate before validating the hash so unknown callers still receive
+    // 401 rather than a 400 that reveals the expected hash shape. The ticket
+    // scope is canonicalized because tickets are minted from validated hashes.
+    let scope_hash = hash.trim().to_ascii_lowercase();
+    require_archive_auth(
+        &state,
+        &headers,
+        &query,
+        &file_ticket_scope(&scope_hash, index),
+    )
+    .await?;
+
+    let hash = validate_hash(&hash)?;
+    if index < 0 {
+        return Err(AppError::BadRequest(
+            "File index must be non-negative.".to_string(),
+        ));
+    }
+
+    let (default_category, default_tags) = magnet_defaults(&state).await;
+    let backend = require_backend(&state).await?;
+    let torrent = backend.archive_torrent(&hash).await?;
+    if !torrent.matches_filter(&default_category, &default_tags) {
+        return Err(AppError::NotFound("Torrent not found.".to_string()));
+    }
+    if matches!(torrent.state.as_str(), "missingFiles" | "error") {
+        return Err(AppError::Conflict(format!(
+            "{} is not available for download.",
+            torrent.name
+        )));
+    }
+
+    let file = backend
+        .files(&hash)
+        .await?
+        .into_iter()
+        .find(|file| file.index == index && !file.name.ends_with('/'))
+        .ok_or_else(|| AppError::NotFound("File not found in this torrent.".to_string()))?;
+    if file.progress < COMPLETE_EPSILON {
+        return Err(AppError::Conflict(format!(
+            "{} is not fully downloaded yet.",
+            file.name
+        )));
+    }
+
+    stream_raw_file(&backend, &torrent, &file).await
+}
+
 async fn archive(
     State(state): State<Arc<AppState>>,
     Path(hash): Path<String>,
     headers: HeaderMap,
     Query(query): Query<QueryMap>,
 ) -> Result<Response, AppError> {
-    require_archive_auth(&state, &headers, &query, &hash).await?;
+    // Tickets are minted from validated hashes (lowercase); canonicalize before
+    // checking the scope so a case-varied URL still matches its ticket.
+    let scope_hash = hash.trim().to_ascii_lowercase();
+    require_archive_auth(&state, &headers, &query, &scope_hash).await?;
     let hash = validate_hash(&hash)?;
 
     let (default_category, default_tags) = magnet_defaults(&state).await;
@@ -535,6 +798,12 @@ async fn archive(
 
     let mut files = backend.files(&hash).await?;
     files.sort_by_key(|file| file.index);
+    files.retain(|file| !file.name.ends_with('/'));
+    if files.is_empty() {
+        return Err(AppError::Conflict(
+            "The torrent has no files to archive.".to_string(),
+        ));
+    }
 
     if let Some(incomplete) = files.iter().find(|file| file.progress < COMPLETE_EPSILON) {
         return Err(AppError::Conflict(format!(
@@ -543,11 +812,8 @@ async fn archive(
         )));
     }
 
-    files.retain(|file| !file.name.ends_with('/'));
-    if files.is_empty() {
-        return Err(AppError::Conflict(
-            "The torrent has no files to archive.".to_string(),
-        ));
+    if files.len() == 1 {
+        return stream_raw_file(&backend, &torrent, &files[0]).await;
     }
 
     let filename = zip_filename(&torrent.name);
@@ -710,6 +976,7 @@ mod tests {
     #[derive(Clone)]
     struct FakeQbit {
         completed: bool,
+        partial_file: bool,
     }
 
     fn torrent_json(hash: &str, name: &str, completed: bool) -> serde_json::Value {
@@ -770,21 +1037,38 @@ mod tests {
             ("POST", "/api/v2/torrents/createTags") => "".into_response(),
             ("POST", "/api/v2/torrents/add") => "Ok.".into_response(),
             ("POST", "/api/v2/torrents/delete") => "Ok.".into_response(),
-            ("GET", "/api/v2/torrents/files") => Json(json!([
-                {
-                    "index": 0,
-                    "name": "Test Torrent/readme.txt",
-                    "size": 5,
-                    "progress": 1.0,
-                },
-                {
-                    "index": 1,
-                    "name": "Test Torrent/empty.txt",
-                    "size": 0,
-                    "progress": 1.0,
+            ("GET", "/api/v2/torrents/files") => {
+                let mut files = vec![
+                    json!({
+                        "index": 1,
+                        "name": "Test Torrent/empty.txt",
+                        "size": 0,
+                        "progress": 1.0,
+                    }),
+                    json!({
+                        "index": 0,
+                        "name": "Test Torrent/readme.txt",
+                        "size": 5,
+                        "progress": 1.0,
+                    }),
+                    json!({
+                        "index": 3,
+                        "name": "Test Torrent/skip.bin",
+                        "size": 7,
+                        "progress": 0.0,
+                        "priority": 0,
+                    }),
+                ];
+                if state.partial_file {
+                    files.push(json!({
+                        "index": 2,
+                        "name": "Test Torrent/partial.bin",
+                        "size": 10,
+                        "progress": 0.5,
+                    }));
                 }
-            ]))
-            .into_response(),
+                Json(json!(files)).into_response()
+            }
             ("GET", "/api/v2/torrents/downloadFile") => {
                 let Query(query) = Query::<QueryMap>::try_from_uri(request.uri()).unwrap();
                 if query.get("hash").map(String::as_str) != Some(HASH) {
@@ -801,15 +1085,329 @@ mod tests {
     }
 
     async fn start_fake(completed: bool) -> String {
+        start_fake_with_partial(completed, false).await
+    }
+
+    async fn start_fake_with_partial(completed: bool, partial_file: bool) -> String {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
-        let app = Router::new()
-            .fallback(fake_app)
-            .with_state(FakeQbit { completed });
+        let app = Router::new().fallback(fake_app).with_state(FakeQbit {
+            completed,
+            partial_file,
+        });
         tokio::spawn(async move {
             axum::serve(listener, app).await.unwrap();
         });
         format!("http://{address}")
+    }
+
+    const STOPPED_HASH: &str = "5555555555555555555555555555555555555555";
+    const MISSING_HASH: &str = "6666666666666666666666666666666666666666";
+
+    #[derive(Clone)]
+    struct FakePauseQbit {
+        torrents: Arc<Vec<serde_json::Value>>,
+        paused: Arc<Mutex<Vec<String>>>,
+        resumed: Arc<Mutex<Vec<String>>>,
+    }
+
+    fn pausable_torrent(
+        hash: &str,
+        name: &str,
+        state: &str,
+        category: &str,
+        tags: &str,
+    ) -> serde_json::Value {
+        json!({
+            "hash": hash,
+            "name": name,
+            "state": state,
+            "progress": 1.0,
+            "category": category,
+            "tags": tags,
+        })
+    }
+
+    fn pausable_torrents() -> Vec<serde_json::Value> {
+        vec![
+            pausable_torrent(HASH, "Test Torrent", "seeding", "Remagnet", "Remagnet"),
+            pausable_torrent(
+                STOPPED_HASH,
+                "Stopped Torrent",
+                "stopped",
+                "Remagnet",
+                "Remagnet",
+            ),
+            pausable_torrent(OTHER_HASH, "Other Torrent", "seeding", "films", "other"),
+        ]
+    }
+
+    async fn fake_pause_qbit(
+        State(state): State<FakePauseQbit>,
+        request: Request<Body>,
+    ) -> Response {
+        let authorized = request
+            .headers()
+            .get(header::AUTHORIZATION)
+            .and_then(|value| value.to_str().ok())
+            == Some("Bearer qbt_test");
+        if !authorized {
+            return (StatusCode::UNAUTHORIZED, "missing auth").into_response();
+        }
+
+        let method = request.method().clone();
+        let path = request.uri().path().to_string();
+        match (method.as_str(), path.as_str()) {
+            ("GET", "/api/v2/app/version") => "5.3.0".into_response(),
+            ("GET", "/api/v2/app/webapiVersion") => "2.16.2".into_response(),
+            ("GET", "/api/v2/torrents/info") => {
+                let Query(query) = Query::<QueryMap>::try_from_uri(request.uri()).unwrap();
+                let torrents = match query.get("hashes") {
+                    Some(hashes) => state
+                        .torrents
+                        .iter()
+                        .filter(|torrent| {
+                            torrent["hash"]
+                                .as_str()
+                                .is_some_and(|hash| hash.eq_ignore_ascii_case(hashes))
+                        })
+                        .cloned()
+                        .collect(),
+                    None => state.torrents.as_ref().clone(),
+                };
+                Json(json!(torrents)).into_response()
+            }
+            ("POST", "/api/v2/torrents/stop") | ("POST", "/api/v2/torrents/pause") => {
+                record_action_hashes(request, &state.paused).await;
+                "Ok.".into_response()
+            }
+            ("POST", "/api/v2/torrents/start") | ("POST", "/api/v2/torrents/resume") => {
+                record_action_hashes(request, &state.resumed).await;
+                "Ok.".into_response()
+            }
+            _ => (StatusCode::NOT_FOUND, "not found").into_response(),
+        }
+    }
+
+    async fn record_action_hashes(request: Request<Body>, target: &Mutex<Vec<String>>) {
+        let body = request.into_body().collect().await.unwrap().to_bytes();
+        let hashes = url::form_urlencoded::parse(&body)
+            .filter(|(key, _)| key == "hashes")
+            .flat_map(|(_, value)| value.split('|').map(str::to_string).collect::<Vec<_>>())
+            .collect::<Vec<_>>();
+        target.lock().unwrap().extend(hashes);
+    }
+
+    async fn start_pause_fake(
+        torrents: Vec<serde_json::Value>,
+    ) -> (String, Arc<Mutex<Vec<String>>>, Arc<Mutex<Vec<String>>>) {
+        let paused = Arc::new(Mutex::new(Vec::new()));
+        let resumed = Arc::new(Mutex::new(Vec::new()));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let app = Router::new()
+            .fallback(fake_pause_qbit)
+            .with_state(FakePauseQbit {
+                torrents: Arc::new(torrents),
+                paused: Arc::clone(&paused),
+                resumed: Arc::clone(&resumed),
+            });
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        (format!("http://{address}"), paused, resumed)
+    }
+
+    async fn pause_app(
+        torrents: Vec<serde_json::Value>,
+    ) -> (TestApp, Arc<Mutex<Vec<String>>>, Arc<Mutex<Vec<String>>>) {
+        let (base_url, paused, resumed) = start_pause_fake(torrents).await;
+        let app = app_from_config(config_for(&base_url), true);
+        (app, paused, resumed)
+    }
+
+    #[tokio::test]
+    async fn pauses_and_resumes_owned_torrents_by_hash() {
+        let (app, paused, resumed) = pause_app(pausable_torrents()).await;
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.device_json("POST", &format!("/api/torrents/{HASH}/pause"), json!({})))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert_eq!(*paused.lock().unwrap(), vec![HASH.to_string()]);
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.admin_json("POST", &format!("/api/torrents/{HASH}/pause"), json!({})))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert_eq!(
+            *paused.lock().unwrap(),
+            vec![HASH.to_string(), HASH.to_string()]
+        );
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.admin_json("POST", &format!("/api/torrents/{HASH}/resume"), json!({})))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.device_json("POST", &format!("/api/torrents/{HASH}/resume"), json!({})))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert_eq!(
+            *resumed.lock().unwrap(),
+            vec![HASH.to_string(), HASH.to_string()]
+        );
+    }
+
+    #[tokio::test]
+    async fn pause_and_resume_refuse_unowned_or_missing_torrents() {
+        let (app, paused, resumed) = pause_app(pausable_torrents()).await;
+
+        for hash in [OTHER_HASH, MISSING_HASH] {
+            for action in ["pause", "resume"] {
+                let response = app
+                    .router
+                    .clone()
+                    .oneshot(app.device_json(
+                        "POST",
+                        &format!("/api/torrents/{hash}/{action}"),
+                        json!({}),
+                    ))
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    response.status(),
+                    StatusCode::NOT_FOUND,
+                    "{action} {hash} must be hidden"
+                );
+                let body = response.into_body().collect().await.unwrap().to_bytes();
+                let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+                assert_eq!(body["error"], "Torrent not found.");
+            }
+        }
+
+        assert!(paused.lock().unwrap().is_empty());
+        assert!(resumed.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn pause_and_resume_reject_invalid_hashes_and_anonymous_callers() {
+        let (app, paused, resumed) = pause_app(pausable_torrents()).await;
+
+        for action in ["pause", "resume"] {
+            let response = app
+                .router
+                .clone()
+                .oneshot(app.device_json(
+                    "POST",
+                    &format!("/api/torrents/not-a-hash/{action}"),
+                    json!({}),
+                ))
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+            let response = app
+                .router
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri(format!("/api/torrents/{HASH}/{action}"))
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        }
+
+        assert!(paused.lock().unwrap().is_empty());
+        assert!(resumed.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn pausing_all_torrents_skips_unowned_and_stopped_torrents() {
+        let (app, paused, resumed) = pause_app(pausable_torrents()).await;
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.device_json("POST", "/api/torrents/pause", json!({})))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert_eq!(*paused.lock().unwrap(), vec![HASH.to_string()]);
+        assert!(resumed.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn resuming_all_torrents_skips_unowned_and_active_torrents() {
+        let (app, paused, resumed) = pause_app(pausable_torrents()).await;
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.device_json("POST", "/api/torrents/resume", json!({})))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert_eq!(*resumed.lock().unwrap(), vec![STOPPED_HASH.to_string()]);
+        assert!(paused.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn pause_all_succeeds_when_nothing_needs_pausing() {
+        let (app, paused, _resumed) = pause_app(vec![
+            pausable_torrent(
+                STOPPED_HASH,
+                "Stopped Torrent",
+                "stopped",
+                "Remagnet",
+                "Remagnet",
+            ),
+            pausable_torrent(OTHER_HASH, "Other Torrent", "seeding", "films", "other"),
+        ])
+        .await;
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.device_json("POST", "/api/torrents/pause", json!({})))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert!(paused.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn resume_all_succeeds_when_nothing_needs_resuming() {
+        let (app, _paused, resumed) = pause_app(vec![
+            pausable_torrent(HASH, "Test Torrent", "seeding", "Remagnet", "Remagnet"),
+            pausable_torrent(OTHER_HASH, "Other Torrent", "stopped", "films", "other"),
+        ])
+        .await;
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.device_json("POST", "/api/torrents/resume", json!({})))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert!(resumed.lock().unwrap().is_empty());
     }
 
     /// Minimal Transmission JSON-RPC daemon for route-level tests.
@@ -1036,7 +1634,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn transmission_archives_bytes_from_the_downloads_volume() {
+    async fn transmission_streams_a_single_torrent_file_raw() {
         let (_directory, downloads) = fixture_downloads();
         let app = app_with_transmission(&downloads, "remagnet", &["remagnet"]).await;
 
@@ -1049,7 +1647,7 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
             response.headers().get(header::CONTENT_TYPE).unwrap(),
-            "application/zip"
+            "application/octet-stream"
         );
         let disposition = response
             .headers()
@@ -1057,12 +1655,13 @@ mod tests {
             .unwrap()
             .to_str()
             .unwrap();
-        assert!(disposition.contains("Test Torrent.zip"));
+        assert!(disposition.contains("readme.txt"));
+        assert!(!disposition.contains("Test Torrent.zip"));
 
         let content_length = response
             .headers()
             .get(header::CONTENT_LENGTH)
-            .expect("archive responses carry an exact Content-Length")
+            .expect("raw downloads carry an exact Content-Length")
             .to_str()
             .unwrap()
             .parse::<usize>()
@@ -1070,17 +1669,9 @@ mod tests {
 
         let body = response.into_body().collect().await.unwrap().to_bytes();
         assert_eq!(content_length, body.len());
-        let mut archive = zip::ZipArchive::new(Cursor::new(body)).unwrap();
-        assert_eq!(archive.len(), 1);
-        let mut bytes = Vec::new();
-        archive
-            .by_name("Test Torrent/readme.txt")
-            .unwrap()
-            .read_to_end(&mut bytes)
-            .unwrap();
-        assert_eq!(bytes, b"hello");
+        assert_eq!(body.as_ref(), b"hello");
         assert_eq!(
-            bytes,
+            body.as_ref(),
             std::fs::read(std::path::Path::new(&downloads).join("Test Torrent/readme.txt"))
                 .unwrap()
         );
@@ -1480,7 +2071,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn deluge_archives_bytes_from_the_downloads_volume() {
+    async fn deluge_streams_a_single_torrent_file_raw() {
         let (_directory, downloads) = fixture_downloads();
         let app = app_with_deluge(&downloads).await;
 
@@ -1493,7 +2084,7 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
             response.headers().get(header::CONTENT_TYPE).unwrap(),
-            "application/zip"
+            "application/octet-stream"
         );
         let disposition = response
             .headers()
@@ -1501,12 +2092,12 @@ mod tests {
             .unwrap()
             .to_str()
             .unwrap();
-        assert!(disposition.contains("Test Torrent.zip"));
+        assert!(disposition.contains("readme.txt"));
 
         let content_length = response
             .headers()
             .get(header::CONTENT_LENGTH)
-            .expect("archive responses carry an exact Content-Length")
+            .expect("raw downloads carry an exact Content-Length")
             .to_str()
             .unwrap()
             .parse::<usize>()
@@ -1514,15 +2105,7 @@ mod tests {
 
         let body = response.into_body().collect().await.unwrap().to_bytes();
         assert_eq!(content_length, body.len());
-        let mut archive = zip::ZipArchive::new(Cursor::new(body)).unwrap();
-        assert_eq!(archive.len(), 1);
-        let mut bytes = Vec::new();
-        archive
-            .by_name("Test Torrent/readme.txt")
-            .unwrap()
-            .read_to_end(&mut bytes)
-            .unwrap();
-        assert_eq!(bytes, b"hello");
+        assert_eq!(body.as_ref(), b"hello");
     }
 
     #[tokio::test]
@@ -1645,7 +2228,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rtorrent_archives_bytes_from_the_downloads_volume() {
+    async fn rtorrent_streams_a_single_torrent_file_raw() {
         let (_directory, downloads) = fixture_downloads();
         let app = app_with_rtorrent(&downloads).await;
 
@@ -1658,7 +2241,7 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
             response.headers().get(header::CONTENT_TYPE).unwrap(),
-            "application/zip"
+            "application/octet-stream"
         );
         let disposition = response
             .headers()
@@ -1666,12 +2249,12 @@ mod tests {
             .unwrap()
             .to_str()
             .unwrap();
-        assert!(disposition.contains("Test Torrent.zip"));
+        assert!(disposition.contains("readme.txt"));
 
         let content_length = response
             .headers()
             .get(header::CONTENT_LENGTH)
-            .expect("archive responses carry an exact Content-Length")
+            .expect("raw downloads carry an exact Content-Length")
             .to_str()
             .unwrap()
             .parse::<usize>()
@@ -1679,15 +2262,7 @@ mod tests {
 
         let body = response.into_body().collect().await.unwrap().to_bytes();
         assert_eq!(content_length, body.len());
-        let mut archive = zip::ZipArchive::new(Cursor::new(body)).unwrap();
-        assert_eq!(archive.len(), 1);
-        let mut bytes = Vec::new();
-        archive
-            .by_name("Test Torrent/readme.txt")
-            .unwrap()
-            .read_to_end(&mut bytes)
-            .unwrap();
-        assert_eq!(bytes, b"hello");
+        assert_eq!(body.as_ref(), b"hello");
     }
 
     #[tokio::test]
@@ -1800,6 +2375,11 @@ mod tests {
 
     async fn app(completed: bool) -> TestApp {
         app_with_filter(completed, "remagnet", &["remagnet"]).await
+    }
+
+    async fn app_with_partial_file(completed: bool) -> TestApp {
+        let base_url = start_fake_with_partial(completed, true).await;
+        app_from_config(config_for(&base_url), true)
     }
 
     #[tokio::test]
@@ -1998,7 +2578,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn streams_a_zip_with_the_torrent_files() {
+    async fn streams_a_multi_file_torrent_as_a_zip() {
         let app = app(true).await;
         let response = app
             .router
@@ -2042,6 +2622,261 @@ mod tests {
             .unwrap();
         assert_eq!(readme, "hello");
         assert!(archive.by_name("Test Torrent/empty.txt").is_ok());
+    }
+
+    #[tokio::test]
+    async fn lists_sorted_wanted_torrent_files_for_owned_torrents() {
+        let app = app(true).await;
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.device_request(&format!("/api/torrents/{HASH}/files")))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let files = body["files"].as_array().unwrap();
+        assert_eq!(files.len(), 2);
+        assert_eq!(
+            files[0],
+            json!({
+                "index": 0,
+                "name": "Test Torrent/readme.txt",
+                "size": 5,
+                "progress": 1.0,
+            })
+        );
+        assert_eq!(
+            files[1],
+            json!({
+                "index": 1,
+                "name": "Test Torrent/empty.txt",
+                "size": 0,
+                "progress": 1.0,
+            })
+        );
+        assert!(
+            files
+                .iter()
+                .all(|file| !file["name"].as_str().unwrap().ends_with("skip.bin")),
+            "unwanted files must be omitted"
+        );
+
+        for hash in [OTHER_HASH, MISSING_HASH] {
+            let response = app
+                .router
+                .clone()
+                .oneshot(app.device_request(&format!("/api/torrents/{hash}/files")))
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::NOT_FOUND, "{hash}");
+        }
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/torrents/{HASH}/files"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn file_tickets_stream_one_completed_file() {
+        let app = app_with_partial_file(true).await;
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.device_json(
+                "POST",
+                &format!("/api/archive/{HASH}/files/0/ticket"),
+                json!({}),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["expiresIn"], 60);
+        let ticket = body["ticket"].as_str().unwrap().to_string();
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/archive/{HASH}/files/0?ticket={ticket}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers().get(header::CONTENT_TYPE).unwrap(),
+            "application/octet-stream"
+        );
+        assert_eq!(
+            response.headers().get("x-content-type-options").unwrap(),
+            "nosniff"
+        );
+        let disposition = response
+            .headers()
+            .get(header::CONTENT_DISPOSITION)
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert!(disposition.contains("readme.txt"));
+        let content_length = response
+            .headers()
+            .get(header::CONTENT_LENGTH)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .parse::<usize>()
+            .unwrap();
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        assert_eq!(content_length, body.len());
+        assert_eq!(body.as_ref(), b"hello");
+
+        let replay = app
+            .router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/archive/{HASH}/files/0?ticket={ticket}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(replay.status(), StatusCode::UNAUTHORIZED);
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.admin_request(&format!("/archive/{HASH}/files/2")))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            body["error"],
+            "Test Torrent/partial.bin is not fully downloaded yet."
+        );
+
+        let ticket_hash = app
+            .router
+            .clone()
+            .oneshot(app.device_json(
+                "POST",
+                &format!("/api/archive/{HASH}/files/0/ticket"),
+                json!({}),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(ticket_hash.status(), StatusCode::OK);
+        let body = ticket_hash.into_body().collect().await.unwrap().to_bytes();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let mismatched_ticket = body["ticket"].as_str().unwrap().to_string();
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "/archive/{OTHER_HASH}/files/0?ticket={mismatched_ticket}"
+                    ))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.device_json("POST", &format!("/api/archive/{HASH}/ticket"), json!({})))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let archive_ticket = body["ticket"].as_str().unwrap().to_string();
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/archive/{HASH}/files/0?ticket={archive_ticket}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.admin_request(&format!("/archive/{OTHER_HASH}/files/0")))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.device_json(
+                "POST",
+                &format!("/api/archive/{OTHER_HASH}/files/0/ticket"),
+                json!({}),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.admin_request(&format!("/archive/{HASH}/files/99")))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.admin_request(&format!("/archive/{HASH}/files/-1")))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(app.device_json(
+                "POST",
+                &format!("/api/archive/{HASH}/files/-1/ticket"),
+                json!({}),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]

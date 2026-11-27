@@ -1,0 +1,65 @@
+{
+  "id": "remagnet-play-phone-qr",
+  "name": "Google Play · Phone 2 — QR Pairing (1080×1920)",
+  "output": "google-play/phone-screenshot-2-qr-1080x1920.png",
+  "sizeId": "play-phone",
+  "device": "android",
+  "finish": "titanium",
+  "cameraPreset": "portrait",
+  "yaw": -0.164,
+  "pitch": 0.168,
+  "roll": -0.01,
+  "zoom": 1.37,
+  "offsetX": -0.004,
+  "offsetY": 0.363,
+  "deviceScale": 1,
+  "glassSheen": 0.75,
+  "shadowOpacity": 0.45,
+  "aoStrength": 0.72,
+  "floatAnim": false,
+  "shaderSpeed": 0.75,
+  "shaderMode": 5,
+  "palette": "remagnet",
+  "background": {
+    "mode": 5,
+    "base": "#111317",
+    "colorA": "#d9625c",
+    "colorB": "#70a3d2",
+    "colorC": "#ecebe6",
+    "distort": 0.5,
+    "glow": 0.58,
+    "grain": 0.18,
+    "chroma": 0.16
+  },
+  "screenTemplate": "remagnet-android-qr",
+  "animateDemo": false,
+  "copyLayout": "top-center",
+  "copyTheme": "light",
+  "eyebrow": "",
+  "headline": "Scan & Pair",
+  "subheadline": "Encrypted device tokens. No passwords stored.",
+  "badges": "60s Rotating QR, AES-256-GCM, Keystore",
+  "brandIconUrl": "/project-assets/icon/remagnet-small.svg",
+  "fonts": [
+    {
+      "family": "Departure Mono",
+      "weight": 400,
+      "url": "/project-assets/fonts/departure-mono-regular.woff2"
+    },
+    {
+      "family": "Geist Mono",
+      "weight": 400,
+      "url": "/project-assets/fonts/geist-mono-latin-400-normal.woff2"
+    },
+    {
+      "family": "Geist Mono",
+      "weight": 500,
+      "url": "/project-assets/fonts/geist-mono-latin-500-normal.woff2"
+    },
+    {
+      "family": "Geist Mono",
+      "weight": 600,
+      "url": "/project-assets/fonts/geist-mono-latin-600-normal.woff2"
+    }
+  ]
+}

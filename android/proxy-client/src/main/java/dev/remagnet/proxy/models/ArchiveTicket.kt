@@ -27,14 +27,14 @@ package dev.remagnet.proxy.models
 import com.google.gson.annotations.SerializedName
 
 /**
- * @param ticket Single-use ticket for `GET /archive/{hash}?ticket=…`.
+ * @param ticket Single-use ticket for `GET /archive/{hash}?ticket=…` or `GET /archive/{hash}/files/{index}?ticket=…`.
  * @param expiresIn Seconds until the ticket expires.
  */
 
 
 data class ArchiveTicket (
 
-    /* Single-use ticket for `GET /archive/{hash}?ticket=…`. */
+    /* Single-use ticket for `GET /archive/{hash}?ticket=…` or `GET /archive/{hash}/files/{index}?ticket=…`.  */
     @SerializedName("ticket")
     val ticket: kotlin.String,
 

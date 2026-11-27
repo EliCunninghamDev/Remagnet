@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.remagnet.app.client.TorrentFile
 import dev.remagnet.app.client.TorrentSummary
 import dev.remagnet.app.ui.components.Panel
 import dev.remagnet.app.ui.components.PrimaryButton
@@ -50,6 +51,11 @@ fun HomeScreen(
     onCancelRemove: () -> Unit,
     onOpenArchive: (String) -> Unit,
     onDismissActionError: () -> Unit,
+    onTogglePause: (TorrentSummary) -> Unit = {},
+    onPauseAll: () -> Unit = {},
+    onResumeAll: () -> Unit = {},
+    onToggleFiles: (TorrentSummary) -> Unit = {},
+    onDownloadFile: (TorrentSummary, TorrentFile) -> Unit = { _, _ -> },
     onReportIssue: (IssueReportContext) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
@@ -197,6 +203,17 @@ fun HomeScreen(
                         onCancelRemove = onCancelRemove,
                         onOpenArchive = onOpenArchive,
                         onReportIssue = onReportIssue,
+                        togglingHash = state.togglingHash,
+                        bulkPauseBusy = state.bulkPauseBusy,
+                        onTogglePause = onTogglePause,
+                        onPauseAll = onPauseAll,
+                        onResumeAll = onResumeAll,
+                        expandedHash = state.expandedHash,
+                        filesByHash = state.filesByHash,
+                        filesLoadingHash = state.filesLoadingHash,
+                        filesError = state.filesError,
+                        onToggleFiles = onToggleFiles,
+                        onDownloadFile = onDownloadFile,
                     )
                 }
             }

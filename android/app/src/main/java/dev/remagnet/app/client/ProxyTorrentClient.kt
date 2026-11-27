@@ -5,6 +5,7 @@ import dev.remagnet.app.data.normalizeBaseUrl
 import dev.remagnet.app.data.parseHttpUrl
 import dev.remagnet.app.proxy.ProxyApi
 import dev.remagnet.proxy.models.AddTorrentRequest as ProxyAddTorrentRequest
+import dev.remagnet.proxy.models.TorrentFile as ProxyTorrentFile
 import dev.remagnet.proxy.models.TorrentFileUpload as ProxyTorrentFileUpload
 import dev.remagnet.proxy.models.TorrentSummary as ProxyTorrentSummary
 import java.io.IOException
@@ -77,6 +78,21 @@ class ProxyTorrentClient(
         body.toModel()
     }
 
+    override suspend fun listTorrentFiles(hash: String): QbitResult<List<TorrentFile>> = attempt {
+        requireConfiguration()
+        val clean = hash.trim()
+        if (clean.isEmpty()) return@attempt emptyList()
+
+        val response = api.torrents.listTorrentFiles(clean)
+        val body = response.body()
+        if (!response.isSuccessful || body == null) {
+            throw ProxyException(
+                errorFor(response, "The Remagnet Proxy could not read the files in that torrent."),
+            )
+        }
+        body.files.map { it.toModel() }
+    }
+
     override suspend fun addTorrent(request: AddTorrentRequest): QbitResult<AddTorrentResult> =
         attempt {
             requireConfiguration()
@@ -138,6 +154,52 @@ class ProxyTorrentClient(
         }
     }
 
+    override suspend fun pauseTorrent(hash: String): QbitResult<Unit> = attempt {
+        requireConfiguration()
+        val clean = hash.trim()
+        if (clean.isEmpty()) return@attempt
+
+        val response = api.torrents.pauseTorrent(clean)
+        if (!response.isSuccessful) {
+            throw ProxyException(
+                errorFor(response, "The Remagnet Proxy could not pause that torrent."),
+            )
+        }
+    }
+
+    override suspend fun resumeTorrent(hash: String): QbitResult<Unit> = attempt {
+        requireConfiguration()
+        val clean = hash.trim()
+        if (clean.isEmpty()) return@attempt
+
+        val response = api.torrents.resumeTorrent(clean)
+        if (!response.isSuccessful) {
+            throw ProxyException(
+                errorFor(response, "The Remagnet Proxy could not resume that torrent."),
+            )
+        }
+    }
+
+    override suspend fun pauseAllTorrents(): QbitResult<Unit> = attempt {
+        requireConfiguration()
+        val response = api.torrents.pauseAllTorrents()
+        if (!response.isSuccessful) {
+            throw ProxyException(
+                errorFor(response, "The Remagnet Proxy could not pause torrents."),
+            )
+        }
+    }
+
+    override suspend fun resumeAllTorrents(): QbitResult<Unit> = attempt {
+        requireConfiguration()
+        val response = api.torrents.resumeAllTorrents()
+        if (!response.isSuccessful) {
+            throw ProxyException(
+                errorFor(response, "The Remagnet Proxy could not resume torrents."),
+            )
+        }
+    }
+
     private fun requireConfiguration() {
         if (baseUrl.isBlank() || parseHttpUrl(baseUrl) == null) {
             throw ProxyException(QbitError.InvalidSettings("The Remagnet Proxy URL is not valid."))
@@ -163,6 +225,13 @@ class ProxyTorrentClient(
         seeds = seeds.coerceIn(0L, Int.MAX_VALUE.toLong()).toInt(),
         peers = peers.coerceIn(0L, Int.MAX_VALUE.toLong()).toInt(),
         addedOn = 0,
+    )
+
+    private fun ProxyTorrentFile.toModel(): TorrentFile = TorrentFile(
+        index = index,
+        name = name,
+        size = propertySize,
+        progress = progress.coerceIn(0.0, 1.0),
     )
 
     private fun errorFor(response: Response<*>, fallback: String): QbitError {

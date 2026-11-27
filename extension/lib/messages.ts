@@ -1,5 +1,5 @@
 import { browser } from "wxt/browser";
-import type { TorrentSummary } from "./torrents";
+import type { TorrentFile, TorrentSummary } from "./torrents";
 
 export { COMPLETE_PROGRESS } from "./torrents";
 
@@ -18,8 +18,14 @@ export type BackgroundRequest =
     }
   | { type: "torrents:list" }
   | { type: "torrents:get"; hash: string }
+  | { type: "torrents:files"; hash: string }
   | { type: "torrents:remove"; hashes: string[]; deleteFiles?: boolean }
-  | { type: "archive:download"; hash: string; name?: string };
+  | { type: "torrents:pause"; hashes: string[] }
+  | { type: "torrents:resume"; hashes: string[] }
+  | { type: "torrents:pauseAll" }
+  | { type: "torrents:resumeAll" }
+  | { type: "archive:download"; hash: string; name?: string }
+  | { type: "archive:downloadFile"; hash: string; index: number; name?: string };
 
 export interface ConnectionTestResult {
   clientLabel: string;
@@ -50,6 +56,10 @@ export interface TorrentLookupResult {
   torrent: TorrentSummary | null;
 }
 
+export interface TorrentFilesResult {
+  files: TorrentFile[];
+}
+
 export interface ArchiveDownloadResult {
   downloadId: number;
   filename: string;
@@ -57,6 +67,18 @@ export interface ArchiveDownloadResult {
 
 export interface RemoveTorrentsResult {
   removed: string[];
+}
+
+export interface PauseTorrentsResult {
+  paused: string[];
+}
+
+export interface ResumeTorrentsResult {
+  resumed: string[];
+}
+
+export interface BulkTorrentActionResult {
+  action: "pause" | "resume";
 }
 
 export type BackgroundResponse<T> =
@@ -116,6 +138,7 @@ export function isBackgroundRequest(value: unknown): value is BackgroundRequest 
     files?: unknown;
     paused?: unknown;
     hash?: unknown;
+    index?: unknown;
     name?: unknown;
     hashes?: unknown;
     deleteFiles?: unknown;
@@ -126,6 +149,7 @@ export function isBackgroundRequest(value: unknown): value is BackgroundRequest 
     case "torrents:list":
       return true;
     case "torrents:get":
+    case "torrents:files":
       return typeof candidate.hash === "string" && candidate.hash.length > 0;
     case "torrents:remove":
       return (
@@ -134,10 +158,29 @@ export function isBackgroundRequest(value: unknown): value is BackgroundRequest 
         candidate.hashes.every((hash) => typeof hash === "string" && hash.length > 0) &&
         (candidate.deleteFiles === undefined || typeof candidate.deleteFiles === "boolean")
       );
+    case "torrents:pause":
+    case "torrents:resume":
+      return (
+        Array.isArray(candidate.hashes) &&
+        candidate.hashes.length > 0 &&
+        candidate.hashes.every((hash) => typeof hash === "string" && hash.length > 0)
+      );
+    case "torrents:pauseAll":
+    case "torrents:resumeAll":
+      return true;
     case "archive:download":
       return (
         typeof candidate.hash === "string" &&
         candidate.hash.length > 0 &&
+        (candidate.name === undefined || typeof candidate.name === "string")
+      );
+    case "archive:downloadFile":
+      return (
+        typeof candidate.hash === "string" &&
+        candidate.hash.length > 0 &&
+        typeof candidate.index === "number" &&
+        Number.isInteger(candidate.index) &&
+        candidate.index >= 0 &&
         (candidate.name === undefined || typeof candidate.name === "string")
       );
     case "torrents:add":

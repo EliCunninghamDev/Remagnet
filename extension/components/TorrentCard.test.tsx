@@ -135,4 +135,131 @@ describe("TorrentCard", () => {
       (screen.getByRole("button", { name: "Remove torrent" }) as HTMLButtonElement).disabled,
     ).toBe(true);
   });
+
+  test("pauses an active torrent from its row control", () => {
+    const onTogglePause = vi.fn();
+    renderCard(torrentCase("downloading"), { onTogglePause });
+
+    const pause = screen.getByRole("button", { name: "Pause torrent" });
+    expect(pause.classList.contains("is-paused")).toBe(false);
+
+    fireEvent.click(pause);
+    expect(onTogglePause).toHaveBeenCalledOnce();
+  });
+
+  test("resumes a stopped torrent and marks the control as paused", () => {
+    const onTogglePause = vi.fn();
+    renderCard(torrentCase("paused"), { onTogglePause });
+
+    const resume = screen.getByRole("button", { name: "Resume torrent" });
+    expect(resume.classList.contains("is-paused")).toBe(true);
+
+    fireEvent.click(resume);
+    expect(onTogglePause).toHaveBeenCalledOnce();
+  });
+
+  test("disables the pause control while its request is in flight", () => {
+    renderCard(torrentCase("downloading"), { onTogglePause: vi.fn(), togglingPause: true });
+
+    expect(
+      (screen.getByRole("button", { name: "Pause torrent" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+
+  test("hides the pause control when no handler is wired", () => {
+    renderCard(torrentCase("downloading"));
+    expect(screen.queryByRole("button", { name: /Pause torrent|Resume torrent/ })).toBeNull();
+  });
+
+  test("toggles the per-file browser from the row action", () => {
+    const onToggleFiles = vi.fn();
+    renderCard(torrentCase("complete"), { onToggleFiles });
+
+    const toggle = screen.getByRole("button", { name: "Show files" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+
+    fireEvent.click(toggle);
+    expect(onToggleFiles).toHaveBeenCalledOnce();
+  });
+
+  test("lists completed and incomplete files when expanded", () => {
+    const files = [
+      { index: 0, name: "ubuntu.iso", size: 4_000_000_000, progress: 1 },
+      { index: 1, name: "extras/notes.txt", size: 2048, progress: 0.5 },
+    ];
+    renderCard(torrentCase("downloading"), {
+      filesOpen: true,
+      files,
+      onToggleFiles: vi.fn(),
+      onDownloadFile: vi.fn(),
+    });
+
+    expect(screen.getByRole("button", { name: "Hide files" }).getAttribute("aria-expanded")).toBe(
+      "true",
+    );
+    expect(screen.getByText("ubuntu.iso")).toBeTruthy();
+    expect(screen.getByText("extras/notes.txt")).toBeTruthy();
+    expect(screen.getByText(/50%/)).toBeTruthy();
+    expect(document.querySelectorAll(".torrent-file-row .download-action")).toHaveLength(1);
+  });
+
+  test("downloads a completed file from the expanded list", () => {
+    const file = { index: 0, name: "ubuntu.iso", size: 4_000_000_000, progress: 1 };
+    const onDownloadFile = vi.fn();
+    renderCard(torrentCase("complete"), {
+      filesOpen: true,
+      files: [file],
+      onDownloadFile,
+    });
+
+    const download = document.querySelector(".torrent-file-row .download-action");
+    if (!(download instanceof HTMLButtonElement)) throw new Error("Expected a file download");
+    expect(download.disabled).toBe(false);
+
+    fireEvent.click(download);
+    expect(onDownloadFile).toHaveBeenCalledWith(file);
+  });
+
+  test("disables a file download while it is in flight", () => {
+    const file = { index: 3, name: "ubuntu.iso", size: 4_000_000_000, progress: 1 };
+    renderCard(torrentCase("complete"), {
+      filesOpen: true,
+      files: [file],
+      downloadingFileIndex: 3,
+      onDownloadFile: vi.fn(),
+    });
+
+    const download = document.querySelector(".torrent-file-row .download-action");
+    if (!(download instanceof HTMLButtonElement)) throw new Error("Expected a file download");
+    expect(download.disabled).toBe(true);
+    expect(download.textContent).toBe("…");
+  });
+
+  test("shows a loading note while the file list is fetched", () => {
+    renderCard(torrentCase("complete"), {
+      filesOpen: true,
+      filesLoading: true,
+      onDownloadFile: vi.fn(),
+    });
+
+    expect(screen.getByText("Loading files…")).toBeTruthy();
+    expect(screen.queryByText("No files available yet.")).toBeNull();
+  });
+
+  test("shows a file list error in place of the list", () => {
+    renderCard(torrentCase("complete"), {
+      filesOpen: true,
+      filesError: "The Remagnet Proxy could not list files.",
+      files: [{ index: 0, name: "ubuntu.iso", size: 1, progress: 1 }],
+    });
+
+    expect(screen.getByText("The Remagnet Proxy could not list files.")).toBeTruthy();
+    expect(screen.queryByText("ubuntu.iso")).toBeNull();
+  });
+
+  test("shows an empty note when the torrent has no wanted files", () => {
+    renderCard(torrentCase("complete"), { filesOpen: true, files: [] });
+
+    expect(screen.getByText("No files available yet.")).toBeTruthy();
+  });
 });

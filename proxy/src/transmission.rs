@@ -228,6 +228,34 @@ impl TransmissionClient {
         Ok(())
     }
 
+    /// Pause the given torrents, doing nothing for an empty list.
+    pub async fn pause_torrents(&self, hashes: &[String]) -> Result<(), AppError> {
+        if hashes.is_empty() {
+            return Ok(());
+        }
+
+        let ids = hashes
+            .iter()
+            .map(|hash| hash.to_ascii_lowercase())
+            .collect::<Vec<_>>();
+        self.rpc("torrent-stop", json!({ "ids": ids })).await?;
+        Ok(())
+    }
+
+    /// Resume the given torrents, doing nothing for an empty list.
+    pub async fn resume_torrents(&self, hashes: &[String]) -> Result<(), AppError> {
+        if hashes.is_empty() {
+            return Ok(());
+        }
+
+        let ids = hashes
+            .iter()
+            .map(|hash| hash.to_ascii_lowercase())
+            .collect::<Vec<_>>();
+        self.rpc("torrent-start", json!({ "ids": ids })).await?;
+        Ok(())
+    }
+
     pub async fn archive_torrent(&self, hash: &str) -> Result<ArchiveTorrent, AppError> {
         let arguments = self.torrent_get(Some(hash), ARCHIVE_FIELDS).await?;
         let torrent = torrents_from::<RawArchive>(&arguments)?
@@ -695,6 +723,9 @@ mod tests {
                 }
                 "torrent-add" => state.add_response.clone(),
                 "torrent-remove" => json!({ "result": "success", "arguments": {} }),
+                "torrent-stop" | "torrent-start" => {
+                    json!({ "result": "success", "arguments": {} })
+                }
                 _ => json!({ "result": "method not recognized", "arguments": {} }),
             };
 
@@ -1211,6 +1242,36 @@ mod tests {
         assert_eq!(requests[0]["arguments"]["delete-local-data"], true);
         assert_eq!(requests[1]["arguments"]["ids"], json!([HASH]));
         assert_eq!(requests[1]["arguments"]["delete-local-data"], false);
+    }
+
+    #[tokio::test]
+    async fn pauses_and_resumes_with_lowercased_ids() {
+        let fake = FakeTransmission::new(Vec::new());
+        let server = start_fake(fake.clone()).await;
+        let client = TransmissionClient::new(&config(&server.base_url, "")).unwrap();
+
+        let before = fake.requests().len();
+        client.pause_torrents(&[]).await.unwrap();
+        client.resume_torrents(&[]).await.unwrap();
+        assert_eq!(fake.requests().len(), before);
+
+        client
+            .pause_torrents(&[HASH.to_ascii_uppercase()])
+            .await
+            .unwrap();
+        client
+            .resume_torrents(&[HASH.to_ascii_uppercase()])
+            .await
+            .unwrap();
+
+        assert_eq!(
+            fake.request("torrent-stop")["arguments"]["ids"],
+            json!([HASH])
+        );
+        assert_eq!(
+            fake.request("torrent-start")["arguments"]["ids"],
+            json!([HASH])
+        );
     }
 
     #[tokio::test]

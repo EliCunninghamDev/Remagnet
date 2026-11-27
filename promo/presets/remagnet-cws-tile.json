@@ -1,0 +1,65 @@
+{
+  "id": "remagnet-cws-tile",
+  "name": "Chrome Store · Small Tile (440×280)",
+  "output": "chrome-web-store/small-tile-440x280.png",
+  "sizeId": "cws-small",
+  "device": "card",
+  "finish": "titanium",
+  "cameraPreset": "split",
+  "yaw": -0.352,
+  "pitch": -0.13,
+  "roll": -0.015,
+  "zoom": 1.16,
+  "offsetX": 0.763,
+  "offsetY": 0.204,
+  "deviceScale": 1.16,
+  "glassSheen": 0.75,
+  "shadowOpacity": 0.45,
+  "aoStrength": 0.72,
+  "floatAnim": true,
+  "shaderSpeed": 0.75,
+  "shaderMode": 5,
+  "palette": "remagnet",
+  "background": {
+    "mode": 5,
+    "base": "#111317",
+    "colorA": "#568fb3",
+    "colorB": "#70a3d2",
+    "colorC": "#ecebe6",
+    "distort": 0.5,
+    "glow": 0.62,
+    "grain": 0.16,
+    "chroma": 0.16
+  },
+  "screenTemplate": "remagnet-popup",
+  "animateDemo": false,
+  "copyLayout": "split-left",
+  "copyTheme": "light",
+  "eyebrow": "",
+  "headline": "Remagnet",
+  "subheadline": "A painless torrent remote.",
+  "badges": "",
+  "brandIconUrl": "/project-assets/icon/remagnet-small.svg",
+  "fonts": [
+    {
+      "family": "Departure Mono",
+      "weight": 400,
+      "url": "/project-assets/fonts/departure-mono-regular.woff2"
+    },
+    {
+      "family": "Geist Mono",
+      "weight": 400,
+      "url": "/project-assets/fonts/geist-mono-latin-400-normal.woff2"
+    },
+    {
+      "family": "Geist Mono",
+      "weight": 500,
+      "url": "/project-assets/fonts/geist-mono-latin-500-normal.woff2"
+    },
+    {
+      "family": "Geist Mono",
+      "weight": 600,
+      "url": "/project-assets/fonts/geist-mono-latin-600-normal.woff2"
+    }
+  ]
+}

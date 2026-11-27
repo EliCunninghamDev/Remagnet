@@ -7,7 +7,7 @@ import {
 } from "@remagnet/proxy-client";
 import type { AddTorrentsResult, ConnectionTestResult, TorrentFileUploadInput } from "./messages";
 import { getSettings, requireProxySettings } from "./settings";
-import type { TorrentSummary } from "./torrents";
+import type { TorrentFile, TorrentSummary } from "./torrents";
 
 /**
  * Background-side service facade.
@@ -74,6 +74,18 @@ export async function getTorrent(hash: string): Promise<TorrentSummary | null> {
   });
 }
 
+/** List the wanted files in one owned torrent, in the client's file-index order. */
+export async function listTorrentFiles(hash: string): Promise<TorrentFile[]> {
+  return withProxy(async (client) => {
+    const { data, error, response } = await client.GET("/api/torrents/{hash}/files", {
+      params: { path: { hash } },
+    });
+
+    if (error || !data) throw proxyError(response, error);
+    return data.files;
+  });
+}
+
 export async function addTorrents(input: {
   urls?: string[];
   files?: TorrentFileUploadInput[];
@@ -115,5 +127,45 @@ export async function removeTorrents(input: {
       });
       if (!response.ok) throw proxyError(response, error);
     }
+  });
+}
+
+/** Pause each owned torrent, stopping at the first failure. */
+export async function pauseTorrents(hashes: string[]): Promise<void> {
+  return withProxy(async (client) => {
+    for (const hash of hashes) {
+      const { error, response } = await client.POST("/api/torrents/{hash}/pause", {
+        params: { path: { hash } },
+      });
+      if (!response.ok) throw proxyError(response, error);
+    }
+  });
+}
+
+/** Resume each owned torrent, stopping at the first failure. */
+export async function resumeTorrents(hashes: string[]): Promise<void> {
+  return withProxy(async (client) => {
+    for (const hash of hashes) {
+      const { error, response } = await client.POST("/api/torrents/{hash}/resume", {
+        params: { path: { hash } },
+      });
+      if (!response.ok) throw proxyError(response, error);
+    }
+  });
+}
+
+export async function pauseAllTorrents(): Promise<void> {
+  return withProxy(async (client) => {
+    const { error, response } = await client.POST("/api/torrents/pause");
+
+    if (!response.ok) throw proxyError(response, error);
+  });
+}
+
+export async function resumeAllTorrents(): Promise<void> {
+  return withProxy(async (client) => {
+    const { error, response } = await client.POST("/api/torrents/resume");
+
+    if (!response.ok) throw proxyError(response, error);
   });
 }

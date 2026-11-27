@@ -64,4 +64,88 @@ describe("isBackgroundRequest", () => {
     );
     expect(isBackgroundRequest(null)).toBe(false);
   });
+
+  test("accepts pause requests with non-empty hashes", () => {
+    expect(isBackgroundRequest({ type: "torrents:pause", hashes: ["a".repeat(40)] })).toBe(true);
+    expect(
+      isBackgroundRequest({ type: "torrents:pause", hashes: ["a".repeat(40), "b".repeat(64)] }),
+    ).toBe(true);
+  });
+
+  test("rejects pause requests without valid hashes", () => {
+    expect(isBackgroundRequest({ type: "torrents:pause" })).toBe(false);
+    expect(isBackgroundRequest({ type: "torrents:pause", hashes: [] })).toBe(false);
+    expect(isBackgroundRequest({ type: "torrents:pause", hashes: "abc" })).toBe(false);
+    expect(isBackgroundRequest({ type: "torrents:pause", hashes: [""] })).toBe(false);
+    expect(isBackgroundRequest({ type: "torrents:pause", hashes: ["abc", 42] })).toBe(false);
+    expect(isBackgroundRequest({ type: "torrents:pause", hashes: [null] })).toBe(false);
+  });
+
+  test("accepts resume requests with non-empty hashes", () => {
+    expect(isBackgroundRequest({ type: "torrents:resume", hashes: ["a".repeat(40)] })).toBe(true);
+    expect(
+      isBackgroundRequest({ type: "torrents:resume", hashes: ["a".repeat(40), "b".repeat(64)] }),
+    ).toBe(true);
+  });
+
+  test("rejects resume requests without valid hashes", () => {
+    expect(isBackgroundRequest({ type: "torrents:resume" })).toBe(false);
+    expect(isBackgroundRequest({ type: "torrents:resume", hashes: [] })).toBe(false);
+    expect(isBackgroundRequest({ type: "torrents:resume", hashes: "abc" })).toBe(false);
+    expect(isBackgroundRequest({ type: "torrents:resume", hashes: [""] })).toBe(false);
+    expect(isBackgroundRequest({ type: "torrents:resume", hashes: ["abc", 42] })).toBe(false);
+    expect(isBackgroundRequest({ type: "torrents:resume", hashes: [null] })).toBe(false);
+  });
+
+  test("accepts bulk pause and resume requests", () => {
+    expect(isBackgroundRequest({ type: "torrents:pauseAll" })).toBe(true);
+    expect(isBackgroundRequest({ type: "torrents:resumeAll" })).toBe(true);
+  });
+
+  test("accepts file listing requests with a non-empty hash", () => {
+    expect(isBackgroundRequest({ type: "torrents:files", hash: "a".repeat(40) })).toBe(true);
+  });
+
+  test("rejects file listing requests without a valid hash", () => {
+    expect(isBackgroundRequest({ type: "torrents:files" })).toBe(false);
+    expect(isBackgroundRequest({ type: "torrents:files", hash: "" })).toBe(false);
+    expect(isBackgroundRequest({ type: "torrents:files", hash: 42 })).toBe(false);
+    expect(isBackgroundRequest({ type: "torrents:files", hash: null })).toBe(false);
+  });
+
+  test("accepts single-file download requests with a valid index", () => {
+    expect(
+      isBackgroundRequest({ type: "archive:downloadFile", hash: "a".repeat(40), index: 0 }),
+    ).toBe(true);
+    expect(
+      isBackgroundRequest({
+        type: "archive:downloadFile",
+        hash: "a".repeat(40),
+        index: 7,
+        name: "Example/Episode.mkv",
+      }),
+    ).toBe(true);
+  });
+
+  test("rejects single-file download requests with an invalid index or name", () => {
+    expect(isBackgroundRequest({ type: "archive:downloadFile", hash: "a".repeat(40) })).toBe(false);
+    expect(isBackgroundRequest({ type: "archive:downloadFile", hash: "", index: 0 })).toBe(false);
+    expect(
+      isBackgroundRequest({ type: "archive:downloadFile", hash: "a".repeat(40), index: -1 }),
+    ).toBe(false);
+    expect(
+      isBackgroundRequest({ type: "archive:downloadFile", hash: "a".repeat(40), index: 1.5 }),
+    ).toBe(false);
+    expect(
+      isBackgroundRequest({ type: "archive:downloadFile", hash: "a".repeat(40), index: "0" }),
+    ).toBe(false);
+    expect(
+      isBackgroundRequest({
+        type: "archive:downloadFile",
+        hash: "a".repeat(40),
+        index: 0,
+        name: 42,
+      }),
+    ).toBe(false);
+  });
 });

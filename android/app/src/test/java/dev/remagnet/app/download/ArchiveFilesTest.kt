@@ -38,6 +38,34 @@ class ArchiveFilesTest {
     }
 
     @Test
+    fun keepsADownloadedFilesOwnExtension() {
+        assertEquals("Episode.mkv", safeDownloadName("Show/Season 1/Episode.mkv"))
+        assertEquals("ubuntu.iso", safeDownloadName("ubuntu.iso"))
+        assertEquals("bad_name.mkv", safeDownloadName("Show/bad:name.mkv"))
+        assertEquals("download", safeDownloadName("..."))
+        assertEquals("archive.zip", safeDownloadName("...", fallbackIsZip = true))
+    }
+
+    @Test
+    fun addsAZipSuffixOnlyWhenAsked() {
+        assertEquals("Backup", safeDownloadName("Backup"))
+        assertEquals("Backup.zip", safeDownloadName("Backup", fallbackIsZip = true))
+        assertEquals("Backup.ZIP", safeDownloadName("Backup.ZIP", fallbackIsZip = true))
+    }
+
+    @Test
+    fun truncatesLongDownloadNamesButKeepsTheirExtension() {
+        val safeMkv = safeDownloadName("${"a".repeat(300)}.mkv")
+        assertTrue(safeMkv.length <= 100)
+        assertTrue(safeMkv.endsWith(".mkv"))
+        assertTrue(safeMkv.startsWith("aaa"))
+
+        val safeIso = safeDownloadName("${"b".repeat(300)}.iso")
+        assertTrue(safeIso.length <= 100)
+        assertTrue(safeIso.endsWith(".iso"))
+    }
+
+    @Test
     fun picksTheNextFreeName() {
         val directory = createTempDir("archive-names")
         try {
@@ -47,6 +75,37 @@ class ArchiveFilesTest {
 
             val second = uniqueArchiveFile(directory, "Ubuntu.zip")
             assertEquals("Ubuntu (2).zip", second.name)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun picksTheNextFreeDownloadNameKeepingItsExtension() {
+        val directory = createTempDir("download-names")
+        try {
+            val first = uniqueDownloadFile(directory, "movie.mkv")
+            assertEquals("movie.mkv", first.name)
+            first.writeText("x")
+
+            val second = uniqueDownloadFile(directory, "movie.mkv")
+            assertEquals("movie (2).mkv", second.name)
+            second.writeText("x")
+
+            val third = uniqueDownloadFile(directory, "movie.mkv")
+            assertEquals("movie (3).mkv", third.name)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun picksANumberedNameForFilesWithoutAnExtension() {
+        val directory = createTempDir("download-names-no-ext")
+        try {
+            uniqueDownloadFile(directory, "README").writeText("x")
+
+            assertEquals("README (2)", uniqueDownloadFile(directory, "README").name)
         } finally {
             directory.deleteRecursively()
         }
